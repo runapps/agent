@@ -61,9 +61,9 @@ async function setup() {
   let key = $("key").value.trim();
   if (!key) { try { key = (await (await fetch("./key.json")).json()).key; $("key").value = key; } catch {} }
   client = new RunApps({ apiKey: key || undefined, baseURL: $("base").value.trim() || undefined });
-  ws = await client.workspace({ id: "demo", project: "agent-demo", skills: $("skills").value.trim() || undefined });
-  ws.mount("/doc", RunApps.memoryFS({ "/plan.md": "# Q3 plan\n- hire 2 engineers\n- ship v2\n" }, { description: "the open document" }));
-  agent = client.agent({ model: $("model").value, id: $("sid").value.trim() || undefined, workspace: ws, appName: "Agent demo", instructions: "You are the assistant inside a notes app." });
+  ws = await RunAppsAgent.openWorkspace(client, { id: "demo", project: "agent-demo", skills: $("skills").value.trim() || undefined });
+  ws.mount("/doc", RunAppsAgent.memoryFS({ "/plan.md": "# Q3 plan\n- hire 2 engineers\n- ship v2\n" }, { description: "the open document" }));
+  agent = RunAppsAgent.createAgent(client, { model: $("model").value, id: $("sid").value.trim() || undefined, workspace: ws, appName: "Agent demo", instructions: "You are the assistant inside a notes app." });
   await agent.ready();
   for (const m of agent.messages) {
     if (m.role === "user" && typeof m.content === "string") log("msg user", m.content.length > 400 ? m.content.slice(0, 400) + "…" : m.content);
