@@ -1,0 +1,59 @@
+# Publishes @runappsai/agent to npm on a version tag (v0.3.1 → 0.3.1).
+#
+# Auth is npm trusted publishing: npm trusts this repository's workflow
+# through GitHub's OIDC token, so there is no npm token or 2FA code in
+# the repo or its secrets, and every release carries a provenance
+# attestation linking it to the commit it was built from. The publisher
+# is registered on npmjs.com under the package's settings — owner
+# `runapps`, repository `sdk-js`, workflow `publish.yml`.
+#
+# A version that is already on npm (e.g. a first release published by
+# hand, before the package existed to register a trusted publisher) is
+# skipped, so tagging it later does not fail.
+name: publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write # the OIDC token npm exchanges for publish rights
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No registry-url here: that option writes a placeholder auth token
+      # into .npmrc, and npm would use it instead of the OIDC exchange.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Trusted publishing needs npm 11.5.1+; the runner's bundled npm
+      # may be older.
+      - run: npm install -g npm@latest && npm -v
+      - run: npm ci
+      # The tag names the version; refuse to publish anything else, so a
+      # tag pushed against a stale package.json fails loudly instead of
+      # shipping the wrong number.
+      - name: tag matches package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          [ "$tag" = "$pkg" ] || { echo "tag v$tag but package.json says $pkg"; exit 1; }
+      - name: skip if this version is already published
+        id: published
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          ver="$(node -p "require('./package.json').version")"
+          if npm view "$name@$ver" version >/dev/null 2>&1; then
+            echo "$name@$ver is already on npm; nothing to publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - run: npm test
+        if: steps.published.outputs.skip != 'true'
+      # verbose: npm's OIDC exchange with the registry is otherwise silent,
+      # and a mismatch surfaces only as ENEEDAUTH.
+      - run: npm publish --access public --loglevel verbose
+        if: steps.published.outputs.skip != 'true'

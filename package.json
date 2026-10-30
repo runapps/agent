@@ -1,0 +1,33 @@
+{
+  "name": "@runappsai/agent",
+  "version": "0.1.0",
+  "description": "Agent harness for RunApps apps: the model ↔ tool loop with a workspace, skills, sessions, compaction and a sandbox, on top of @runappsai/sdk",
+  "license": "MIT",
+  "author": "RunApps",
+  "homepage": "https://github.com/runapps/agent",
+  "repository": { "type": "git", "url": "git+https://github.com/runapps/agent.git" },
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/agent.umd.js",
+  "jsdelivr": "./dist/agent.umd.js",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" },
+    "./browser": "./dist/agent.umd.js"
+  },
+  "files": ["dist", "src", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsup",
+    "test": "npm run build && node --test --test-timeout=20000 tests/*.test.mjs",
+    "release:cdn": "bash scripts/publish-cdn.sh"
+  },
+  "peerDependencies": { "@runappsai/sdk": ">=0.16.1" },
+  "devDependencies": {
+    "@runappsai/sdk": "^0.16.2",
+    "fake-indexeddb": "^6.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.0"
+  }
+}

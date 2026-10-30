@@ -1,0 +1,339 @@
+// The agent loop against a scripted gateway: tool round trips, gating,
+// validation, cut streams, abort, retries, queueing, budget, sessions.
+// Runs against the compiled dist/ build.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import { RunApps, APIError } from "@runappsai/sdk";
+import { defineTool, fitBudget, groupTurns } from "../dist/index.js";
+
+/** SSE body from chunk objects (the gateway's framing). */
+function sse(chunks) {
+  const lines = chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`);
+  lines.push("data: [DONE]\n\n");
+  return new Response(
+    new ReadableStream({
+      start(c) {
+        for (const l of lines) c.enqueue(new TextEncoder().encode(l));
+        c.close();
+      },
+    }),
+    { status: 200, headers: { "Content-Type": "text/event-stream" } },
+  );
+}
+
+const usage = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120, total_cost: 0.001 };
+
+/** A reply with text (and optional tool calls), as the gateway streams it. */
+function reply({ text = "", calls = [], finish }) {
+  const chunks = [{ id: "c", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: { role: "assistant" } }] }];
+  for (const piece of text.match(/.{1,5}/gs) ?? []) chunks.push({ id: "c", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: { content: piece } }] });
+  calls.forEach((c, i) => chunks.push({ id: "c", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: { tool_calls: [{ index: i, id: c.id ?? `call_${i}`, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } }] } }] }));
+  chunks.push({ id: "c", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: {}, finish_reason: finish ?? (calls.length ? "tool_calls" : "stop") }], usage });
+  return chunks;
+}
+
+/** A client whose gateway answers chat calls from `script` (each entry a Response or chunk list). */
+function scripted(script, opts = {}) {
+  const requests = [];
+  const fetchFn = async (url, init) => {
+    const u = String(url);
+    if (u.includes("/v1/models")) return new Response(JSON.stringify({ object: "list", data: [{ id: "m", object: "model", capability: "text", max_input_tokens: opts.maxInput ?? 100000, max_tokens: 8192, is_default: true }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (u.includes("/v1/chat/completions")) {
+      requests.push(JSON.parse(init.body));
+      const next = script.shift();
+      if (!next) throw new Error("test: no scripted reply left");
+      if (typeof next === "function") return next();
+      return next instanceof Response ? next : sse(next);
+    }
+    throw new Error("test: unexpected fetch " + u);
+  };
+  const client = new RunApps({ apiKey: "gw-test", fetch: fetchFn });
+  return { client, requests };
+}
+
+const weather = defineTool({
+  name: "get_weather",
+  description: "Weather for a city",
+  parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"], additionalProperties: false },
+  execute: ({ city }) => ({ city, temp_c: 17 }),
+});
+
+test("agent — tool round trip: call, result, final answer; events in order", async () => {
+  const { client, requests } = scripted([
+    reply({ text: "Let me check.", calls: [{ id: "call_a", name: "get_weather", args: { city: "Paris" } }] }),
+    reply({ text: "It is 17°C in Paris." }),
+  ]);
+  const agent = client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false });
+  const events = [];
+  agent.on("*", (name) => events.push(name));
+  const r = await agent.prompt("Weather in Paris?");
+  assert.equal(r.reason, "done");
+  assert.equal(r.text, "It is 17°C in Paris.");
+  assert.equal(r.usage.calls, 2);
+  assert.equal(r.usage.total_cost, 0.002);
+  // The second request carries the assistant tool call and our result.
+  const msgs = requests[1].messages;
+  assert.equal(msgs[0].role, "system");
+  assert.match(msgs[0].content, /get_weather|How to work/);
+  assert.equal(msgs[2].role, "assistant");
+  assert.equal(msgs[2].tool_calls[0].id, "call_a");
+  assert.equal(msgs[3].role, "tool");
+  assert.equal(msgs[3].tool_call_id, "call_a");
+  assert.deepEqual(JSON.parse(msgs[3].content), { city: "Paris", temp_c: 17 });
+  assert.equal(requests[0].max_tokens, 8192);
+  assert.equal(requests[0].tools.length, 1);
+  assert.deepEqual(events.filter((e) => e !== "text_delta"), ["run_start", "turn_start", "message_end", "turn_end", "tool_start", "tool_end", "turn_start", "message_end", "turn_end", "run_end"]);
+  assert.equal(agent.messages.length, 4);
+});
+
+test("agent — a destructive tool is declined without a user, the model is told, and continues", async () => {
+  const { client, requests } = scripted([
+    reply({ calls: [{ name: "wipe", args: {} }] }),
+    reply({ text: "Not done." }),
+  ]);
+  let ran = false;
+  const wipe = defineTool({ name: "wipe", description: "Delete everything", destructive: true, execute: () => { ran = true; return "gone"; } });
+  const agent = client.agent({ model: "m", tools: [wipe], sandbox: false, askUser: false });
+  const ends = [];
+  agent.on("tool_end", (e) => ends.push(e.status));
+  await agent.prompt("wipe");
+  assert.equal(ran, false);
+  assert.deepEqual(ends, ["declined"]);
+  assert.match(requests[1].messages.at(-1).content, /declined/);
+});
+
+test("agent — permissions auto runs destructive tools; a function decides per call", async () => {
+  const { client } = scripted([reply({ calls: [{ name: "wipe", args: {} }] }), reply({ text: "ok" })]);
+  let ran = 0;
+  const wipe = defineTool({ name: "wipe", description: "d", destructive: true, execute: () => { ran++; return "gone"; } });
+  await client.agent({ model: "m", tools: [wipe], sandbox: false, askUser: false, permissions: "auto" }).prompt("x");
+  assert.equal(ran, 1);
+  const { client: c2 } = scripted([reply({ calls: [{ name: "wipe", args: {} }] }), reply({ text: "ok" })]);
+  const seen = [];
+  await c2.agent({ model: "m", tools: [wipe], sandbox: false, askUser: false, permissions: ({ name }) => { seen.push(name); return false; } }).prompt("x");
+  assert.deepEqual(seen, ["wipe"]);
+  assert.equal(ran, 1);
+});
+
+test("agent — onToolCall hook blocks with a reason", async () => {
+  const { client, requests } = scripted([reply({ calls: [{ name: "get_weather", args: { city: "Paris" } }] }), reply({ text: "ok" })]);
+  const agent = client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false, onToolCall: () => ({ block: true, reason: "Weather is off today." }) });
+  const ends = [];
+  agent.on("tool_end", (e) => ends.push(e.status));
+  await agent.prompt("x");
+  assert.deepEqual(ends, ["blocked"]);
+  assert.match(requests[1].messages.at(-1).content, /Weather is off today/);
+});
+
+test("agent — bad arguments are reported to the model, the tool does not run", async () => {
+  const { client, requests } = scripted([
+    reply({ calls: [{ name: "get_weather", args: { town: "Paris" } }] }),
+    reply({ text: "ok" }),
+  ]);
+  let ran = false;
+  const t = defineTool({ ...weather, execute: () => { ran = true; return "x"; } });
+  await client.agent({ model: "m", tools: [t], sandbox: false, askUser: false }).prompt("x");
+  assert.equal(ran, false);
+  const msg = requests[1].messages.at(-1).content;
+  assert.match(msg, /missing required "city"/);
+  assert.match(msg, /unknown field "town"/);
+});
+
+test("agent — unknown tool and non-JSON arguments are errors to the model", async () => {
+  const chunks = reply({ calls: [{ id: "k", name: "nope", args: {} }] });
+  const { client, requests } = scripted([chunks, reply({ text: "ok" })]);
+  await client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false }).prompt("x");
+  assert.match(requests[1].messages.at(-1).content, /no tool named "nope"/);
+});
+
+test("agent — a stream without finish_reason runs no tool and ends the run with an error", async () => {
+  const cut = () => { const c = reply({ calls: [{ name: "get_weather", args: { city: "Paris" } }] }); c.pop(); return c; }; // no finish chunk
+  const { client } = scripted([cut(), cut(), cut()]); // a cut stream is retried, then given up
+  let ran = false;
+  const t = defineTool({ ...weather, execute: () => { ran = true; return "x"; } });
+  const r = await client.agent({ model: "m", tools: [t], sandbox: false, askUser: false }).prompt("x");
+  assert.equal(r.reason, "error");
+  assert.match(r.error.message, /before the reply was complete/);
+  assert.equal(ran, false);
+});
+
+test("agent — abort mid-batch: pending calls get a skipped result, the transcript stays valid, prompt works again", async () => {
+  const { client, requests } = scripted([
+    reply({ calls: [{ id: "a", name: "slow", args: {} }, { id: "b", name: "slow", args: {} }] }),
+    reply({ text: "after" }),
+  ]);
+  const slow = defineTool({
+    name: "slow", description: "waits",
+    execute: (_a, ctx) => new Promise((_res, rej) => ctx.signal.addEventListener("abort", () => rej(new Error("aborted")))),
+  });
+  const agent = client.agent({ model: "m", tools: [slow], sandbox: false, askUser: false });
+  const started = new Promise((res) => agent.on("tool_start", res));
+  const run = agent.prompt("go");
+  await started;
+  await agent.abort();
+  const r = await run;
+  assert.equal(r.reason, "aborted");
+  const tools = agent.messages.filter((m) => m.role === "tool").map((m) => m.tool_call_id).sort();
+  assert.deepEqual(tools, ["a", "b"]);
+  assert.equal(agent.busy, false);
+  const r2 = await agent.prompt("again");
+  assert.equal(r2.text, "after");
+  // Every tool call in the sent transcript has its result.
+  const sent = requests[1].messages;
+  const ids = sent.flatMap((m) => m.tool_calls?.map((c) => c.id) ?? []);
+  for (const id of ids) assert.ok(sent.some((m) => m.role === "tool" && m.tool_call_id === id), id);
+});
+
+test("agent — abort during the stream cancels the body", async () => {
+  let cancelled = false;
+  const slowStream = () => new Response(new ReadableStream({
+    start(c) { c.enqueue(new TextEncoder().encode('data: {"choices":[{"index":0,"delta":{"content":"hel"}}]}\n\n')); },
+    cancel() { cancelled = true; },
+  }), { status: 200 });
+  const { client } = scripted([slowStream]);
+  const agent = client.agent({ model: "m", sandbox: false, askUser: false });
+  const gotText = new Promise((res) => agent.on("text_delta", res));
+  const run = agent.prompt("hi");
+  await gotText;
+  await agent.abort();
+  const r = await run;
+  assert.equal(r.reason, "aborted");
+  assert.equal(cancelled, true);
+});
+
+test("agent — 429 before any text is retried; 402 is not", async () => {
+  const err429 = () => new Response(JSON.stringify({ error: { type: "rate_limited", message: "slow down" } }), { status: 429, headers: { "Retry-After": "0" } });
+  const { client, requests } = scripted([err429, reply({ text: "fine" })]);
+  const r = await client.agent({ model: "m", sandbox: false, askUser: false }).prompt("x");
+  assert.equal(r.text, "fine");
+  assert.equal(requests.length, 2);
+
+  const err402 = () => new Response(JSON.stringify({ error: { type: "insufficient_balance", message: "need $0.05" } }), { status: 402 });
+  const { client: c2, requests: r2 } = scripted([err402, reply({ text: "never" })]);
+  const res = await c2.agent({ model: "m", sandbox: false, askUser: false }).prompt("x");
+  assert.equal(res.reason, "error");
+  assert.ok(res.error instanceof APIError);
+  assert.equal(res.error.statusCode, 402);
+  assert.equal(r2.length, 1);
+});
+
+test("agent — a 5xx after text has streamed is retried with message_reset", async () => {
+  const half = () => new Response(new ReadableStream({
+    start(c) {
+      c.enqueue(new TextEncoder().encode('data: {"choices":[{"index":0,"delta":{"content":"par"}}]}\n\n'));
+      c.enqueue(new TextEncoder().encode('data: {"error":{"code":502,"type":"upstream_error","message":"boom"}}\n\ndata: [DONE]\n\n'));
+      c.close();
+    },
+  }), { status: 200 });
+  const { client } = scripted([half, reply({ text: "whole" })]);
+  const agent = client.agent({ model: "m", sandbox: false, askUser: false });
+  let resets = 0;
+  agent.on("message_reset", () => resets++);
+  const r = await agent.prompt("x");
+  assert.equal(r.text, "whole");
+  assert.equal(resets, 1);
+});
+
+test("agent — prompt while running queues a follow-up; steer lands before the next model call", async () => {
+  const { client, requests } = scripted([
+    reply({ calls: [{ name: "get_weather", args: { city: "Paris" } }] }),
+    reply({ text: "first done" }),
+    reply({ text: "second done" }),
+  ]);
+  const agent = client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false });
+  const first = agent.prompt("one");
+  await new Promise((res) => agent.on("tool_start", res));
+  agent.steer("in Celsius please");
+  const second = agent.prompt("two");
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.text, "first done");
+  assert.equal(b.text, "second done");
+  const sentInSecondCall = requests[1].messages.map((m) => m.role + ":" + (typeof m.content === "string" ? m.content : ""));
+  assert.ok(sentInSecondCall.includes("user:in Celsius please"));
+  assert.equal(requests[2].messages.at(-1).content, "two");
+});
+
+test("agent — repeating the same tool batch warns the model, then stops", async () => {
+  const same = () => reply({ calls: [{ id: "x", name: "get_weather", args: { city: "Paris" } }] });
+  const { client, requests } = scripted([same(), same(), same(), same(), same(), same(), same(), reply({ text: "done" })]);
+  const r = await client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false }).prompt("loop");
+  assert.equal(r.reason, "error");
+  assert.match(r.error.message, /without progress/);
+  const warned = requests.some((q) => q.messages.some((m) => m.role === "user" && /repeated the same tool calls/.test(m.content)));
+  assert.ok(warned);
+});
+
+test("agent — max_turns ends the run", async () => {
+  const same = () => reply({ calls: [{ name: "get_weather", args: { city: "Rome" } }] });
+  const { client } = scripted([same(), same(), same()]);
+  const r = await client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false, maxTurns: 2 }).prompt("x");
+  assert.equal(r.reason, "max_turns");
+});
+
+test("agent — finish_reason length with far fewer tokens than asked is reported as a balance problem", async () => {
+  const chunks = reply({ text: "half an ans", finish: "length" });
+  chunks.at(-1).usage = { ...usage, completion_tokens: 1024 };
+  const { client } = scripted([chunks]);
+  const r = await client.agent({ model: "m", sandbox: false, askUser: false, maxTokens: 8192 }).prompt("x");
+  assert.equal(r.reason, "error");
+  assert.equal(r.error.statusCode, 402);
+});
+
+test("agent — export at a turn boundary and restore continues the conversation", async () => {
+  const { client, requests } = scripted([reply({ text: "hello" }), reply({ text: "again" })]);
+  const agent = client.agent({ model: "m", sandbox: false, askUser: false });
+  await agent.prompt("hi");
+  const saved = agent.export();
+  assert.equal(saved.v, 2);
+  assert.equal(saved.title, "hi");
+  assert.equal(saved.messages.length, 2);
+  const agent2 = client.agent({ model: "m", sandbox: false, askUser: false, restore: saved });
+  await agent2.prompt("more");
+  assert.equal(requests[1].messages.length, 4); // system + 3
+  assert.equal(agent2.usage.calls, 2);
+});
+
+test("agent — the system prompt lists tool guidelines and the app's instructions", async () => {
+  const { client, requests } = scripted([reply({ text: "ok" })]);
+  const t = defineTool({ ...weather, guidelines: "Use get_weather for any weather question." });
+  await client.agent({ model: "m", tools: [t], sandbox: false, askUser: false, appName: "Weatherly", instructions: "You are terse." }).prompt("x");
+  const sys = requests[0].messages[0].content;
+  assert.match(sys, /built into Weatherly/);
+  assert.match(sys, /You are terse\./);
+  assert.match(sys, /# Tool notes\n- Use get_weather/);
+  assert.doesNotMatch(sys, /# Skills/);
+});
+
+test("agent — prompt and extra parameters are forwarded", async () => {
+  const { client, requests } = scripted([reply({ text: "ok" })]);
+  await client.agent({ model: "m", sandbox: false, askUser: false, prompt: { id: "director", vars: { a: 1 } }, extra: { reasoning_effort: "low" }, temperature: 0.2 }).prompt("x");
+  assert.deepEqual(requests[0].prompt, { id: "director", vars: { a: 1 } });
+  assert.equal(requests[0].reasoning_effort, "low");
+  assert.equal(requests[0].temperature, 0.2);
+  assert.equal(requests[0].stream, true);
+});
+
+test("fitBudget — elides old tool results first, drops whole turns, never splits a tool call from its result", () => {
+  const big = "x".repeat(3000);
+  const msgs = [];
+  for (let t = 0; t < 6; t++) {
+    msgs.push({ role: "user", content: `q${t}` });
+    msgs.push({ role: "assistant", content: null, tool_calls: [{ id: `c${t}`, type: "function", function: { name: "f", arguments: "{}" } }] });
+    msgs.push({ role: "tool", tool_call_id: `c${t}`, content: big });
+    msgs.push({ role: "assistant", content: `a${t}` });
+  }
+  assert.equal(groupTurns(msgs).length, 6);
+  const fit = fitBudget(msgs, { budget: 1500, keepTurns: 2 });
+  assert.ok(fit.elidedResults > 0);
+  assert.ok(fit.droppedTurns > 0);
+  const out = fit.messages;
+  assert.equal(out[0].role, "user");
+  for (const m of out) if (m.role === "assistant" && m.tool_calls) {
+    for (const c of m.tool_calls) assert.ok(out.some((x) => x.role === "tool" && x.tool_call_id === c.id));
+  }
+  // The newest turn is intact.
+  assert.equal(out.at(-1).content, "a5");
+  assert.equal(out.at(-2).content, big);
+});

@@ -1,0 +1,247 @@
+// Workspace: zip unpacking into IndexedDB, skills, the read-only /skills
+// layer, mounts, path safety, ETag refresh, and the run_js sandbox.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import zlib from "node:zlib";
+import "fake-indexeddb/auto";
+import { IDBFactory } from "fake-indexeddb";
+
+import { SyncEngine, SDKEvents } from "@runappsai/sdk";
+import { Workspace, memoryFS, parseSkill, listZip, readZipEntry, fileTools, runInSandbox, sandboxTool, nullUI } from "../dist/index.js";
+
+const inflate = (b) => new Uint8Array(zlib.inflateRawSync(b));
+
+/** A minimal zip writer (deflate, UTF-8 names, optional data descriptor). */
+function makeZip(files, { descriptor = false, stored = false } = {}) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const crcTable = (() => { const t = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t.push(c >>> 0); } return t; })();
+  const crc32 = (buf) => { let c = 0xffffffff; for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const u16 = (n) => [n & 0xff, (n >> 8) & 0xff];
+  const u32 = (n) => [n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >>> 24) & 0xff];
+  for (const [name, content] of Object.entries(files)) {
+    const data = typeof content === "string" ? enc.encode(content) : content;
+    const comp = stored ? data : new Uint8Array(zlib.deflateRawSync(data));
+    const nameB = enc.encode(name);
+    const flags = 0x800 | (descriptor ? 8 : 0);
+    const method = stored ? 0 : 8;
+    const crc = crc32(data);
+    const local = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(flags), ...u16(method), ...u16(0), ...u16(0),
+      ...u32(descriptor ? 0 : crc), ...u32(descriptor ? 0 : comp.length), ...u32(descriptor ? 0 : data.length), ...u16(nameB.length), ...u16(0), ...nameB]);
+    central.push({ nameB, flags, method, crc, comp: comp.length, size: data.length, offset });
+    parts.push(local, comp);
+    offset += local.length + comp.length;
+    if (descriptor) { const d = new Uint8Array([...u32(0x08074b50), ...u32(crc), ...u32(comp.length), ...u32(data.length)]); parts.push(d); offset += d.length; }
+  }
+  const cdStart = offset;
+  for (const c of central) {
+    const h = new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(c.flags), ...u16(c.method), ...u16(0), ...u16(0), ...u32(c.crc), ...u32(c.comp), ...u32(c.size),
+      ...u16(c.nameB.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(c.offset), ...c.nameB]);
+    parts.push(h); offset += h.length;
+  }
+  parts.push(new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(central.length), ...u16(central.length), ...u32(offset - cdStart), ...u32(cdStart), ...u16(0)]));
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let p = 0;
+  for (const part of parts) { out.set(part, p); p += part.length; }
+  return out;
+}
+
+const SKILLS = {
+  "pdf-tools/SKILL.md": "---\nname: pdf-tools\ndescription: Extract text and tables from PDF files. Use when reading PDFs.\n---\n\n# PDF tools\n\nRead `references/formats.md` first.\n",
+  "pdf-tools/references/formats.md": "PDF 1.7 …",
+  "pdf-tools/scripts/count.js": "return input.length;",
+  "secret/SKILL.md": "---\nname: secret\ndescription: Hidden one\ndisable-model-invocation: true\n---\nbody",
+  "broken/SKILL.md": "---\nname: broken\n---\nno description",
+  "chart/SKILL.md": "﻿---\r\nname: Chart Maker\r\ndescription: >\r\n  Draw charts\r\n  from CSV.\r\nmetadata:\r\n  author: zero\r\n---\r\n\r\nUse run_js.\r\n",
+  "logo.png": new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]),
+};
+
+/** fetch that serves `zip` at any URL, with an ETag and 304 support, counting hits. */
+function zipFetch(zip, etag = '"v1"') {
+  const hits = { get: 0, notModified: 0 };
+  return {
+    hits,
+    fetch: async (_url, init) => {
+      if (init?.headers?.["If-None-Match"] === etag) { hits.notModified++; return new Response(null, { status: 304 }); }
+      hits.get++;
+      return new Response(zip, { status: 200, headers: { ETag: etag } });
+    },
+  };
+}
+
+test("zip — lists and inflates deflate, stored and data-descriptor entries; refuses zip64", async () => {
+  for (const opts of [{}, { stored: true }, { descriptor: true }]) {
+    const zip = makeZip({ "a/b.txt": "hello", "é.txt": "ü" }, opts);
+    const entries = listZip(zip);
+    assert.deepEqual(entries.map((e) => e.name), ["a/b.txt", "é.txt"]);
+    assert.equal(new TextDecoder().decode(await readZipEntry(zip, entries[0], inflate)), "hello");
+    assert.equal(new TextDecoder().decode(await readZipEntry(zip, entries[1], inflate)), "ü");
+  }
+  const z64 = makeZip({ "a.txt": "x" });
+  // Forge a zip64 marker: count 0xffff in the EOCD.
+  z64[z64.length - 12] = 0xff; z64[z64.length - 11] = 0xff;
+  assert.throws(() => listZip(z64), /zip64/);
+  assert.throws(() => listZip(new Uint8Array([1, 2, 3])), /not a zip/);
+});
+
+test("parseSkill — frontmatter, folder fallback, folded description, BOM/CRLF, invalid ones", () => {
+  const ok = parseSkill(SKILLS["pdf-tools/SKILL.md"], "/skills/pdf-tools/SKILL.md");
+  assert.equal(ok.skill.name, "pdf-tools");
+  assert.equal(ok.skill.dir, "/skills/pdf-tools");
+  assert.match(ok.body, /^# PDF tools/);
+  const chart = parseSkill(SKILLS["chart/SKILL.md"], "/skills/chart/SKILL.md");
+  assert.equal(chart.skill.name, "chart"); // "Chart Maker" is not a valid name → folder
+  assert.equal(chart.skill.description, "Draw charts from CSV.");
+  assert.deepEqual(chart.skill.metadata, { author: "zero" });
+  assert.equal(chart.body, "Use run_js.");
+  assert.equal(parseSkill(SKILLS["broken/SKILL.md"], "/skills/broken/SKILL.md"), null);
+  assert.equal(parseSkill(SKILLS["secret/SKILL.md"], "/skills/secret/SKILL.md").skill.disableModelInvocation, true);
+});
+
+test("workspace — unpacks a skills zip into /skills, finds skills, keeps /skills read-only, persists work files", async () => {
+  const idb = new IDBFactory();
+  const zip = makeZip(SKILLS);
+  const { fetch, hits } = zipFetch(zip);
+  const ws = await Workspace.open(null, { id: "s1", project: "demo", skills: "/skills.zip", fetch, inflate, indexedDB: idb });
+  assert.equal(ws.dbName, "__runapps_agent_ws:demo:s1");
+  const skills = await ws.skills();
+  assert.deepEqual(skills.map((s) => s.name), ["chart", "pdf-tools", "secret"]);
+  assert.equal((await ws.readText("/skills/pdf-tools/references/formats.md")), "PDF 1.7 …");
+  const png = await ws.read("/skills/logo.png");
+  assert.ok(png.data instanceof Uint8Array);
+  await assert.rejects(ws.readText("/skills/logo.png"), /binary/);
+  await assert.rejects(ws.write("/skills/pdf-tools/SKILL.md", "x"), /read-only/);
+  await assert.rejects(ws.delete("/skills/logo.png"), /read-only/);
+  await ws.write("/notes/../notes/today.md", "hi");
+  assert.equal(await ws.readText("/notes/today.md"), "hi");
+  assert.equal((await ws.list("/notes")).length, 1);
+  const body = await ws.skillBody("pdf-tools");
+  assert.match(body.body, /references\/formats.md/);
+
+  // A second open of the same id sees the work file and does not fetch the zip again (304).
+  const ws2 = await Workspace.open(null, { id: "s1", project: "demo", skills: "/skills.zip", fetch, inflate, indexedDB: idb });
+  assert.equal(await ws2.readText("/notes/today.md"), "hi");
+  assert.equal(hits.get, 1);
+  assert.equal(hits.notModified, 1);
+  // A different id is a different tree.
+  const ws3 = await Workspace.open(null, { id: "s2", project: "demo", skills: "/skills.zip", fetch, inflate, indexedDB: idb });
+  assert.equal(await ws3.exists("/notes/today.md"), false);
+  assert.equal(ws3.dbName, "__runapps_agent_ws:demo:s2");
+});
+
+test("workspace — a new zip version replaces the old files, removing what is gone", async () => {
+  const idb = new IDBFactory();
+  let zip = makeZip({ "one/SKILL.md": "---\ndescription: One\n---\n1", "one/extra.md": "x" });
+  let etag = '"a"';
+  const fetch = async (_u, init) => init?.headers?.["If-None-Match"] === etag ? new Response(null, { status: 304 }) : new Response(zip, { status: 200, headers: { ETag: etag } });
+  const ws = await Workspace.open(null, { id: "v", skills: "/s.zip", fetch, inflate, indexedDB: idb });
+  assert.equal(await ws.exists("/skills/one/extra.md"), true);
+  zip = makeZip({ "one/SKILL.md": "---\ndescription: One v2\n---\n2" });
+  etag = '"b"';
+  await ws.refreshSkills();
+  assert.equal(await ws.exists("/skills/one/extra.md"), false);
+  assert.equal((await ws.skills())[0].description, "One v2");
+});
+
+test("workspace — a zip with SKILL.md at its root becomes one skill named after the zip", async () => {
+  const zip = makeZip({ "SKILL.md": "---\ndescription: Root skill\n---\nhi", "scripts/x.js": "1" });
+  const ws = await Workspace.open(null, { id: "r", skills: "/My Pack.zip", fetch: zipFetch(zip).fetch, inflate, indexedDB: new IDBFactory() });
+  const skills = await ws.skills();
+  assert.equal(skills[0].name, "my-pack");
+  assert.equal(await ws.exists("/skills/my-pack/scripts/x.js"), true);
+});
+
+test("workspace — mounts take precedence, read-only mounts refuse writes, listing merges", async () => {
+  const ws = await Workspace.open(null, { id: "m", indexedDB: null });
+  await ws.write("/work/a.txt", "work");
+  const doc = memoryFS({ "/page1.xml": "<x/>" }, { description: "the diagram" });
+  ws.mount("/doc", doc);
+  ws.mount("/ro", memoryFS({ "/r.txt": "r" }, { readonly: true }));
+  assert.equal(await ws.readText("/doc/page1.xml"), "<x/>");
+  await ws.write("/doc/page2.xml", "<y/>");
+  assert.equal(doc.files.get("/page2.xml"), "<y/>");
+  await assert.rejects(ws.write("/ro/r.txt", "z"), /read-only/);
+  const all = (await ws.list("/")).map((f) => f.path);
+  assert.deepEqual(all, ["/doc/page1.xml", "/doc/page2.xml", "/ro/r.txt", "/work/a.txt"]);
+  assert.match(ws.describe(), /\/doc\/ — the diagram/);
+  assert.throws(() => ws.mount("/skills/x", doc), /cannot mount/);
+});
+
+test("workspace — the database is invisible to Sync", async () => {
+  const idb = new IDBFactory();
+  const calls = [];
+  const remote = {
+    async list() { calls.push("list"); return []; },
+    async get() { calls.push("get"); return null; },
+    async put(...a) { calls.push("put"); return { etag: "e" }; },
+    async pull() { calls.push("pull"); return { ops: [], cursor: "0" }; },
+    async push(ops) { calls.push("push"); return { cursor: "1" }; },
+  };
+  const events = new SDKEvents();
+  const engine = new SyncEngine(
+    { remote, events, userId: () => "u1", onAuthChange: () => () => {}, factory: idb },
+    { pushDelayMs: 10, pullIntervalMs: 0, openTimeoutMs: 500 },
+  );
+  const ws = await Workspace.open(null, { id: "sync", skills: "/s.zip", fetch: zipFetch(makeZip({ "a/SKILL.md": "---\ndescription: A\n---\n" })).fetch, inflate, indexedDB: idb });
+  await ws.write("/w.txt", "x");
+  await new Promise((r) => setTimeout(r, 100));
+  assert.ok(!calls.includes("put") && !calls.includes("push"), JSON.stringify(calls));
+  engine.dispose();
+});
+
+test("file tools — list, read with ranges, write, edit exactly once, search, delete asks", async () => {
+  const ws = await Workspace.open(null, { id: "ft", indexedDB: null });
+  const tools = Object.fromEntries(fileTools(ws).map((t) => [t.name, t]));
+  const ctx = { signal: new AbortController().signal, ui: nullUI(), workspace: ws, update() {} };
+  await tools.write_file.execute({ path: "/a.md", content: "line1\nline2\nline3" }, ctx);
+  assert.match(await tools.list_files.execute({}, ctx), /\/a.md  \(17 B\)/);
+  assert.equal(await tools.read_file.execute({ path: "/a.md" }, ctx), "line1\nline2\nline3");
+  assert.equal(await tools.read_file.execute({ path: "/a.md", offset: 2, limit: 1 }, ctx), "line2\n\n[1 more lines in file. Use offset=3 to continue.]");
+  assert.match(await tools.read_file.execute({ path: "/a.md", offset: 9 }, ctx), /beyond end of file \(3 lines total\)/);
+  await assert.rejects(tools.edit_file.execute({ path: "/a.md", oldText: "line", newText: "L" }, ctx), /Found 3 occurrences/);
+  await tools.edit_file.execute({ path: "/a.md", edits: [{ oldText: "line2", newText: "LINE2" }] }, ctx);
+  assert.match(await tools.search_files.execute({ query: "LINE" }, ctx), /^\/a.md:2: LINE2$/m);
+  assert.equal(tools.delete_file.destructive, true);
+  assert.equal(tools.delete_file.confirm({ path: "a.md" }), "Delete /a.md?");
+  await tools.delete_file.execute({ path: "/a.md" }, ctx);
+  assert.equal(await ws.exists("/a.md"), false);
+});
+
+test("sandbox — computes, logs, reaches the workspace, has no network, times out", async () => {
+  const ws = await Workspace.open(null, { id: "sb", indexedDB: null });
+  await ws.write("/data.csv", "1,2\n3,4");
+  const r = await runInSandbox(ws, `
+    console.log("start");
+    const rows = (await fs.read("/data.csv")).split("\\n").map(l => l.split(",").map(Number));
+    await fs.write("/sum.txt", String(rows.flat().reduce((a,b)=>a+b,0)));
+    return { sum: rows.flat().reduce((a,b)=>a+b,0), hasFetch: typeof fetch, input };
+  `, { k: 1 });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(JSON.parse(r.result), { sum: 10, hasFetch: "undefined", input: { k: 1 } });
+  assert.equal(r.logs, "start");
+  assert.equal(await ws.readText("/sum.txt"), "10");
+  const t = await runInSandbox(null, "while(true){}", undefined, { timeoutMs: 300 });
+  assert.equal(t.ok, false);
+  assert.match(t.error, /Timed out/);
+  const e = await runInSandbox(null, "throw new Error('nope')");
+  assert.match(e.error, /nope/);
+  const tool = sandboxTool(ws);
+  const out = await tool.execute({ code: "return 1+1" }, { signal: new AbortController().signal });
+  assert.match(out.content, /Returned: 2/);
+});
+
+test("workspace — reading a folder says so and read_file lists it", async () => {
+  const ws = await Workspace.open(null, { id: "folder", indexedDB: null });
+  await ws.write("/docs/a.md", "a");
+  ws.mount("/doc", memoryFS({ "/p.txt": "p" }));
+  await assert.rejects(ws.read("/docs"), /is a folder/);
+  await assert.rejects(ws.read("/doc"), /is a folder/);
+  await assert.rejects(ws.read("/doc/nope.txt"), /No such file: \/doc\/nope.txt/);
+  const tools = Object.fromEntries(fileTools(ws).map((t) => [t.name, t]));
+  const ctx = { signal: new AbortController().signal, ui: nullUI(), workspace: ws, update() {} };
+  assert.match(await tools.read_file.execute({ path: "/doc/" }, ctx), /is a folder with 1 file:\n\/doc\/p.txt/);
+});
