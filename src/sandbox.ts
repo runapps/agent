@@ -8,6 +8,10 @@ import { defineTool } from "./tool.js";
 import type { Tool } from "./types.js";
 import type { Workspace } from "./workspace.js";
 
+/**
+ * Isolation is best effort: the code runs in a Worker of the page's origin with network and storage
+ * globals removed. Code that can be trusted with nothing should run in a sandboxed iframe of its own.
+ */
 export interface SandboxOptions {
   /** Kill the run after this long (default 10 s, max 60 s). */
   timeoutMs?: number;
@@ -15,6 +19,8 @@ export interface SandboxOptions {
   network?: boolean;
   /** Longest console output kept (default 20 000 chars). */
   maxLogChars?: number;
+  /** Asked before `fs.remove(path)` deletes a file (the tool asks like delete_file does); false refuses. */
+  confirmDelete?: (path: string) => boolean | Promise<boolean>;
 }
 
 export interface SandboxResult {
@@ -70,11 +76,18 @@ function serialize(v) {
 }
 async function run(msg) {
   maxLog = msg.maxLogChars || maxLog;
+  var g = isNode ? globalThis : self;
+  // Shadow a global on the object and on every prototype that defines it (so a getter cannot be fetched from the prototype).
+  function hide(k) {
+    for (var o = g; o; o = Object.getPrototypeOf(o)) {
+      if (Object.prototype.hasOwnProperty.call(o, k)) { try { Object.defineProperty(o, k, { value: undefined, configurable: false, writable: false }); } catch (e) {} }
+    }
+    try { Object.defineProperty(g, k, { value: undefined, configurable: false, writable: false }); } catch (e) {}
+  }
+  // Always: no nested workers (they would get the network back), no direct access to the app's storage.
+  ["Worker", "SharedWorker", "indexedDB", "caches", "BroadcastChannel"].forEach(hide);
   if (!msg.network) {
-    var g = isNode ? globalThis : self;
-    ["fetch", "XMLHttpRequest", "WebSocket", "EventSource", "importScripts", "navigator"].forEach(function (k) {
-      try { Object.defineProperty(g, k, { value: undefined, configurable: true, writable: true }); } catch (e) {}
-    });
+    ["fetch", "XMLHttpRequest", "WebSocket", "WebSocketStream", "EventSource", "WebTransport", "importScripts", "navigator"].forEach(hide);
     if (isNode) { try { globalThis.require = undefined; globalThis.process = undefined; } catch (e) {} }
   }
   var start = Date.now();
@@ -167,7 +180,13 @@ export async function runInSandbox(
             case "write": await ws.write(String(args[0]), String(args[1] ?? "")); value = true; break;
             case "list": value = (await ws.list(String(args[0] ?? "/"))).map((f) => ({ path: f.path, size: f.size })); break;
             case "exists": value = await ws.exists(String(args[0])); break;
-            case "delete": await ws.delete(String(args[0])); value = true; break;
+            case "delete": {
+              const path = String(args[0]);
+              if (opts.confirmDelete && !(await opts.confirmDelete(path))) throw new Error(`the user declined deleting ${path}`);
+              await ws.delete(path);
+              value = true;
+              break;
+            }
             default: throw new Error(`unknown fs op ${String(m.op)}`);
           }
           worker.post({ type: "fsResult", id, ok: true, value });
@@ -198,7 +217,9 @@ export function sandboxTool(ws: Workspace | null, opts: SandboxOptions = {}): To
     },
     maxResultChars: 24_000,
     async execute({ code, input, timeout_ms }, ctx) {
-      const r = await runInSandbox(ws, code, input, { ...opts, timeoutMs: timeout_ms ?? opts.timeoutMs, signal: ctx.signal });
+      // fs.remove asks first, as delete_file does, unless the agent allows everything.
+      const confirmDelete = opts.confirmDelete ?? ((path: string) => ctx.agent?.settings.permissions === "auto" ? true : ctx.ui.confirm(`Allow run_js to delete ${path}?`, undefined, { danger: true, signal: ctx.signal }));
+      const r = await runInSandbox(ws, code, input, { ...opts, confirmDelete, timeoutMs: timeout_ms ?? opts.timeoutMs, signal: ctx.signal });
       const parts: string[] = [];
       if (r.logs) parts.push(`console:\n${r.logs}`);
       if (r.ok) parts.push(r.result === undefined ? "Returned: undefined" : `Returned: ${r.result}`);

@@ -41,9 +41,10 @@ interface Store {
   list(prefix: string): Promise<FileRecord[]>;
   getMeta<T>(key: string): Promise<T | undefined>;
   putMeta(key: string, value: unknown): Promise<void>;
-  getSession(id: string): Promise<SessionData | undefined>;
+  getSession(space: string, id: string): Promise<SessionData | undefined>;
+  /** Saved under `data.space`. */
   putSession(data: SessionData): Promise<void>;
-  deleteSession(id: string): Promise<void>;
+  deleteSession(space: string, id: string): Promise<void>;
   /** Every session in the app's database, whichever directory saved it. */
   listSessions(): Promise<SessionData[]>;
   /** Drops a directory's files, meta and sessions (this one by default). */
@@ -64,8 +65,13 @@ export interface SessionStore {
   list(): Promise<SessionSummary[]>;
   get(id: string): Promise<SessionData | null>;
   save(data: SessionData): Promise<void>;
-  /** Deletes a session; one saved from a directory of its own id (as the chat makes) takes that directory with it. */
-  delete(id: string): Promise<void>;
+  /**
+   * Deletes a session — of this directory, else the one in the directory
+   * named after it (the chat's layout); `space` picks one exactly (a
+   * summary's `workspace`). A session saved from a directory of its own
+   * id takes that directory with it.
+   */
+  delete(id: string, space?: string): Promise<void>;
   /** Deletes every session of the app (and the directories made for them). */
   clear(): Promise<void>;
 }
@@ -143,25 +149,30 @@ export class Workspace {
         .map((d) => ({ id: d.id ?? "", title: d.title ?? titleOf(d), model: d.model, messages: d.messages.length, createdAt: d.createdAt ?? d.savedAt, savedAt: d.savedAt, workspace: d.space }))
         .sort((a, b) => b.savedAt - a.savedAt);
     },
+    // This directory's session of that id, else the session in the directory named after it (the chat
+    // gives each session one); never another directory's session that merely shares the id.
     get: async (id) => {
       await this.ready();
-      return (await this.store.getSession(id)) ?? null;
+      return (await this.store.getSession(this.id, id)) ?? (id !== this.id ? await this.store.getSession(id, id) : undefined) ?? null;
     },
     save: async (data) => {
       await this.ready();
       if (!data.id) throw new Error("runapps agent: a session needs an id to be saved");
       await this.store.putSession({ ...data, space: this.id });
     },
-    delete: async (id) => {
+    delete: async (id, space) => {
       await this.ready();
-      const d = await this.store.getSession(id);
-      await this.store.deleteSession(id);
+      const where = space
+        ?? ((await this.store.getSession(this.id, id)) ? this.id
+          : (await this.store.getSession(id, id)) ? id
+          : (await this.store.listSessions()).find((d) => d.id === id)?.space ?? this.id);
+      await this.store.deleteSession(where, id);
       // A session saved from a directory of its own id (the chat gives each session one) takes the directory with it.
-      if (d?.space === id && id !== this.id) await this.store.clear(id);
+      if (where === id && id !== this.id) await this.store.clear(id);
     },
     clear: async () => {
       await this.ready();
-      for (const d of await this.store.listSessions()) if (d.id) await this.sessions.delete(d.id);
+      for (const d of await this.store.listSessions()) if (d.id) await this.sessions.delete(d.id, d.space ?? this.id);
     },
   };
 
@@ -188,12 +199,26 @@ export class Workspace {
   /** Resolves once the database is open and skills are unpacked (idempotent). */
   ready(): Promise<void> {
     if (!this.opened) {
-      this.opened = (async () => {
+      const opening = (async () => {
         this.store = this.idb ? await openIDBStore(this.idb, this.dbName, this.id) : memoryStore(this.dbName, this.id);
         await withLock(`${this.dbName}:${this.id}:skills`, () => this.refreshSkills());
       })();
+      this.opened = opening;
+      // A failed open (blocked, quota, a skills fetch) is tried again next time instead of failing for good.
+      opening.catch(() => { if (this.opened === opening) this.opened = null; });
     }
     return this.opened;
+  }
+
+  /**
+   * Releases the database connection and the change channel. The
+   * workspace stays usable: the next call opens them again. A host that
+   * makes a workspace per session closes the ones it no longer shows.
+   */
+  close(): void {
+    try { this.channel?.close(); } catch { /* closed */ }
+    this.channel = undefined;
+    if (this.opened) { const o = this.opened; this.opened = null; void o.then(() => this.store.close(), () => undefined); }
   }
 
   /* ---------------- mounts ---------------- */
@@ -209,7 +234,6 @@ export class Workspace {
     this.mounts.delete(normalizePath(prefix));
   }
 
-  /** What the system prompt says about the tree. */
   /**
    * Called for every write and delete in this directory, from any code in
    * this page and from other tabs of the app (`remote: true`, relayed over
@@ -237,12 +261,14 @@ export class Workspace {
   }
 
   private emitChange(path: string, kind: "write" | "delete", remote = false): void {
+    if (remote && (path === "/" || this.inSkills(path))) this.skillCache = null;
     if (!remote) { this.openChannel(); try { this.channel?.postMessage({ space: this.id, path, kind }); } catch { /* channel closed */ } }
     if (!this.changeListeners.size) return;
     const c: WorkspaceChange = { path, kind, remote };
     for (const fn of this.changeListeners) { try { fn(c); } catch (err) { console.warn("runapps agent: onChange listener failed", err); } }
   }
 
+  /** What the system prompt says about the tree. */
   describe(): string {
     const lines = [
       this.root
@@ -408,7 +434,6 @@ export class Workspace {
     await this.rmFile(p);
   }
 
-  /** Removes every file outside the skills folder (mounts and skills stay). */
   /** The mount a path falls under, or null for the directory itself. */
   mountOf(path: string): string | null {
     return this.route(normalizePath(path))?.prefix || null;
@@ -429,6 +454,7 @@ export class Workspace {
     await this.store.putMeta("data:" + key, value);
   }
 
+  /** Removes every file outside the skills folder (mounts and skills stay). */
   async clearWork(): Promise<void> {
     await this.ready();
     for (const f of await this.list("/")) {
@@ -554,7 +580,8 @@ export class Workspace {
       let rel = e.name.replace(/^\.?\/+/, "");
       if (rel.startsWith("skills/")) rel = rel.slice(7);
       if (!rel || rel.split("/").some((seg) => seg === "..")) continue;
-      const path = `${this.skillsDir}/${atRoot ? base + "/" : ""}${rel}`;
+      const path = normalizePath(`${this.skillsDir}/${atRoot ? base + "/" : ""}${rel}`);
+      if (!this.inSkills(path) || path === this.skillsDir) continue;
       const bytes = await readZipEntry(zip, e, this.inflate);
       const text = decodeText(bytes);
       await this.putFile(path, text ?? bytes, guessType(path, text ?? bytes), "skills", metaKey);
@@ -599,8 +626,7 @@ export class Workspace {
     await this.ready();
     await this.store.clear();
     this.emitChange("/", "delete");
-    this.store.close();
-    this.opened = null;
+    this.close();
     this.skillCache = null;
   }
 }
@@ -664,52 +690,76 @@ function zipBaseName(source: string): string {
 /* Stores                                                              */
 /* ------------------------------------------------------------------ */
 
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 /**
  * The app's database: `files` and `meta` keyed by [space, key] so every
- * directory (space) is its own tree; `sessions` keyed by id with the
- * `space` they were saved from. Version 3 (2026-10-31) is the first with
- * spaces; earlier per-id databases are simply not opened any more.
+ * directory (space) is its own tree; `sessions` keyed by [space, id].
+ * Version 3 (2026-10-31) was the first with spaces (sessions keyed by id
+ * alone); version 4 keys sessions per space too and keeps what version 3
+ * stored. An upgrade never drops files or sessions.
  */
 function openIDBStore(idb: IDBFactory, name: string, space: string): Promise<Store> {
   return new Promise((resolve, reject) => {
     const req = idb.open(name, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (ev) => {
       const db = req.result;
-      for (const n of ["files", "meta", "sessions"]) if (db.objectStoreNames.contains(n)) db.deleteObjectStore(n);
-      db.createObjectStore("files", { keyPath: ["space", "path"] });
-      db.createObjectStore("meta", { keyPath: ["space", "key"] });
-      db.createObjectStore("sessions", { keyPath: "id" }).createIndex("space", "space");
+      const tx = req.transaction!;
+      const old = ev.oldVersion;
+      const makeSessions = () => db.createObjectStore("sessions", { keyPath: ["space", "id"] }).createIndex("space", "space");
+      if (old < 3) {
+        // Nothing of ours yet (or a layout from before spaces): start clean.
+        for (const n of ["files", "meta", "sessions"]) if (db.objectStoreNames.contains(n)) db.deleteObjectStore(n);
+        db.createObjectStore("files", { keyPath: ["space", "path"] });
+        db.createObjectStore("meta", { keyPath: ["space", "key"] });
+        makeSessions();
+        return;
+      }
+      if (old < 4) {
+        // Sessions were keyed by id alone: move them under [space, id].
+        const all = tx.objectStore("sessions").getAll();
+        all.onsuccess = () => {
+          const rows = all.result as SessionData[];
+          db.deleteObjectStore("sessions");
+          makeSessions();
+          const ns = tx.objectStore("sessions");
+          for (const r of rows) if (r.id) ns.put({ ...r, space: r.space ?? "default" });
+        };
+      }
     };
     req.onerror = () => reject(req.error ?? new Error("indexedDB open failed"));
-    req.onblocked = () => reject(new Error("indexedDB open blocked"));
+    // Another tab still has the old version open: wait for it (it closes on versionchange) rather than fail.
+    req.onblocked = () => console.warn(`runapps agent: ${name} is waiting for another tab to release the database`);
     req.onsuccess = () => {
       const db = req.result;
+      db.onversionchange = () => db.close();
+      // A result counts once its transaction has committed: a quota error aborts after onsuccess.
       const run = <T,>(store: "files" | "meta" | "sessions", mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> =>
         new Promise<T>((res, rej) => {
           const tx = db.transaction(store, mode);
           const r = fn(tx.objectStore(store));
-          r.onsuccess = () => res(r.result);
+          let value: T;
+          r.onsuccess = () => { value = r.result; if (mode === "readonly") res(value); };
           r.onerror = () => rej(r.error ?? new Error("indexedDB request failed"));
+          tx.oncomplete = () => res(value);
+          tx.onabort = () => rej(tx.error ?? new Error("indexedDB transaction aborted"));
         });
-      const range = (prefix: string) => IDBKeyRange.bound([space, prefix], [space, prefix + "\uffff"], false, false);
+      const range = (which: string, prefix: string) => IDBKeyRange.bound([which, prefix], [which, prefix + "\uffff"], false, false);
       resolve({
         get: (path) => run<FileRecord | undefined>("files", "readonly", (s) => s.get([space, path])),
         put: async (rec) => { await run("files", "readwrite", (s) => s.put({ ...rec, space })); },
         delete: async (path) => { await run("files", "readwrite", (s) => s.delete([space, path])); },
-        list: (prefix) => run<FileRecord[]>("files", "readonly", (s) => s.getAll(range(prefix))),
+        list: (prefix) => run<FileRecord[]>("files", "readonly", (s) => s.getAll(range(space, prefix))),
         getMeta: async <T,>(key: string) => (await run<{ space: string; key: string; value: T } | undefined>("meta", "readonly", (s) => s.get([space, key])))?.value,
         putMeta: async (key, value) => { await run("meta", "readwrite", (s) => s.put({ space, key, value })); },
-        getSession: (id) => run<SessionData | undefined>("sessions", "readonly", (s) => s.get(id)),
+        getSession: (which, id) => run<SessionData | undefined>("sessions", "readonly", (s) => s.get([which, id])),
         putSession: async (data) => { await run("sessions", "readwrite", (s) => s.put(data)); },
-        deleteSession: async (id) => { await run("sessions", "readwrite", (s) => s.delete(id)); },
+        deleteSession: async (which, id) => { await run("sessions", "readwrite", (s) => s.delete([which, id])); },
         listSessions: () => run<SessionData[]>("sessions", "readonly", (s) => s.getAll()),
         clear: async (which = space) => {
-          await run("files", "readwrite", (s) => s.delete(IDBKeyRange.bound([which, "/"], [which, "/\uffff"], false, false)));
-          await run("meta", "readwrite", (s) => s.delete(IDBKeyRange.bound([which, ""], [which, "\uffff"], false, false)));
-          const mine = await run<SessionData[]>("sessions", "readonly", (s) => s.index("space").getAll(which));
-          for (const d of mine) await run("sessions", "readwrite", (s) => s.delete(d.id!));
+          await run("files", "readwrite", (s) => s.delete(range(which, "/")));
+          await run("meta", "readwrite", (s) => s.delete(range(which, "")));
+          await run("sessions", "readwrite", (s) => s.delete(range(which, "")));
         },
         close: () => db.close(),
       });
@@ -740,9 +790,9 @@ function memoryStore(name: string, space: string): Store {
     list: async (prefix) => [...files().values()].filter((r) => prefix === "/" || r.path.startsWith(prefix)),
     getMeta: async <T,>(key: string) => meta().get(key) as T | undefined,
     putMeta: async (key, value) => { meta().set(key, value); },
-    getSession: async (id) => mem.sessions.get(id),
-    putSession: async (data) => { mem.sessions.set(data.id!, data); },
-    deleteSession: async (id) => { mem.sessions.delete(id); },
+    getSession: async (which, id) => mem.sessions.get(`${which}\u0000${id}`),
+    putSession: async (data) => { mem.sessions.set(`${data.space ?? space}\u0000${data.id}`, data); },
+    deleteSession: async (which, id) => { mem.sessions.delete(`${which}\u0000${id}`); },
     listSessions: async () => [...mem.sessions.values()],
     clear: async (which = space) => {
       mem.files.delete(which);

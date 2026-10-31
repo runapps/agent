@@ -429,3 +429,50 @@ test("workspace — onChange reports writes and deletes (own, bulk, mounted) and
   await a.write("/y.md", "3");
   assert.equal(got.length, 7, "unsubscribed");
 });
+
+test("workspace — the same session id in two directories stays two sessions", async () => {
+  const idb = new IDBFactory();
+  const usage = { total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 };
+  const a = await Workspace.open(null, { id: "docA", project: "same-id", indexedDB: idb });
+  const b = await Workspace.open(null, { id: "docB", project: "same-id", indexedDB: idb });
+  await a.sessions.save({ v: 2, id: "assistant", messages: [{ role: "user", content: "about doc A" }], usage, droppedTurns: 0, savedAt: 1 });
+  assert.equal(await b.sessions.get("assistant"), null, "docB does not resume docA's conversation");
+  await b.sessions.save({ v: 2, id: "assistant", messages: [{ role: "user", content: "about doc B" }], usage, droppedTurns: 0, savedAt: 2 });
+  assert.equal((await a.sessions.get("assistant")).messages[0].content, "about doc A", "docB's save did not overwrite docA's");
+  assert.equal((await b.sessions.get("assistant")).messages[0].content, "about doc B");
+  assert.equal((await a.sessions.list()).length, 2);
+});
+
+test("workspace — opening a version-3 database moves its sessions under [space, id] and keeps the files", async () => {
+  const idb = new IDBFactory();
+  const name = "__runapps_agent_ws:migrate";
+  await new Promise((resolve, reject) => {
+    const req = idb.open(name, 3);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      db.createObjectStore("files", { keyPath: ["space", "path"] });
+      db.createObjectStore("meta", { keyPath: ["space", "key"] });
+      db.createObjectStore("sessions", { keyPath: "id" }).createIndex("space", "space");
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction(["files", "sessions"], "readwrite");
+      tx.objectStore("files").put({ space: "s1", path: "/notes.md", data: "kept", contentType: "text/markdown", mtime: 1 });
+      tx.objectStore("sessions").put({ v: 2, id: "s1", space: "s1", messages: [{ role: "user", content: "old chat" }], usage: { total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 }, droppedTurns: 0, savedAt: 1 });
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+  const ws = await Workspace.open(null, { id: "s1", project: "migrate", indexedDB: idb });
+  assert.equal(await ws.readText("/notes.md"), "kept");
+  assert.equal((await ws.sessions.get("s1")).messages[0].content, "old chat");
+});
+
+test("workspace — skills zip entries are normalised and stay under skillsDir", async () => {
+  const idb = new IDBFactory();
+  const zip = makeZip({ "e/SKILL.md": "---\ndescription: E\n---\n", "e/a//b.md": "B" });
+  const ws = await Workspace.open(null, { id: "z", project: "zipnorm", skills: "/s.zip", fetch: zipFetch(zip).fetch, inflate, indexedDB: idb });
+  assert.equal(await ws.exists("/.agent/skills/e/a/b.md"), true);
+  assert.equal((await ws.list("/")).some((f) => f.path.includes("//")), false);
+});

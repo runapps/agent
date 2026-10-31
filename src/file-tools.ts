@@ -137,13 +137,9 @@ export function fileTools(ws: Workspace): Tool[] {
       ],
       async execute(args) {
         const p = normalizePath(args.path);
-        let edits: TextEdit[] = [];
-        if (typeof args.edits === "string") {
-          try { edits = JSON.parse(args.edits) as TextEdit[]; } catch { throw new Error("Edit tool input is invalid. edits must be an array of {oldText, newText}."); }
-        } else if (Array.isArray(args.edits)) edits = args.edits;
-        else if (args.edits && typeof args.edits === "object") edits = [args.edits as unknown as TextEdit];
-        const single = args.oldText ?? args.old_text;
-        if (single !== undefined) edits.push({ oldText: single, newText: args.newText ?? args.new_text ?? "" });
+        // The schema allows `edits` (an array) and the `oldText`/`newText` shorthand; nothing else gets this far.
+        const edits: TextEdit[] = Array.isArray(args.edits) ? [...args.edits] : [];
+        if (args.oldText !== undefined) edits.push({ oldText: args.oldText, newText: args.newText ?? "" });
         const text = await ws.readText(p);
         const next = applyEdits(p, text, edits);
         await ws.write(p, next);

@@ -33,17 +33,17 @@ function check(schema: JSONSchema, value: unknown, path: string, errors: string[
   if (depth > 32) return;
   const at = path || "arguments";
 
-  // Combinators: pass when one branch passes.
+  // Combinators: anyOf needs one branch to pass, oneOf exactly one; the schema's other keywords still apply.
   for (const key of ["anyOf", "oneOf"] as const) {
     const branches = schema[key];
     if (Array.isArray(branches) && branches.length) {
-      const ok = branches.some((b) => {
+      const passing = branches.filter((b) => {
         const e: string[] = [];
         check(b as JSONSchema, value, path, e, depth + 1);
         return e.length === 0;
-      });
-      if (!ok) errors.push(`${at}: does not match any allowed form`);
-      return;
+      }).length;
+      if (passing === 0) { errors.push(`${at}: does not match any allowed form`); return; }
+      if (key === "oneOf" && passing > 1) { errors.push(`${at}: matches more than one of the allowed forms`); return; }
     }
   }
   if (Array.isArray(schema.allOf)) {

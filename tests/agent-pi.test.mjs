@@ -211,3 +211,14 @@ test("system prompt — /AGENTS.md and /memory/notes.md from the workspace are i
   assert.match(sys, /append a short line to \/memory\/notes.md/);
   assert.doesNotMatch(sys, /<available_skills>/, "no skills, no block");
 });
+
+test("validateSchema — anyOf/oneOf keep the schema's other keywords; oneOf refuses several matches", async () => {
+  const { validateSchema } = await import("../dist/index.js");
+  const schema = { type: "object", properties: { path: { type: "string" } }, required: ["path"], additionalProperties: false, anyOf: [{ required: ["a"] }, { required: ["b"] }] };
+  assert.ok(validateSchema(schema, { path: 42, a: 1 }).length > 0, "path must still be a string");
+  assert.ok(validateSchema(schema, { path: "x", a: 1, junk: 1 }).length > 0, "additionalProperties still applies");
+  assert.deepEqual(validateSchema({ ...schema, additionalProperties: true }, { path: "x", a: 1 }), []);
+  const one = { oneOf: [{ type: "number" }, { type: "integer" }] };
+  assert.ok(validateSchema(one, 3).length > 0, "3 matches both branches");
+  assert.deepEqual(validateSchema(one, 3.5), []);
+});
