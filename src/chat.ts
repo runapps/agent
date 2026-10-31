@@ -21,6 +21,7 @@ import { escapeHTML } from "./markdown.js";
 import { listTemplates } from "./templates.js";
 import { VirtualList, type VRow } from "./vlist.js";
 import { downloadBlob, h, I, modal, modalConfirm, renderMD } from "./dom.js";
+import { selectBox, SELECT_CSS } from "./select.js";
 import { filesPanel, freePath } from "./files-panel.js";
 import { debugPanel } from "./debug-panel.js";
 import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
@@ -165,7 +166,7 @@ const STRINGS = {
     dSystem: "System prompt", dMessages: "Messages sent to the model", dPayload: "Request", dResponse: "Response", dRun: "Run", dTurn: "Turn {n}", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
-    settings: "Settings", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
+    settings: "Settings", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sCustomN: "Set a number", filter: "Filter…", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
     apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue from here.",
     files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", tooBig: "Too large to edit here; download it.", conflict: "The file changed since you opened it. Overwrite it?", readOnly: "Read-only", autoSaved: "Unsaved edits saved", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved",
@@ -202,7 +203,7 @@ const STRINGS = {
     dSystem: "系统提示词", dMessages: "发给模型的消息", dPayload: "请求内容", dResponse: "响应", dRun: "运行", dTurn: "第 {n} 轮", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
-    settings: "设置", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
+    settings: "设置", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sCustomN: "自定义", filter: "搜索…", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
     apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续从这里接着跑",
     files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", tooBig: "文件太大，无法在这里编辑，可以下载。", conflict: "文件在你打开后被改过，要覆盖吗？", readOnly: "只读", autoSaved: "未保存的修改已自动保存", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存",
@@ -286,9 +287,9 @@ const CSS = tokenCSS() + `
 .ra-skm .ra-skf{padding:8px 8px 4px;margin-top:4px;border-top:1px solid var(--ra-border);font-size:11.5px;color:var(--ra-fg-muted);line-height:1.5}
 .ra-skm.drop{outline:2px dashed var(--ra-accent);outline-offset:-4px}
 .ra-set{padding:10px 12px;display:flex;flex-direction:column;gap:10px;width:min(360px,calc(100% - 24px))}
-.ra-set label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ra-fg-muted)}
-.ra-set select,.ra-set input[type=number]{font:inherit;font-size:13px;color:var(--ra-fg);background:var(--ra-bg);border:1px solid var(--ra-border);border-radius:6px;padding:5px 8px;outline:0;width:100%;margin:0}
-.ra-set select:focus,.ra-set input:focus{border-color:var(--ra-accent)}
+.ra-set .ra-fld{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--ra-fg-muted)}
+.ra-set input[type=number]{font:inherit;font-size:13px;color:var(--ra-fg);background:var(--ra-bg);border:1px solid var(--ra-border);border-radius:8px;padding:6px 12px;min-height:34px;box-sizing:border-box;outline:0;width:100%;margin:0}
+.ra-set input:focus{border-color:var(--ra-accent);box-shadow:0 0 0 3px var(--ra-accent-subtle)}
 .ra-set .ra-row{display:flex;gap:8px;align-items:center}
 .ra-set .ra-row>*{flex:1;min-width:0}
 .ra-set .ra-lim{font-size:11px;color:var(--ra-fg-muted);margin-top:-4px}
@@ -570,7 +571,7 @@ const CSS = tokenCSS() + `
 .ra-toasts{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:7;display:flex;flex-direction:column;gap:6px;pointer-events:none;max-width:calc(100% - 32px)}
 .ra-toast{background:#18181b;color:#fff;font-size:13px;padding:8px 14px;border-radius:8px;box-shadow:var(--ra-shadow-md);white-space:pre-wrap;word-break:break-word}
 .ra-toast.warning{background:#d97706}.ra-toast.error{background:#dc2626}
-`;
+` + SELECT_CSS;
 
 function injectStyles(): void {
   if (typeof document === "undefined" || document.getElementById(STYLE_ID)) return;
@@ -1982,10 +1983,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     menu = mine;
     root.append(mine);
     const cur = a.settings;
-    const modelSel = h("select");
-    modelSel.append(new Option(t.sDefault, ""));
+    const sel = (options: Array<{ value: string; label: string; note?: string }>, value: string) => selectBox(root, { options, value, filterLabel: t.filter });
+    const modelSel = sel([{ value: "", label: t.sDefault }], "");
     const lim = h("div", "ra-lim");
-    const effortSel = h("select");
+    const effortSel = sel([], "");
     const effortNote = h("div", "ra-lim");
     const chosenModel = () => { const id = modelSel.value || modelsCache?.find((m) => m.is_default)?.id; return modelsCache?.find((x) => x.id === id); };
     const showLim = () => {
@@ -1994,34 +1995,36 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       // Thinking levels follow the model: the list is the catalogue's, the first entry its default.
       const eff = effortOf(m);
       const keep = effortSel.value;
-      effortSel.replaceChildren(new Option(eff?.def ? `${t.sEffortDefault} · ${eff.def}` : t.sEffortDefault, ""));
-      for (const l of eff?.levels ?? []) effortSel.append(new Option(l, l));
+      effortSel.setOptions([{ value: "", label: t.sEffortDefault, note: eff?.def }, ...(eff?.levels ?? []).map((l) => ({ value: l, label: l }))]);
       effortSel.disabled = !eff;
       effortSel.value = eff && eff.levels.includes(keep) ? keep : "";
       effortNote.textContent = eff ? "" : t.sEffortNone;
       effortNote.style.display = eff ? "none" : "";
     };
-    modelSel.addEventListener("change", showLim);
+    modelSel.el.addEventListener("change", showLim);
+    const modelOpts: Array<{ value: string; label: string; note?: string }> = [];
     if (provider?.models) {
       await loadModels();
       if (menu !== mine) return;
-      for (const m of modelsCache ?? []) modelSel.append(new Option(`${m.id}${m.is_default ? " ★" : ""} · ${kTok(m.max_input_tokens)} / ${kTok(m.max_tokens)}`, m.id));
-    }
-    if (cur.model && !Array.from(modelSel.options).some((o) => o.value === cur.model)) modelSel.append(new Option(cur.model, cur.model));
+      const def = modelsCache?.find((m) => m.is_default);
+      // The platform default names the model it is; each model shows its context / output limits.
+      modelOpts.push({ value: "", label: t.sDefault, note: def?.id });
+      for (const m of modelsCache ?? []) modelOpts.push({ value: m.id, label: m.id, note: `${kTok(m.max_input_tokens)} / ${kTok(m.max_tokens)}` });
+    } else modelOpts.push({ value: "", label: t.sDefault });
+    if (cur.model && !modelOpts.some((o) => o.value === cur.model)) modelOpts.push({ value: cur.model, label: cur.model });
+    modelSel.setOptions(modelOpts);
     modelSel.value = cur.model ?? "";
     showLim();
-    if (cur.reasoningEffort && Array.from(effortSel.options).some((o) => o.value === cur.reasoningEffort)) effortSel.value = cur.reasoningEffort;
+    if (cur.reasoningEffort && effortSel.options.some((o) => o.value === cur.reasoningEffort)) effortSel.value = cur.reasoningEffort;
     const turns = h("input"); turns.type = "number"; turns.min = "1"; turns.max = "1000"; turns.step = "1"; turns.value = String(cur.maxTurns);
-    const tokMode = h("select"); tokMode.append(new Option(t.sAuto, "auto"), new Option(t.sMaxTokens, "n"));
+    const tokMode = sel([{ value: "auto", label: t.sAuto }, { value: "n", label: t.sCustomN }], "auto");
     const tokN = h("input"); tokN.type = "number"; tokN.min = "256"; tokN.step = "256"; tokN.value = String(typeof cur.maxTokens === "number" ? cur.maxTokens : 8192);
     tokMode.value = typeof cur.maxTokens === "number" ? "n" : "auto"; tokN.style.display = tokMode.value === "n" ? "" : "none";
-    tokMode.addEventListener("change", () => { tokN.style.display = tokMode.value === "n" ? "" : "none"; });
-    const perm = h("select"); perm.append(new Option(t.sAsk, "ask"), new Option(t.sAutoPerm, "auto"));
-    if (cur.permissions === "custom") { perm.append(new Option(t.sCustom, "custom")); }
-    perm.value = cur.permissions;
-    const field = (label: string, ...els: HTMLElement[]) => { const l = h("label"); l.append(h("span", "", label), ...els); return l; };
-    const tokRow = h("div", "ra-row"); tokRow.append(tokMode, tokN);
-    menu.append(field(t.sModel, modelSel), lim, field(t.sEffort, effortSel), effortNote, field(t.sMaxTurns, turns), field(t.sMaxTokens, tokRow), field(t.sPerms, perm));
+    tokMode.el.addEventListener("change", () => { tokN.style.display = tokMode.value === "n" ? "" : "none"; });
+    const perm = sel([{ value: "ask", label: t.sAsk }, { value: "auto", label: t.sAutoPerm }, ...(cur.permissions === "custom" ? [{ value: "custom", label: t.sCustom }] : [])], cur.permissions);
+    const field = (label: string, ...els: HTMLElement[]) => { const l = h("div", "ra-fld"); l.append(h("span", "", label), ...els); return l; };
+    const tokRow = h("div", "ra-row"); tokRow.append(tokMode.el, tokN);
+    menu.append(field(t.sModel, modelSel.el), lim, field(t.sEffort, effortSel.el), effortNote, field(t.sMaxTurns, turns), field(t.sMaxTokens, tokRow), field(t.sPerms, perm.el));
     const btns = h("div", "ra-btns");
     const resetB = h("button", "ra-btn xs ghost", t.reset); resetB.type = "button";
     const applyB = h("button", "ra-btn xs solid", t.apply); applyB.type = "button";
@@ -2042,7 +2045,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   setBtn.addEventListener("click", () => void openSettings());
 
   /* --- sessions menu --- */
-  const closeMenu = () => { menu?.remove(); menu = null; };
+  const closeMenu = () => { menu?.remove(); menu = null; for (const p of root.querySelectorAll(":scope > .ra-selp")) p.remove(); };
   const openMenu = async () => {
     if (menu) { closeMenu(); return; }
     if (!agent?.workspace) return;
@@ -2104,7 +2107,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   histBtn.addEventListener("click", () => void openMenu());
   newBtn.addEventListener("click", () => { closeMenu(); void newSession().catch((err) => ui.notify((err as Error).message, "error")); });
   document.addEventListener("click", onDocClick, true);
-  function onDocClick(e: Event) { if (menu && !menu.contains(e.target as Node) && !histBtn.contains(e.target as Node) && !setBtn.contains(e.target as Node) && !skillsBtn.contains(e.target as Node)) closeMenu(); }
+  function onDocClick(e: Event) { if ((e.target as Element | null)?.closest?.(".ra-selp")) return; if (menu && !menu.contains(e.target as Node) && !histBtn.contains(e.target as Node) && !setBtn.contains(e.target as Node) && !skillsBtn.contains(e.target as Node)) closeMenu(); }
 
   /* --- skills menu --- */
   const skillInput = h("input"); skillInput.type = "file"; skillInput.accept = ".zip,application/zip"; skillInput.multiple = true; skillInput.style.display = "none";

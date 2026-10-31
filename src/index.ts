@@ -37,6 +37,7 @@ export { defineTool, normalizeResult } from "./tool.js";
 export { domUI, nullUI, askUserTool } from "./ui.js";
 export { VirtualList, type VRow, type VListOptions } from "./vlist.js";
 export { renderChat, type ChatOptions, type ChatHandle } from "./chat.js";
+export { selectBox, type SelectBox, type SelectOption as SelectBoxOption } from "./select.js";
 export { configurePdf, extractPdfText, formatPdfText, isPdf, type PdfLib } from "./pdf.js";
 export { CHAT_PALETTES, CHAT_COLOR_TOKENS, CHAT_SHARED_TOKENS, type ChatPalette, type ChatVars, type ChatToken, type ChatColorToken } from "./chat-theme.js";
 export { renderMarkdown, renderInline, escapeHTML } from "./markdown.js";
