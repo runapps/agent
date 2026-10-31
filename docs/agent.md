@@ -83,7 +83,7 @@ agent.on("run_end", ({ reason, error, usage }) => setBusy(false));
 | `message_reset` | `reason` | A call is retried after it streamed: discard what was shown |
 | `message_end` | `message`, `truncated` | An assistant message is complete |
 | `tool_call_delta` | `index`, `id`, `name`, `delta`, `arguments` | A tool call's arguments stream in (raw JSON so far, cut anywhere); nothing runs before the reply ends |
-| `tool_start` / `tool_update` / `tool_end` | `id`, `name`, `args` / `content` / `status`, `result`, `details`, `durationMs` | Tool calls |
+| `tool_start` / `tool_update` / `tool_end` | `id`, `name`, `args` / `content` / `status`, `result`, `details`, `durationMs` (and `content` with the pictures when the result had any) | Tool calls |
 | `queued` | `kind`, `message` | `steer()` or `followUp()` added to the queue |
 | `steered` | `messages` | Queued steering entered the conversation (draw it now) |
 | `compaction_start` / `compaction` | `runId?`; `summary`, `tokensBefore`, `tokensAfter`, … | Older turns are being / were summarised |
@@ -207,7 +207,7 @@ Both live in the workspace's directory: shared by every conversation that uses t
 | `onToolCall` | | Return `{ block: true, reason }` to refuse a call. |
 | `maxTurns` | `100` | Model calls per run. |
 | `maxTokens` | `"auto"` | `max_tokens` per call: the model's maximum, or a number. |
-| `maxInputTokens` | `"auto"` | The context budget: the model's window, or a number. |
+| `maxInputTokens` | `"auto"` | The context budget: the model's window, or a number that caps it (never above the window the catalogue gives). |
 | `parallelTools` | `false` | Run a turn's tool calls at once. |
 | `keepTurns` | `4` | Turns kept intact when old turns have to be dropped. |
 | `vision` | from the catalogue | Whether the model sees pictures; see [Pictures](#pictures-and-models-that-see-them). |

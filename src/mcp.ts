@@ -27,6 +27,8 @@ export interface MCPOptions {
    * `readOnlyHint` run without asking) or `"never"`.
    */
   confirm?: "always" | "unless-read-only" | "never";
+  /** What the server is called in tool descriptions and confirmations (default: the name it gives itself). */
+  name?: string;
   /** Pass pictures a tool returns on to the model (default false: they are named, not sent). */
   images?: boolean;
   /** Longest a request may take, in ms (default 60 000). */
@@ -229,7 +231,7 @@ export async function connectMCP(url: string | URL, opts: MCPOptions = {}): Prom
   let infos: MCPToolInfo[] = [];
   let tools: Tool[] = [];
   const prefix = clean(opts.prefix ?? serverInfo.name).slice(0, 24) || "mcp";
-  const label = serverInfo.title || serverInfo.name;
+  const label = opts.name || serverInfo.title || serverInfo.name;
 
   const load = async (signal?: AbortSignal): Promise<Tool[]> => {
     const all: MCPToolInfo[] = [];

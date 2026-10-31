@@ -24,8 +24,8 @@
 ## What the user gets
 
 - **Replies** — streaming Markdown (code blocks with copy, tables, links). While the agent works, the end of the reply shows what it is doing — *Thinking*, *Running code*, *Reading plan.md* — over a few lines that scroll as it goes: its latest thinking, the code being run, a tool's progress. When the run ends, its thinking and tool calls fold into one line, *Worked for 1m 12s ›*, above the answer.
-- **Tool calls** — one quiet line per chain of calls, worded from the tools ("read 2 files, edited 1 file"), opening to a card per call with arguments, result, duration and status.
-- **Questions** — `ask_user` and confirmations appear inline above the composer.
+- **Tool calls** — one quiet line per chain of calls, worded from the tools ("read 2 files, edited 1 file"), opening to a card per call with arguments, result (pictures a tool returned shown under it), duration and status.
+- **Questions** — `ask_user` and confirmations appear inline above the composer; while one waits the composer folds to a line, and answering brings the view back to the latest output. A short chat (under 420 px) keeps its composer compact.
 - **The composer** — Enter sends, Shift+Enter breaks a line. While the agent runs, Enter **steers** (inserts into the current task) and ⌘↵ / Ctrl+↵ **queues** a follow-up; queued messages sit in a card above the box with *send now*, *edit* and *remove*.
 - **Attachments** — paperclip, drag and drop, or paste. Files are saved under `/uploads/` in the conversation's directory and named in the message; pictures also go to the model as images — unless the model is known to be text-only: then they stay files and the user is told the model cannot see them. 20 MB per file.
 - **Files** — the header's *Files* button opens the directory: a tree, an editor (⌘S, word wrap, Markdown preview), picture and PDF previews, upload, new file, download (folders as zip). File paths in replies open there. Live: changes by the agent show at once.
@@ -84,6 +84,8 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `className` | | Extra classes on the chat's root. |
 | `debug` | `false` | The *Debug* panel. |
 | `onOpenFile(path)` | | Open file links yourself instead of in the files panel. |
+| `files` | on with a workspace | The *Files* button and panel; `false` for a host with its own file view (links go to `onOpenFile`). |
+| `headerActions` | | Buttons of your own for the header, placed before the settings gear. |
 | `onSession(agent)` | | Called with each conversation's agent as it opens. |
 
 ## The empty conversation: a greeting and starter prompts
@@ -162,6 +164,15 @@ renderChat(el, { provider, workspace: projectWorkspace, sessions: false });
 ```
 
 The header then has no *Chats* or *New chat*; a **Clear** button (after a confirmation) starts the conversation over — the messages, the queue and the usage go, the conversation keeps its id, the files stay. `/new` and `/clear` do the same, `/resume` is not offered, and `chat.clear()` does it from your code. A chat showing your own `agent` works the same way.
+
+## Inside your app's layout
+
+The chat fills the element you give it and can live in a side panel of your own page. Things to know when it does:
+
+- **Moving it** — taking the element out of the page and putting it back (a framework re-render) resets its scroll position, as for any scrolled element. Keep the element where it is, or save `element.querySelector(".ra-log").scrollTop` before and set it after.
+- **Your file view** — `files: false` hides the chat's Files panel; file paths in replies call `onOpenFile(path)`.
+- **Your buttons** — `headerActions: [button]` puts them in the chat's header; give each an `aria-label` (in a narrow chat the labels fold to icons).
+- **Your colours** — `palette: { light: {…}, dark: {…} }` with your page's tokens, and `vars: { font }`.
 
 ## Using your own agent
 

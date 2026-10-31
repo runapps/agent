@@ -157,6 +157,7 @@ await github.close();          // ends the session on the server
 |---|---|---|
 | `token` | | Sent as `Authorization: Bearer …`. |
 | `headers` | | More request headers. |
+| `name` | the server's own | What the server is called in tool descriptions and confirmations (the name the user gave it). |
 | `prefix` | the server's name | Tool names are `<prefix>__<tool>` (64 characters at most), so two servers' tools never clash. |
 | `confirm` | `"always"` | Ask before every call (`"ask"` permissions); `"unless-read-only"` lets tools the server marks `readOnlyHint` run without asking; `"never"`. The question names the server and the tool and shows the arguments. |
 | `images` | `false` | Pass pictures a tool returns to the model; otherwise they are named, not sent. |

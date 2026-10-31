@@ -935,7 +935,7 @@ export class Agent {
     let tool: Tool | undefined;
     const finish = (status: ToolStatus, content: string | ContentPart[], details?: unknown): Outcome => {
       const result = textOf(content);
-      this.emit("tool_end", { runId, id, name, status, result, details, durationMs: Date.now() - started });
+      this.emit("tool_end", { runId, id, name, status, result, details, durationMs: Date.now() - started, ...(typeof content === "string" ? {} : { content }) });
       return {
         message: { role: "tool", tool_call_id: id, content },
         // A read is judged by what it returned (another range of the same lines is nothing new); a change by what it was asked to do too.
@@ -1102,14 +1102,16 @@ export class Agent {
   /**
    * The model's limits as the agent uses them: `input` is the context
    * window, `output` the `max_tokens` of each call — the catalogue's
-   * figures for the model (its `max_input_tokens` / `max_tokens`), unless
-   * `maxInputTokens` / `maxTokens` are given as numbers.
+   * figures for the model (its `max_input_tokens` / `max_tokens`). A number
+   * `maxInputTokens` caps the window (a budget: never more than the model
+   * takes, when the catalogue says); a number `maxTokens` replaces the output.
    */
   async limits(): Promise<{ input: number; output: number }> {
-    const fromCatalogue = typeof this.opts.maxInputTokens !== "number" || typeof this.opts.maxTokens !== "number";
-    const cat = fromCatalogue ? await this.catalogueLimits() : { input: DEFAULT_INPUT_TOKENS, output: DEFAULT_MAX_TOKENS };
+    const cat = await this.catalogueLimits();
+    const known = typeof (await this.modelInfo())?.max_input_tokens === "number";
+    const cap = this.opts.maxInputTokens;
     return {
-      input: typeof this.opts.maxInputTokens === "number" ? this.opts.maxInputTokens : cat.input,
+      input: typeof cap === "number" ? (known ? Math.min(cap, cat.input) : cap) : cat.input,
       output: typeof this.opts.maxTokens === "number" ? this.opts.maxTokens : cat.output,
     };
   }

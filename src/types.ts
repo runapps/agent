@@ -261,8 +261,10 @@ export interface AgentEventMap {
     id: string;
     name: string;
     status: ToolStatus;
-    /** What the model was told. */
+    /** What the model was told (as text: pictures are named). */
     result: string;
+    /** The result as the model got it, pictures included (when it had any). */
+    content?: string | ContentPart[];
     details?: unknown;
     durationMs: number;
   };
@@ -378,6 +380,7 @@ export interface AgentOptions {
   /** `max_tokens` of each model call; `"auto"` (default) uses the catalogue's maximum output for the model (8192 when unknown). */
   maxTokens?: number | "auto";
   /** Context budget in tokens; `"auto"` (default) reads the catalogue. */
+  /** The context budget: `"auto"` is the model's window; a number caps it (never above the window the catalogue gives). */
   maxInputTokens?: number | "auto";
   /** Run a turn's tool calls at once instead of one after another. */
   parallelTools?: boolean;

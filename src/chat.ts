@@ -111,6 +111,10 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   uploadsDir?: string;
   /** A tool card's file path becomes a link that calls this. */
   onOpenFile?: (path: string) => void;
+  /** The Files button and panel (default: on with a workspace). `false` for a host with its own file view (file links then go to `onOpenFile`). */
+  files?: boolean;
+  /** Buttons of your own for the header, placed before the settings gear. */
+  headerActions?: HTMLElement[];
   /** Called with each session's agent as the chat opens it (the first one, a new chat, a resumed one). */
   onSession?: (agent: Agent) => void;
 }
@@ -524,6 +528,11 @@ const CSS = tokenCSS() + `
 .ra-box{position:relative;border:1px solid var(--ra-border);border-radius:12px;padding:8px 10px 6px;background:var(--ra-panel);box-shadow:var(--ra-shadow)}
 .ra-box:focus-within{border-color:color-mix(in srgb,var(--ra-fg) 28%,transparent)}
 .ra-box textarea{resize:none;height:64px;overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
+.ra-chat[data-asking="1"] .ra-box textarea,.ra-chat[data-short="1"] .ra-box textarea{height:1.6em}
+.ra-chat[data-short="1"] .ra-bar .ra-hint{display:none}
+.ra-chat[data-asking="1"] .ra-ask{max-height:70%}
+.ra-timgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.ra-timgs img{max-width:100%;max-height:180px;border-radius:6px;border:1px solid var(--ra-border);display:block}
 .ra-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;min-height:32px}
 .ra-bar .ra-hint{font-size:12px;color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.01em}
 .ra-kbd{display:inline-block;font:11px/1.4 var(--ra-mono);border:1px solid var(--ra-border);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--ra-muted);color:var(--ra-fg)}
@@ -762,6 +771,7 @@ function parseAttachLine(line: string): { ref: string; type: string; size: strin
 /** What the user typed for a message: the slash command as written, not its expansion. */
 const typedOf = (m: ChatMessage | undefined): string | undefined => (m as { typed?: string } | undefined)?.typed;
 /** Added to the agent's instructions when it has a directory: how to hand a file to the user. */
+const linksHint = (uploads: string) => `When you create or change a file for the user, name its absolute path in backticks (for example \`/index.html\`); in the chat that path becomes a link that opens the file. Files the user attaches arrive under ${uploads}.`;
 const filesHint = (uploads: string) => `The user can browse, edit and download every file of the directory from the chat's Files panel. When you create or change a file for the user, name its absolute path in backticks (for example \`${uploads}/report.csv\`); in the chat that path becomes a link that opens the file, with a download button. Files the user attaches arrive under ${uploads}.`;
 
 /** A file the user attached: read once, saved to the directory (or inlined) when the message is sent. */
@@ -941,7 +951,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
+  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, files: filesOpt, headerActions, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const provider: ModelProvider | null = providerOpt ? toProvider(providerOpt) : clientOpt ? toProvider(clientOpt) : givenAgent?.provider ?? null;
   const project = provider?.name ?? agentOpts.appName ?? "app";
@@ -994,7 +1004,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   // Without a conversation list: one conversation, which this starts over.
   const clearBtn = h("button", "ra-btn ghost"); clearBtn.type = "button"; clearBtn.innerHTML = I.eraser() + `<span>${escapeHTML(t.clearChat)}</span>`; clearBtn.style.display = "none";
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
-  head.append(titleEl, modelEl, h("span", "ra-sp"), debugBtn, filesBtn, skillsBtn, histBtn, newBtn, clearBtn, setBtn);
+  // In a narrow chat the labels fold away and only the icons show: each button keeps its name.
+  for (const [btn, label] of [[debugBtn, t.debug], [filesBtn, t.files], [skillsBtn, t.skills], [histBtn, t.history], [newBtn, t.newChat], [clearBtn, t.clearChat]] as const) { btn.setAttribute("aria-label", label); if (!btn.title) btn.title = label; }
+  head.append(titleEl, modelEl, h("span", "ra-sp"), debugBtn, filesBtn, skillsBtn, histBtn, newBtn, clearBtn, ...(headerActions ?? []), setBtn);
   if (title === false) head.style.display = "none";
   const log = h("div", "ra-log");
   const inner = h("div", "ra-col");
@@ -1083,7 +1095,18 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   let menu: HTMLElement | null = null;
   let mounted = true;
 
-  const ui = inlineUI(askCol, toasts, t, () => list.schedule());
+  // A short chat (a phone held sideways, a small panel) keeps the transcript readable: the composer is compact.
+  const rootSize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => { root.dataset.short = root.clientHeight && root.clientHeight < 420 ? "1" : ""; });
+  rootSize?.observe(root);
+  // While a question waits, the composer folds to one line so the question has the room (short screens).
+  // An answered question sends the view back to the latest output (where the reply to it appears).
+  let asked = 0;
+  const ui = inlineUI(askCol, toasts, t, () => {
+    const n = askCol.childElementCount;
+    root.dataset.asking = n ? "1" : "";
+    if (n < asked) list.scrollToBottom(); else list.schedule();
+    asked = n;
+  });
   const MAX_BACKGROUND = 3;
   /** Sessions the chat made that are still running after the user switched away (and the current one). */
   const live = new Map<string, Agent>();
@@ -1595,7 +1618,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return card;
   };
 
-  const finishCard = (card: ToolCard, status: ToolStatus, result: string, durationMs?: number) => {
+  /** Pictures a tool returned, shown under its result (a screenshot, a chart). */
+  const imagesOf = (content: unknown): string[] => Array.isArray(content) ? content.flatMap((p: ContentPart) => (p.type === "image_url" && /^(data:image\/|https?:)/.test(p.image_url.url) ? [p.image_url.url] : [])) : [];
+  const finishCard = (card: ToolCard, status: ToolStatus, result: string, durationMs?: number, images: string[] = []) => {
     const ok = status === "ok";
     const fail = status === "error" || status === "blocked";
     card.end.replaceChildren();
@@ -1613,6 +1638,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       card.body.append(h("div", "ra-tlabel", status === "error" ? t.error : t.result), card.result);
     }
     card.result.textContent = result.length > 20_000 ? result.slice(0, 20_000) + "…" : result || t.emptyResult;
+    if (images.length && !card.body.querySelector(".ra-timgs")) {
+      const row = h("div", "ra-timgs");
+      for (const src of images.slice(0, 4)) { const img = h("img"); img.src = src; img.alt = t.result; img.addEventListener("load", () => list.schedule()); row.append(img); }
+      card.body.append(row);
+    }
     refreshGroup(card.el);
     list.schedule();
   };
@@ -1661,7 +1691,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     cards.clear();
     histCalls.clear();
     active = null;
-    type HistCall = { id: string; name: string; args: unknown; result?: string; status?: ToolStatus };
+    type HistCall = { id: string; name: string; args: unknown; result?: string; status?: ToolStatus; images?: string[] };
     type Item = { kind: "think"; text: string } | { kind: "text"; text: string } | { kind: "call"; call: HistCall };
     // One row per reply, as live: every turn between two user messages; text-less turns (thinking + tool calls) share a group.
     let last: { items: Item[]; calls: HistCall[]; start?: number; end?: number } | null = null;
@@ -1688,7 +1718,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
               const card = makeCard(c.name, c.args);
               groupIn(r.body).append(card.el);
               // A call still running (the session is mid-run) gets its card registered, so its tool_end lands.
-              if (c.status) finishCard(card, c.status, c.result ?? "");
+              if (c.status) finishCard(card, c.status, c.result ?? "", undefined, c.images);
               else { if (c.id) cards.set(c.id, card); refreshGroup(card.el); }
             }
           }
@@ -1726,7 +1756,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       } else if (m.role === "tool") {
         const text = textOfContent(m.content);
         const call = last?.calls.find((c) => c.id === (m.tool_call_id ?? ""));
-        if (call) { call.result = text; call.status = statusOfResult(text); histCalls.delete(call.id); }
+        if (call) { call.result = text; call.status = statusOfResult(text); call.images = imagesOf(m.content); histCalls.delete(call.id); }
       }
     }
     flush(true);
@@ -2340,13 +2370,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const name = titleOfAgent(agent).replace(/[\\/:*?"<>|\s]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "conversation";
       downloadBlob(`${name}.md`, transcriptMarkdown(agent), "text/markdown;charset=utf-8");
     } },
-    { name: "files", run: () => filesBtn.click() },
+    { name: "files", run: () => (filesOpt === false ? undefined : filesBtn.click()) },
     { name: "settings", run: () => openSettings() },
     { name: "debug", run: () => { if (debugOn) debugBtn.click(); else ui.notify(t.debugOff); } },
   ];
   /** The built-ins this chat offers now (the files, settings and debug ones only where their button shows). */
   const builtinCommands = (): Command[] => builtins
-    .filter((b) => (b.name !== "files" || !!agent?.workspace) && (b.name !== "settings" || hasSettings) && (b.name !== "debug" || debugOn) && (b.name !== "resume" || (!givenAgent && !!agent?.workspace && clearBtn.style.display === "none")))
+    .filter((b) => (b.name !== "files" || (!!agent?.workspace && filesOpt !== false)) && (b.name !== "settings" || hasSettings) && (b.name !== "debug" || debugOn) && (b.name !== "resume" || (!givenAgent && !!agent?.workspace && clearBtn.style.display === "none")))
     .map((b) => ({ name: b.name, description: b.name === "new" && clearBtn.style.display !== "none" ? t.confirmClear.split(/[?？]/)[0]! : (t.cmd as Record<string, string>)[b.name] ?? "", kind: t.command, args: b.args, builtin: true }));
   /** `/name [arg]` naming a built-in: run it here (nothing goes to the model). */
   const runBuiltin = (text: string): boolean => {
@@ -2415,7 +2445,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const hasSessions = !givenAgent && (sessions ?? !!a.workspace);
     histBtn.style.display = newBtn.style.display = hasSessions && a.workspace ? "" : "none";
     clearBtn.style.display = hasSessions && a.workspace ? "none" : "";
-    filesBtn.style.display = a.workspace ? "" : "none";
+    filesBtn.style.display = a.workspace && filesOpt !== false ? "" : "none";
     skillsBtn.style.display = a.workspace && skillsMenu !== false ? "" : "none";
     panel.setWorkspace(a.workspace);
     if (debugOn) dpanel.setAgent(a);
@@ -2499,9 +2529,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (active?.pending) showPending((active.pending.firstElementChild as HTMLElement).textContent ?? t.waiting, { text: ev.content });
       list.schedule();
     });
-    on("tool_end", (ev: { id: string; name: string; status: ToolStatus; result: string; durationMs: number }) => {
+    on("tool_end", (ev: { id: string; name: string; status: ToolStatus; result: string; durationMs: number; content?: unknown }) => {
       const c = cards.get(ev.id);
-      if (c) finishCard(c, ev.status, ev.result, ev.durationMs);
+      if (c) finishCard(c, ev.status, ev.result, ev.durationMs, imagesOf(ev.content));
       else { const hc = histCalls.get(ev.id); if (hc) { hc.status = ev.status; hc.result = ev.result; histCalls.delete(ev.id); } }
       // tool_end carries no arguments: the card has them.
       const path = c?.args && typeof c.args === "object" ? (c.args as { path?: unknown }).path : undefined;
@@ -2510,6 +2540,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (active?.pending && !active.body.querySelector(".ra-tend .ra-spin")) showPending();
     });
     // A summary being written: in a run the placeholder says so; compact() on its own also puts the chat in its busy state.
+    let trimNoted: string | null = null;
     on("compaction_start", (ev: { runId?: string }) => {
       if (!ev.runId) { setBusy(true); replyStart = Date.now(); }
       showPending(t.compactingNow);
@@ -2517,6 +2548,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     on("compaction", (ev: { runId?: string; summary: boolean }) => {
       // In a run the model is asked next ("Thinking" again); compact() on its own is done.
       if (ev.runId) { if (active?.pending) showPending(); } else closeActive();
+      // Trimming may happen at every turn of a long run: one note per run says so.
+      if (!ev.summary && ev.runId && trimNoted === ev.runId) return;
+      if (!ev.summary) trimNoted = ev.runId ?? null;
       const first = a.messages[0];
       const s = first && typeof first.content === "string" ? summaryOf(first) : null;
       addNote(ev.summary ? t.compacted : t.trimmed, ev.summary && s ? s : undefined);
@@ -2547,7 +2581,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const makeAgent = async (id?: string): Promise<Agent> => {
     const sid = id ?? newId();
     const workspace = typeof wsOpt === "function" ? await wsOpt(sid) : wsOpt ?? null;
-    const instructions = workspace ? [agentOpts.instructions, filesHint(uploadsDir)].filter(Boolean).join("\n\n") : agentOpts.instructions;
+    // The host's instructions may be a function (re-read every turn): the hint joins whatever it returns.
+    const base = agentOpts.instructions;
+    const hint = filesOpt === false ? linksHint(uploadsDir) : filesHint(uploadsDir);
+    const instructions = !workspace ? base : typeof base === "function" ? () => [base(), hint].filter(Boolean).join("\n\n") : [base, hint].filter(Boolean).join("\n\n");
     const over: Partial<AgentOptions> = {};
     if (userSettings.model) over.model = userSettings.model;
     if (userSettings.maxTurns) over.maxTurns = userSettings.maxTurns;
@@ -2663,6 +2700,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (renderTimer !== null) clearTimeout(renderTimer);
       if (cmdFrame !== null) cancelAnimationFrame(cmdFrame);
       list.dispose();
+      rootSize?.disconnect();
       panel.dispose();
       dpanel.dispose();
       for (const f of pendingFiles) if (f.preview) URL.revokeObjectURL(f.preview);
