@@ -32,6 +32,12 @@ export interface ToolContext {
   callId: string;
   /** Report progress; the app sees it as a `tool_update` event. */
   update(content: string): void;
+  /**
+   * Say whether this call brought anything new, for the guard against
+   * repeated calls (by default a result counts as new unless the run has
+   * already had the same one). `read_file` says false for lines already read.
+   */
+  progress(made: boolean): void;
 }
 
 /**
@@ -69,13 +75,22 @@ export interface ToolDefinition<A = Record<string, unknown>> {
    * `false` to run without asking this time. Without `confirm`, a tool
    * asks when it is `destructive`.
    */
-  confirm?: (args: A) => string | false | Promise<string | false>;
+  confirm?: (args: A) => ToolConfirm | Promise<ToolConfirm>;
   /** Changes or removes something the user may not want gone. */
   destructive?: boolean;
+  /**
+   * Only looks (reads, lists, searches): running it changes nothing. A
+   * successful call of a tool that is not read-only counts as progress for
+   * the guard against repeated calls; a read-only one only when its result is new.
+   */
+  readOnly?: boolean;
   /** Longest result sent to the model, in characters (default 32 000). */
   maxResultChars?: number;
   execute(args: A, ctx: ToolContext): Promise<ToolResultValue> | ToolResultValue;
 }
+
+/** A confirmation question: a title, or a title and a message (the details: arguments, what will happen); `false` runs without asking. */
+export type ToolConfirm = string | false | { title: string; message?: string };
 
 /** A tool as the agent holds it (`defineTool` normalises a definition). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -227,6 +242,12 @@ export interface AgentEventMap {
   /** A model call is retried after it had already streamed text: discard what was shown. */
   message_reset: { runId: string; reason: string };
   message_end: { runId: string; message: ChatMessage; truncated: boolean };
+  /**
+   * A tool call's arguments as they stream in, before the call is complete
+   * (`arguments` is the raw JSON so far; it may stop anywhere). Nothing runs
+   * until the reply has ended; after a `message_reset` the calls start over.
+   */
+  tool_call_delta: { runId: string; index: number; id: string; name: string; delta: string; arguments: string };
   tool_start: { runId: string; id: string; name: string; args: unknown };
   tool_update: { runId: string; id: string; name: string; content: string };
   tool_end: {
@@ -324,7 +345,8 @@ export interface AgentOptions {
   /**
    * Which of the workspace's file tools to offer (default all:
    * list_files, read_file, write_file, edit_file, delete_file,
-   * search_files). `["read_file", "list_files"]` gives a read-only agent.
+   * move_file, copy_file, search_files). `["read_file", "list_files"]`
+   * gives a read-only agent.
    */
   fileTools?: boolean | string[];
   /**
@@ -351,6 +373,14 @@ export interface AgentOptions {
   parallelTools?: boolean;
   /** Keep this many recent turns intact when the context is trimmed (default 4). */
   keepTurns?: number;
+  /**
+   * The guard against tool calls that go nowhere: after `warn` rounds in a
+   * row that brought nothing new (the same results, lines already read,
+   * the same errors) the model is told to use what it has; after `stop` the
+   * run ends with an error. A round in which a tool that changes things
+   * succeeded is progress. Default `{ warn: 3, stop: 6 }`; `false` turns it off.
+   */
+  loopGuard?: false | { warn?: number; stop?: number };
   temperature?: number;
   top_p?: number;
   /** Any other chat parameter, sent as is (`reasoning_effort`, …). */

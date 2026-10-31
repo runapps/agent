@@ -84,7 +84,7 @@ test("agent — tool round trip: call, result, final answer; events in order", a
   assert.deepEqual(JSON.parse(msgs[3].content), { city: "Paris", temp_c: 17 });
   assert.equal(requests[0].max_tokens, 8192);
   assert.equal(requests[0].tools.length, 1);
-  assert.deepEqual(events.filter((e) => e !== "text_delta"), ["run_start", "turn_start", "request", "response", "message_end", "turn_end", "tool_start", "tool_end", "turn_start", "request", "response", "message_end", "turn_end", "run_end"]);
+  assert.deepEqual(events.filter((e) => e !== "text_delta"), ["run_start", "turn_start", "request", "tool_call_delta", "response", "message_end", "turn_end", "tool_start", "tool_end", "turn_start", "request", "response", "message_end", "turn_end", "run_end"]);
   assert.equal(agent.messages.length, 4);
 });
 
@@ -260,8 +260,8 @@ test("agent — repeating the same tool batch warns the model, then stops", asyn
   const { client, requests } = scripted([same(), same(), same(), same(), same(), same(), same(), reply({ text: "done" })]);
   const r = await createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false }).prompt("loop");
   assert.equal(r.reason, "error");
-  assert.match(r.error.message, /without progress/);
-  const warned = requests.some((q) => q.messages.some((m) => m.role === "user" && /repeated the same tool calls/.test(m.content)));
+  assert.match(r.error.message, /brought nothing new/);
+  const warned = requests.some((q) => q.messages.some((m) => m.role === "user" && /brought nothing new/.test(m.content)));
   assert.ok(warned);
 });
 
@@ -634,4 +634,102 @@ test("edit — a fuzzy match changes only the matched text; the rest keeps its e
   const src = "标题：你好，世界（测试）  \n第二行 “引号” 保持\n结尾  ";
   const out = applyEdits("/a.md", src, [{ oldText: '第二行 "引号" 保持', newText: "第二行 已改" }]);
   assert.equal(out, "标题：你好，世界（测试）  \n第二行 已改\n结尾  ");
+});
+
+/** A provider that plays `turns`: each a list of tool calls ({ name, args }) or a final text. */
+function playing(turns, requests = []) {
+  let n = 0;
+  return {
+    name: "play",
+    async *stream(params) {
+      requests.push(params);
+      const t = turns[n++] ?? "done";
+      if (typeof t === "string") { yield { choices: [{ index: 0, delta: { content: t }, finish_reason: "stop" }] }; return; }
+      for (const [i, c] of t.entries()) {
+        const args = JSON.stringify(c.args);
+        // Arguments in pieces, as models stream them.
+        yield { choices: [{ index: 0, delta: { tool_calls: [{ index: i, id: `c${n}_${i}`, type: "function", function: { name: c.name, arguments: args.slice(0, 5) } }] } }] };
+        yield { choices: [{ index: 0, delta: { tool_calls: [{ index: i, function: { arguments: args.slice(5) } }] } }] };
+      }
+      yield { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] };
+    },
+  };
+}
+
+test("agent — tool_call_delta streams a call's arguments before it runs", async () => {
+  const ws = await Workspace.open(null, { id: "deltas", project: "deltas-test", indexedDB: null });
+  const agent = createAgent(playing([[{ name: "write_file", args: { path: "/a.txt", content: "hello" } }]]), { workspace: ws, sandbox: false, askUser: false });
+  const seen = [];
+  agent.on("tool_call_delta", (e) => seen.push([e.index, e.name, e.arguments]));
+  agent.on("tool_start", () => seen.push("start"));
+  await agent.prompt("go");
+  assert.deepEqual(seen, [[0, "write_file", '{"pat'], [0, "write_file", '{"path":"/a.txt","content":"hello"}'], "start"]);
+});
+
+test("agent — reading lines already read is not progress: the guard warns, then stops", async () => {
+  const ws = await Workspace.open(null, { id: "reread", project: "reread-test", indexedDB: null });
+  await ws.write("/big.js", Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n"));
+  // New lines (1-20, then 21-30) are progress; 1-10, 5-15, 1-25 ... are lines it had.
+  const reads = [[1, 20], [21, 10], [1, 10], [5, 10], [1, 25], [2, 5], [10, 10], [3, 3], [1, 30]];
+  const requests = [];
+  const agent = createAgent(playing(reads.map(([offset, limit]) => [{ name: "read_file", args: { path: "/big.js", offset, limit } }]), requests), { workspace: ws, sandbox: false, askUser: false });
+  const r = await agent.prompt("read");
+  assert.equal(r.reason, "error");
+  assert.match(r.error.message, /brought nothing new/);
+  // Two reads with new lines, then six without: warned after the third, stopped after the sixth.
+  assert.equal(requests.length, 8);
+  const warnedAt = requests.findIndex((q) => q.messages.some((m) => m.role === "user" && /brought nothing new/.test(m.content)));
+  assert.equal(warnedAt, 5);
+});
+
+test("agent — the same write over and over is caught; different writes are progress", async () => {
+  const ws = await Workspace.open(null, { id: "rewrite", project: "rewrite-test", indexedDB: null });
+  const same = { name: "write_file", args: { path: "/a.txt", content: "x" } };
+  const r = await createAgent(playing(Array(8).fill([same])), { workspace: ws, sandbox: false, askUser: false }).prompt("go");
+  assert.equal(r.reason, "error");
+  const varied = Array.from({ length: 8 }, (_, i) => [{ name: "write_file", args: { path: "/a.txt", content: `v${i}` } }]);
+  const r2 = await createAgent(playing(varied), { workspace: ws, sandbox: false, askUser: false, readBeforeWrite: false }).prompt("go");
+  assert.equal(r2.reason, "done");
+  assert.equal(await ws.readText("/a.txt"), "v7");
+  const off = await createAgent(playing(Array(8).fill([same])), { workspace: ws, sandbox: false, askUser: false, readBeforeWrite: false, loopGuard: false }).prompt("go");
+  assert.equal(off.reason, "done");
+});
+
+test("agent — move_file and copy_file keep what was read, refuse to overwrite", async () => {
+  const ws = await Workspace.open(null, { id: "move", project: "move-test", indexedDB: null });
+  await ws.write("/a.txt", "alpha");
+  await ws.write("/b.txt", "beta");
+  const results = [];
+  const agent = createAgent(playing([
+    [{ name: "read_file", args: { path: "/a.txt" } }],
+    [{ name: "move_file", args: { from: "/a.txt", to: "/c.txt" } }],
+    [{ name: "copy_file", args: { from: "/c.txt", to: "/b.txt" } }],
+    [{ name: "copy_file", args: { from: "/c.txt", to: "/d.txt" } }],
+    // Read as /a.txt, now /c.txt and /d.txt: both can be overwritten without reading again.
+    [{ name: "write_file", args: { path: "/c.txt", content: "gamma" } }, { name: "write_file", args: { path: "/d.txt", content: "delta" } }],
+  ]), { workspace: ws, sandbox: false, askUser: false });
+  agent.on("tool_end", (e) => results.push(`${e.name}:${e.status}`));
+  await agent.prompt("go");
+  assert.deepEqual(results, ["read_file:ok", "move_file:ok", "copy_file:error", "copy_file:ok", "write_file:ok", "write_file:ok"]);
+  assert.equal(await ws.exists("/a.txt"), false);
+  assert.equal(await ws.readText("/b.txt"), "beta");
+  assert.equal(await ws.readText("/c.txt"), "gamma");
+  assert.equal(await ws.readText("/d.txt"), "delta");
+});
+
+test("agent — clear() starts the conversation over with the same id, saved, files kept", async () => {
+  const ws = await Workspace.open(null, { id: "clear", project: "clear-test", indexedDB: null });
+  const agent = createAgent(playing([[{ name: "write_file", args: { path: "/keep.txt", content: "k" } }], "first", "second"]), { workspace: ws, id: "s1", sandbox: false, askUser: false });
+  await agent.prompt("one");
+  const events = [];
+  agent.on("rewind", (e) => events.push(e.index));
+  await agent.clear();
+  assert.equal(agent.id, "s1");
+  assert.equal(agent.messages.length, 0);
+  assert.equal(agent.usage.calls, 0);
+  assert.deepEqual(events, [0]);
+  assert.equal((await ws.sessions.get("s1")).messages.length, 0);
+  assert.equal(await ws.readText("/keep.txt"), "k");
+  const r = await agent.prompt("two");
+  assert.equal(r.text, "second");
 });

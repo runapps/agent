@@ -18,6 +18,8 @@ export interface CollectOptions {
   signal?: AbortSignal;
   onText?: (delta: string, text: string) => void;
   onReasoning?: (delta: string, text: string) => void;
+  /** A tool call's arguments as they stream in (`index` orders the calls of the reply). */
+  onToolCall?: (call: { index: number; id: string; name: string; arguments: string }, delta: string) => void;
   /** Hard cap on streamed characters (default 800 000). */
   maxChars?: number;
 }
@@ -81,6 +83,7 @@ export async function collectCompletion(
               size += part.function.arguments.length;
             }
           }
+          opts.onToolCall?.({ index, id: call.id ?? "", name: call.function.name, arguments: call.function.arguments }, part.function?.arguments ?? "");
         }
       }
       if (size > maxChars) throw new Error("runapps agent: the model's reply exceeded the size limit");

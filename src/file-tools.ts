@@ -1,5 +1,5 @@
 // The built-in file tools over a Workspace: list, read (with line
-// ranges), write, edit (exact replacement), delete, search. Their
+// ranges), write, edit (exact replacement), delete, move, copy, search. Their
 // descriptions are what the model reads, so they say what each does and
 // what comes back.
 
@@ -36,6 +36,7 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
       name: "list_files",
       description:
         `List the files under a folder of the workspace (recursive), one per line with the size in bytes. Output is truncated to 500 entries. Start at / to see everything; ${ws.skillsDir} holds the skills.`,
+      readOnly: true,
       parameters: {
         type: "object",
         properties: { path: { type: "string", description: "Folder to list. Default /" } },
@@ -54,6 +55,7 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
       name: "read_file",
       description:
         "Read the contents of a text file in the workspace; a PDF is read as the text of its pages, each under a `--- page N ---` line. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files; when you need the full file, continue with offset until complete. Reading a folder lists it.",
+      readOnly: true,
       parameters: {
         type: "object",
         properties: {
@@ -64,7 +66,7 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
         required: ["path"],
         additionalProperties: false,
       },
-      async execute({ path, offset, limit }) {
+      async execute({ path, offset, limit }, ctx) {
         if (await ws.isFolder(path)) {
           const files = await ws.list(path);
           return `${normalizePath(path)} is a folder with ${files.length} file${files.length === 1 ? "" : "s"}:\n` +
@@ -100,7 +102,9 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
           end = i + 1;
         }
         // What it has now seen of the file (a PDF's text is not its content: no fingerprint from it).
-        await files.saw(normalizePath(path), { start, end, total, text: doc.kind === "text" ? text : undefined });
+        const fresh = await files.saw(normalizePath(path), { start, end, total, text: doc.kind === "text" ? text : undefined });
+        // Lines it already had (another limit, an overlapping range) are not progress.
+        if (fresh !== undefined) ctx.progress?.(fresh);
         let notice = "";
         if (end < total) {
           const next = end + 1;
@@ -198,10 +202,40 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
       },
     }),
 
+    ...(["move_file", "copy_file"] as const).map((name) => defineTool<{ from: string; to: string }>({
+      name,
+      description: name === "move_file"
+        ? "Move or rename a file. The destination must not exist yet. References to the old path in other files are not changed: update them with edit_file."
+        : "Copy a file to a new path. The destination must not exist yet.",
+      parameters: {
+        type: "object",
+        properties: { from: { type: "string", description: "Existing file" }, to: { type: "string", description: "New path" } },
+        required: ["from", "to"],
+        additionalProperties: false,
+      },
+      async execute({ from, to }) {
+        const a = normalizePath(from), b = normalizePath(to);
+        if (a === b) throw new Error("The source and the destination are the same path.");
+        if (!(await ws.exists(a)) || (await ws.isFolder(a))) throw new Error(`No such file: ${a}`);
+        if (await ws.exists(b)) throw new Error(`${b} already exists. Choose another path, or delete it first.`);
+        if (name === "move_file" && ws.isReadOnly(a)) throw new Error(`${a} is read-only.`);
+        if (name === "move_file") await files.check(a, "delete");
+        const { data, contentType } = await ws.read(a);
+        await ws.write(b, data, contentType);
+        await files.copied(a, b);
+        if (name === "move_file") {
+          await ws.delete(a);
+          files.forget(a);
+        }
+        return `${name === "move_file" ? "Moved" : "Copied"} ${a} to ${b}.`;
+      },
+    })),
+
     defineTool<{ query: string; path?: string; regex?: boolean }>({
       name: "search_files",
       description:
         "Search the text files of the workspace for a pattern (a literal string, or a regular expression with regex: true). Returns matching lines as path:line: text, at most 100; long lines are cut to 200 chars.",
+      readOnly: true,
       parameters: {
         type: "object",
         properties: {

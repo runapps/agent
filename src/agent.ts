@@ -26,6 +26,7 @@ import type {
   RunResult,
   SessionData,
   Tool,
+  ToolConfirm,
   ToolStatus,
 } from "./types.js";
 import { askUserTool, domUI } from "./dialogs.js";
@@ -39,6 +40,17 @@ const MEMORY_PATH = "/memory/notes.md";
 const AGENTS_PATH = "/AGENTS.md";
 const MAX_NOTES_CHARS = 6000;
 const MAX_RETRIES = 3;
+/** One tool call's result and what the loop guard needs to know about it. */
+interface Outcome {
+  message: ChatMessage;
+  /** Name, status and result: the same key twice means nothing new. */
+  key: string;
+  /** A tool that changes things (not read-only) succeeded. */
+  changed: boolean;
+  /** What the tool said (ctx.progress), or what the outcome itself means; undefined: decided by the key. */
+  progress: boolean | undefined;
+}
+
 const LOOP_WARN = 3;
 const LOOP_STOP = 6;
 
@@ -102,8 +114,8 @@ export class Agent {
   private chain: Promise<unknown> = Promise.resolve();
   private pendingSkills: string[] = [];
   private inputTokens: Promise<{ input: number; output: number }> | null = null;
-  private lastBatches: string[] = [];
-  private loopWarned = false;
+  /** The guard against calls that go nowhere: results seen since the last change, rounds in a row without anything new. */
+  private loop = { seen: new Set<string>(), idle: 0, warned: false };
   private readonly loaded: Promise<void>;
   private createdAt = Date.now();
   /** The session's title, fixed once known (a later compaction must not turn it into the summary's first words). */
@@ -285,8 +297,7 @@ export class Agent {
     this._ended = null;
     this.committed = 0;
     this.droppedTurns = 0;
-    this.lastBatches = [];
-    this.loopWarned = false;
+    this.resetLoop();
   }
 
   /**
@@ -378,10 +389,24 @@ export class Agent {
     this.history = this.history.slice(0, index);
     this.committed = this.history.length;
     this._ended = null;
-    this.lastBatches = [];
-    this.loopWarned = false;
+    this.resetLoop();
     await this.saveSession();
     this.emit("rewind", { index });
+  }
+
+  /**
+   * Starts the conversation over, keeping its id: stops a run, drops the
+   * queue, the messages, the title, how the last run ended and the usage,
+   * and saves that. The workspace's files are not touched. Listeners get a
+   * `rewind` event with index 0.
+   */
+  async clear(): Promise<void> {
+    await this.loaded;
+    await this.abort();
+    this.reset();
+    this._usage = emptyUsage();
+    await this.saveSession();
+    this.emit("rewind", { index: 0 });
   }
 
   /**
@@ -553,13 +578,13 @@ export class Agent {
         const guard = this.checkLoop(results);
         if (guard === "stop") {
           reason = "error";
-          error = new Error("runapps agent: stopped after repeating the same tool calls without progress");
+          error = new Error("runapps agent: stopped after several rounds of tool calls that brought nothing new (the same results, or lines already read)");
           break;
         }
         if (guard === "warn") {
           this.history.push({
             role: "user",
-            content: "[environment] The last rounds repeated the same tool calls with the same results. Do not repeat them; either take a different approach or explain the blocker and finish.",
+            content: "[environment] The last rounds of tool calls brought nothing new: the same results, the same errors, or parts of files you had already read. Do not repeat them. Use what you have already read (it is above), read only what is still missing, take a different approach, or explain the blocker and finish.",
           });
         }
       }
@@ -573,8 +598,7 @@ export class Agent {
 
     if (reason === "aborted") this.closeOpenToolCalls();
     this.committed = this.history.length;
-    this.lastBatches = [];
-    this.loopWarned = false;
+    this.resetLoop();
     this._ended = reason === "done" ? null : { reason, ...(error ? { error: error.message } : {}), at: Date.now() };
     await this.saveSession();
     const result: RunResult = {
@@ -594,6 +618,9 @@ export class Agent {
     if (!steer.length) return;
     this.queue = this.queue.filter((q) => q.kind !== "steer");
     this.history.push(...steer);
+    // New words from the user: whatever the guard counted starts over.
+    this.loop.idle = 0;
+    this.loop.warned = false;
     this.emit("steered", { runId, messages: steer });
   }
 
@@ -738,6 +765,10 @@ export class Agent {
               reasoning = all;
               this.emit("reasoning_delta", { runId, delta, text: all });
             },
+            onToolCall: (call, delta) => {
+              streamed = true;
+              this.emit("tool_call_delta", { runId, index: call.index, id: call.id, name: call.name, delta, arguments: call.arguments });
+            },
           },
         );
       } catch (err) {
@@ -751,12 +782,12 @@ export class Agent {
     }
   }
 
-  private async runBatch(calls: ChatToolCall[], runId: string, signal: AbortSignal, truncated: boolean): Promise<string[]> {
+  private async runBatch(calls: ChatToolCall[], runId: string, signal: AbortSignal, truncated: boolean): Promise<Outcome[]> {
     const run = (call: ChatToolCall) => this.runTool(call, runId, signal, truncated);
     const outcomes = this.opts.parallelTools
       ? await Promise.all(calls.map((c) => run(c)))
       : await (async () => {
-          const out: Array<{ message: ChatMessage; fingerprint: string }> = [];
+          const out: Outcome[] = [];
           let interrupted = false;
           for (const c of calls) {
             if (interrupted) { out.push(this.skipTool(c, runId, "Skipped: the user sent a new instruction; the following tool calls were not run.")); continue; }
@@ -767,24 +798,34 @@ export class Agent {
           return out;
         })();
     for (const o of outcomes) this.history.push(o.message);
-    return outcomes.map((o) => o.fingerprint);
+    return outcomes;
   }
 
-  private skipTool(call: ChatToolCall, runId: string, why: string): { message: ChatMessage; fingerprint: string } {
+  private skipTool(call: ChatToolCall, runId: string, why: string): Outcome {
     const id = call.id ?? "", name = call.function.name;
     this.emit("tool_start", { runId, id, name, args: call.function.arguments });
     this.emit("tool_end", { runId, id, name, status: "skipped", result: why, durationMs: 0 });
-    return { message: { role: "tool", tool_call_id: id, content: why }, fingerprint: `${name}|${call.function.arguments}|skipped|${why}` };
+    // A batch cut short by the user's new instruction: that is progress of its own.
+    return { message: { role: "tool", tool_call_id: id, content: why }, key: "", changed: false, progress: true };
   }
 
-  private async runTool(call: ChatToolCall, runId: string, signal: AbortSignal, truncated: boolean): Promise<{ message: ChatMessage; fingerprint: string }> {
+  private async runTool(call: ChatToolCall, runId: string, signal: AbortSignal, truncated: boolean): Promise<Outcome> {
     const id = call.id ?? "";
     const name = call.function.name;
     const started = Date.now();
-    const finish = (status: ToolStatus, content: string | ContentPart[], details?: unknown): { message: ChatMessage; fingerprint: string } => {
+    let progress: boolean | undefined;
+    let tool: Tool | undefined;
+    const finish = (status: ToolStatus, content: string | ContentPart[], details?: unknown): Outcome => {
       const result = textOf(content);
       this.emit("tool_end", { runId, id, name, status, result, details, durationMs: Date.now() - started });
-      return { message: { role: "tool", tool_call_id: id, content }, fingerprint: `${name}|${call.function.arguments}|${status}|${result.slice(0, 2000)}` };
+      return {
+        message: { role: "tool", tool_call_id: id, content },
+        // A read is judged by what it returned (another range of the same lines is nothing new); a change by what it was asked to do too.
+        key: tool?.readOnly ? `${name}|${status}|${result.slice(0, 4000)}` : `${name}|${call.function.arguments.slice(0, 4000)}|${status}|${result.slice(0, 2000)}`,
+        changed: status === "ok" && !!tool && !tool.readOnly,
+        // A user who declined or answered moved things on; a stop is not a loop.
+        progress: status === "declined" || status === "skipped" ? true : status === "ok" ? progress : undefined,
+      };
     };
 
     if (signal.aborted) return finish("skipped", SKIPPED_STOP);
@@ -793,7 +834,7 @@ export class Agent {
       this.emit("tool_start", { runId, id, name, args: call.function.arguments });
       return finish("error", `Tool call "${name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`);
     }
-    const tool = this.tools.find((t) => t.name === name);
+    tool = this.tools.find((t) => t.name === name);
     let args: unknown;
     try {
       args = call.function.arguments.trim() ? JSON.parse(call.function.arguments) : {};
@@ -827,6 +868,7 @@ export class Agent {
         agent: this,
         callId: id,
         update: (content) => this.emit("tool_update", { runId, id, name, content }),
+        progress: (made) => { progress = made; },
       })), signal);
       if (signal.aborted) return finish("skipped", SKIPPED_STOP);
       const norm = normalizeResult(value, tool.maxResultChars);
@@ -842,11 +884,12 @@ export class Agent {
     const p = this.opts.permissions ?? "ask";
     if (typeof p === "function") return p({ name: tool.name, args, tool });
     if (p === "auto") return true;
-    let question: string | false = false;
+    let question: ToolConfirm = false;
     if (tool.confirm) question = await tool.confirm(args as Record<string, unknown>);
     else if (tool.destructive) question = `Allow ${tool.name}?`;
     if (question === false) return true;
-    return this.ui.confirm(question, undefined, { danger: !!tool.destructive, signal });
+    const { title, message } = typeof question === "string" ? { title: question, message: undefined } : question;
+    return this.ui.confirm(title, message, { danger: !!tool.destructive, signal });
   }
 
   /** After an abort, every open tool call gets a result so the transcript stays valid. */
@@ -863,17 +906,33 @@ export class Agent {
     }
   }
 
-  private checkLoop(fingerprints: string[]): "ok" | "warn" | "stop" {
-    const key = fingerprints.slice().sort().join("\n");
-    this.lastBatches.push(key);
-    if (this.lastBatches.length > LOOP_STOP) this.lastBatches.shift();
-    const same = (n: number) => this.lastBatches.length >= n && this.lastBatches.slice(-n).every((k) => k === key);
-    if (same(LOOP_STOP)) return "stop";
-    if (same(LOOP_WARN) && !this.loopWarned) {
-      this.loopWarned = true;
-      return "warn";
-    }
+  /**
+   * After each batch: did it bring anything new? A tool that changes things
+   * succeeding with arguments it had not had is progress (and what was seen
+   * before may be worth seeing again); otherwise a result counts when the
+   * tool says so, or when the run has not had the same one since the last change.
+   */
+  private checkLoop(outcomes: Outcome[]): "ok" | "warn" | "stop" {
+    const opt = this.opts.loopGuard;
+    if (opt === false) return "ok";
+    const warn = opt?.warn ?? LOOP_WARN, stop = opt?.stop ?? LOOP_STOP;
+    const l = this.loop;
+    const fresh = outcomes.map((o) => o.key !== "" && !l.seen.has(o.key));
+    // A change it had not made before: what was read may be worth reading again.
+    const changed = outcomes.some((o, i) => o.changed && fresh[i]);
+    if (changed) l.seen.clear();
+    for (const o of outcomes) if (o.key) l.seen.add(o.key);
+    const progress = changed || outcomes.some((o, i) => o.progress ?? fresh[i]);
+    if (l.seen.size > 512) l.seen.delete(l.seen.values().next().value!);
+    if (progress) { l.idle = 0; l.warned = false; return "ok"; }
+    l.idle++;
+    if (l.idle >= stop) return "stop";
+    if (l.idle >= warn && !l.warned) { l.warned = true; return "warn"; }
     return "ok";
+  }
+
+  private resetLoop(): void {
+    this.loop = { seen: new Set(), idle: 0, warned: false };
   }
 
   private balanceLimited(usage: Usage | undefined, maxTokens: number): boolean {

@@ -47,6 +47,7 @@ execute(args, ctx)
 | `workspace` | The agent's workspace, or null. |
 | `agent` | The agent. |
 | `callId` | The model's id for this call. |
+| `progress(made)` | Say whether this call brought anything new (see [Calls that go nowhere](#calls-that-go-nowhere)). |
 
 ```js
 const exportReport = defineTool({
@@ -96,7 +97,63 @@ const deleteProject = defineTool({
 });
 ```
 
-Under `permissions: "ask"` (the default) a tool with `destructive: true` or a `confirm` asks the user first. `confirm` may return `false` to run without asking this time (`({ id }) => isDraft(id) ? false : "Delete …?"`). A declined call returns `"declined"` to the model. See [Permissions and dialogs](agent.md#permissions-and-dialogs) for the other modes.
+Under `permissions: "ask"` (the default) a tool with `destructive: true` or a `confirm` asks the user first. `confirm` may return `false` to run without asking this time (`({ id }) => isDraft(id) ? false : "Delete …?"`), or `{ title, message }` to show the details under the question (`message` goes to `ui.confirm`'s second argument — the arguments, what will happen). A declined call returns `"declined"` to the model. See [Permissions and dialogs](agent.md#permissions-and-dialogs) for the other modes.
+
+## Calls that go nowhere
+
+Models sometimes circle: they read the same lines again with another limit, repeat a search, retry a call that fails the same way. The agent watches each round of tool calls for anything new:
+
+- A tool that **changes things** succeeding with arguments it has not had before is progress.
+- A **read-only** tool (`readOnly: true`) is progress only when its result is one the run has not had since the last change — reading another range of lines already read is not (`read_file` reports that itself).
+- The same error again is not progress; a declined call or the user steering is.
+
+After three rounds in a row without anything new the model is told to use what it has already read; after six the run ends with an error. Mark your look-only tools `readOnly: true`, and call `ctx.progress(false)` when a call returned nothing new in a way the result text does not show (a refreshed timestamp, say). `loopGuard: { warn, stop }` changes the counts; `loopGuard: false` turns it off.
+
+```js
+const listOrders = defineTool({
+  name: "list_orders",
+  description: "List the user's orders, newest first.",
+  readOnly: true,
+  execute: async (_args, ctx) => {
+    const { orders, fetchedAt } = await api.orders();
+    return { orders };            // fetchedAt left out: it would make every result look new
+  },
+});
+```
+
+## MCP servers
+
+`connectMCP(url, options)` connects to a [Model Context Protocol](https://modelcontextprotocol.io) server over Streamable HTTP and returns its tools, ready for an agent. No SDK: plain `fetch`, in browsers and Node.
+
+```js
+import { connectMCP, createAgent } from "@runappsai/agent";
+
+const github = await connectMCP("https://mcp.example.com/mcp", { token: githubToken });
+const agent = createAgent(provider, {
+  tools: [...myTools, ...github.tools],
+  instructions: [myInstructions, github.instructions].filter(Boolean).join("\n\n"),
+});
+// …
+await github.close();          // ends the session on the server
+```
+
+| Option | Default | |
+|---|---|---|
+| `token` | | Sent as `Authorization: Bearer …`. |
+| `headers` | | More request headers. |
+| `prefix` | the server's name | Tool names are `<prefix>__<tool>` (64 characters at most), so two servers' tools never clash. |
+| `confirm` | `"always"` | Ask before every call (`"ask"` permissions); `"unless-read-only"` lets tools the server marks `readOnlyHint` run without asking; `"never"`. The question names the server and the tool and shows the arguments. |
+| `images` | `false` | Pass pictures a tool returns to the model; otherwise they are named, not sent. |
+| `timeoutMs` | `60000` | Longest a request may take. |
+| `maxTools`, `maxResultChars` | `64`, `32000` | Limits. |
+| `fetch` | global | Your own fetch (a proxy, tests). |
+| `signal` | | Cancels connecting. |
+
+The connection has `tools`, `serverTools` (what the server said about each), `server` (`{ name, version, title }`), `instructions`, `refresh()` (read the list again) and `close()`.
+
+What it handles: the session id the server gives, answers that come as JSON or as an event stream, progress notifications (shown as the call's `tool_update`), a session the server has forgotten (started again once), stopping a call (the server is sent a cancellation), and requests the server makes of the client (`ping` is answered; sampling and the like are declined). A tool's text, resources and links go to the model; `isError` results become errors. Errors never include the token or the server's response headers; a call that fails after it was sent says its effect on the server is unknown, so the model does not repeat a side effect blindly.
+
+In a browser the server must allow your page's origin (CORS) and expose the `Mcp-Session-Id` header. OAuth sign-in and local (stdio) servers are not supported: get the token yourself and pass it.
 
 ## Built-in tools
 
@@ -109,6 +166,7 @@ Under `permissions: "ask"` (the default) a tool with `destructive: true` or a `c
 | `write_file` | Create or replace a file. | |
 | `edit_file` | One or more exact replacements — the model sends only the changed pieces; tolerant of curly quotes, dashes and trailing spaces. A mount with its own `edit()` applies them itself ([Workspace](workspace.md#mounting-your-apps-data)). | |
 | `delete_file` | Delete a file (asks). | |
+| `move_file`, `copy_file` | Move/rename or copy a file; never over an existing one. What was read of the source counts as read of the copy. | |
 | `search_files` | Search file contents. | |
 
 ### Read before write

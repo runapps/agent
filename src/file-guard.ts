@@ -23,6 +23,24 @@ interface Seen {
   /** Lines 1..coveredTo were read (Infinity: all of it). */
   coveredTo: number;
   total: number;
+  /** Every range of lines read at this version, merged (for "was anything new read?"). */
+  ranges: Array<[number, number]>;
+}
+
+/** Adds [start, end] to merged ranges; whether it covered any line they did not. */
+function addRange(ranges: Array<[number, number]>, start: number, end: number): boolean {
+  if (end < start) return false;
+  const covered = ranges.some(([a, b]) => a <= start && b >= end);
+  ranges.push([start, end]);
+  ranges.sort((x, y) => x[0] - y[0]);
+  const merged: Array<[number, number]> = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && r[0] <= last[1] + 1) last[1] = Math.max(last[1], r[1]);
+    else merged.push([r[0], r[1]]);
+  }
+  ranges.splice(0, ranges.length, ...merged);
+  return !covered;
 }
 
 export interface FileGuard {
@@ -31,11 +49,14 @@ export interface FileGuard {
   /**
    * The model read `path`: lines `start`..`end` of `total` (all of it when
    * left out). `text`, when it is the file's content as read, saves reading
-   * it again to fingerprint it.
+   * it again to fingerprint it. Resolves whether any of those lines had
+   * not been read before at this version (undefined when the guard is off).
    */
-  saw(path: string, opts?: { start?: number; end?: number; total?: number; text?: string }): Promise<void>;
+  saw(path: string, opts?: { start?: number; end?: number; total?: number; text?: string }): Promise<boolean | undefined>;
   /** The model wrote the whole file itself: it knows all of it. */
   wrote(path: string): Promise<void>;
+  /** `to` is now a copy of `from` (copied or moved): what was read of `from` counts as read of `to`. */
+  copied(from: string, to: string): Promise<void>;
   /** The model changed part of the file (an edit): what it had read stays read, at the new version. */
   edited(path: string): Promise<void>;
   /**
@@ -63,27 +84,38 @@ export function fileGuard(ws: Workspace, opts: { enabled?: boolean } = {}): File
   return {
     enabled,
     async saw(p, o = {}) {
-      if (!enabled) return;
+      if (!enabled) return undefined;
       const version = await versionOf(p, o.text).catch(() => null);
-      if (!version) { seen.delete(p); return; }
+      if (!version) { seen.delete(p); return true; }
       const start = o.start ?? 1;
       const end = o.end ?? Infinity;
       const total = o.total ?? Infinity;
       const was = seen.get(p);
+      const same = !!was && was.version === version;
       // Reading on from where it stopped extends what it has read; a new version starts over.
-      const coveredTo = was && was.version === version && start <= was.coveredTo + 1 ? Math.max(was.coveredTo, end) : start <= 1 ? end : 0;
-      seen.set(p, { version, coveredTo, total });
+      const coveredTo = same && start <= was!.coveredTo + 1 ? Math.max(was!.coveredTo, end) : start <= 1 ? end : 0;
+      const ranges = same ? was!.ranges : [];
+      const fresh = addRange(ranges, start, end) || !same;
+      seen.set(p, { version, coveredTo, total, ranges });
+      return fresh;
     },
     async wrote(p) {
       if (!enabled) return;
       const version = await versionOf(p).catch(() => null);
-      if (version) seen.set(p, { version, coveredTo: Infinity, total: Infinity }); else seen.delete(p);
+      if (version) seen.set(p, { version, coveredTo: Infinity, total: Infinity, ranges: [[1, Infinity]] }); else seen.delete(p);
+    },
+    async copied(from, to) {
+      if (!enabled) return;
+      const was = seen.get(from);
+      const version = was ? await versionOf(to).catch(() => null) : null;
+      if (was && version) seen.set(to, { ...was, version, ranges: was.ranges.map(([a, b]) => [a, b]) }); else seen.delete(to);
     },
     async edited(p) {
       if (!enabled) return;
       const was = seen.get(p);
       const version = await versionOf(p).catch(() => null);
-      if (version && was) seen.set(p, { ...was, version, total: Infinity }); else seen.delete(p);
+      // The lines moved: what was read stays read, but any later read shows the new text.
+      if (version && was) seen.set(p, { ...was, version, total: Infinity, ranges: [] }); else seen.delete(p);
     },
     async check(p, verb) {
       if (!enabled) return;

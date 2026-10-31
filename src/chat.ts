@@ -54,7 +54,12 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   emptyState?: string | HTMLElement | null;
   /** Starter prompts offered in the empty state; a click puts one in the composer. */
   suggestions?: string[];
-  /** The history / new-chat menu (default: on when the agent has a workspace). */
+  /**
+   * The conversation list and *New chat* (default: on when the chat makes
+   * its agents and has a workspace). Off — or with your own `agent` — the
+   * chat keeps one conversation and the header has a *Clear* button that
+   * starts it over instead (`chat.clear()`).
+   */
   sessions?: boolean;
   /** The Skills button in the header: the skills, uploading a zip, removing one (default: on when the agent has a workspace). */
   skillsMenu?: boolean;
@@ -127,6 +132,8 @@ export interface ChatHandle {
   resume(id: string): Promise<Agent>;
   /** Deletes a saved session (and the directory made for it); the current one is replaced by a new chat. */
   deleteSession(id: string): Promise<void>;
+  /** Starts the open conversation over (same id): stops it and drops its messages, queue and usage. Files stay. */
+  clear(): Promise<void>;
   /** Re-reads the workspace's skills and templates for `/` completion (after installing a skill). */
   refresh(): Promise<void>;
   /** Shows or hides the Debug button and panel. */
@@ -147,7 +154,7 @@ const STRINGS = {
     send: "Send", stop: "Stop", steer: "Steer", followUp: "Follow-up", steerTip: "Insert into the current task", followUpTip: "Queue after the current task",
     usageLine: "{cost} · {tokens} tokens · {calls} calls", emptyResult: "(empty)",
     queued: "Queued messages", queuedN: "{n} message queued", queuedNs: "{n} messages queued", queueNext: "Next:", sendNow: "Send now (insert into the current task)", editQueued: "Edit", expand: "Show all", collapse: "Collapse", clear: "Clear queue", thinking: "Thinking…", thought: "Thought process",
-    enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "Chats", newChat: "New chat", noSessions: "No other conversations yet", notSaved: "not saved yet",
+    enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "Chats", newChat: "New chat", clearChat: "Clear", confirmClear: "Clear this conversation? Its messages are removed; the files stay.", noSessions: "No other conversations yet", notSaved: "not saved yet",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
     other: "Other…", typeAnswer: "Type your answer", args: "Arguments", result: "Result", error: "Error", declined: "declined", blocked: "blocked", skipped: "skipped",
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Paused at the turn limit ({n})", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
@@ -184,7 +191,7 @@ const STRINGS = {
     send: "发送", stop: "停止", steer: "插入", followUp: "排队", steerTip: "插入到当前任务，下一步就会看到", followUpTip: "排到当前任务结束之后",
     usageLine: "{cost} · {tokens} tokens · {calls} 次调用", emptyResult: "（空）",
     queued: "排队中的消息", queuedN: "{n} 条消息排队中", queuedNs: "{n} 条消息排队中", queueNext: "下一条：", sendNow: "立即发送（插入当前任务）", editQueued: "编辑", expand: "展开", collapse: "收起", clear: "清空队列", thinking: "思考中…", thought: "思考过程",
-    enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "会话", newChat: "新对话", noSessions: "还没有其它对话", notSaved: "尚未保存",
+    enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "会话", newChat: "新对话", clearChat: "清除", confirmClear: "清除这次对话？消息会被删除，文件保留。", noSessions: "还没有其它对话", notSaved: "尚未保存",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
     other: "其他…", typeAnswer: "请输入", args: "参数", result: "结果", error: "错误", declined: "已拒绝", blocked: "已拦截", skipped: "已跳过",
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "已达最大轮数 {n}，暂停", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
@@ -984,8 +991,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   // How many conversations there are (none shown while the open one is the only one).
   const setHistCount = countBadge(histBtn, t.history);
   const newBtn = h("button", "ra-btn ghost"); newBtn.type = "button"; newBtn.innerHTML = I.plus() + `<span>${escapeHTML(t.newChat)}</span>`;
+  // Without a conversation list: one conversation, which this starts over.
+  const clearBtn = h("button", "ra-btn ghost"); clearBtn.type = "button"; clearBtn.innerHTML = I.eraser() + `<span>${escapeHTML(t.clearChat)}</span>`; clearBtn.style.display = "none";
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
-  head.append(titleEl, modelEl, h("span", "ra-sp"), debugBtn, filesBtn, skillsBtn, histBtn, newBtn, setBtn);
+  head.append(titleEl, modelEl, h("span", "ra-sp"), debugBtn, filesBtn, skillsBtn, histBtn, newBtn, clearBtn, setBtn);
   if (title === false) head.style.display = "none";
   const log = h("div", "ra-log");
   const inner = h("div", "ra-col");
@@ -2141,6 +2150,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
   histBtn.addEventListener("click", () => void openMenu());
   newBtn.addEventListener("click", () => { closeMenu(); void newSession().catch((err) => ui.notify((err as Error).message, "error")); });
+  clearBtn.addEventListener("click", async () => {
+    closeMenu();
+    if (await modalConfirm(root, t.clearChat, t.confirmClear, { danger: true, ok: t.clearChat, cancel: t.cancel })) await clearConversation().catch((err) => ui.notify((err as Error).message, "error"));
+  });
   document.addEventListener("click", onDocClick, true);
   function onDocClick(e: Event) { if ((e.target as Element | null)?.closest?.(".ra-selp")) return; if (menu && !menu.contains(e.target as Node) && !histBtn.contains(e.target as Node) && !setBtn.contains(e.target as Node) && !skillsBtn.contains(e.target as Node)) closeMenu(); }
 
@@ -2250,7 +2263,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const lines = builtinCommands().map((c) => `- \`/${c.name}${c.args ? ` ${c.args}` : ""}\` — ${c.description}`);
       addNote(t.cmdsTitle, [...lines, "", t.cmdsMore].join("\n"));
     } },
-    { name: "new", aliases: ["clear"], run: () => { closeMenu(); return newSession().then(() => undefined); } },
+    { name: "new", aliases: ["clear"], run: () => { closeMenu(); return clearBtn.style.display === "none" ? newSession().then(() => undefined) : clearConversation(); } },
     { name: "resume", run: () => openMenu() },
     { name: "compact", args: t.cmdArgs.compact, run: async (focus) => {
       const a = agent;
@@ -2328,8 +2341,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   ];
   /** The built-ins this chat offers now (the files, settings and debug ones only where their button shows). */
   const builtinCommands = (): Command[] => builtins
-    .filter((b) => (b.name !== "files" || !!agent?.workspace) && (b.name !== "settings" || hasSettings) && (b.name !== "debug" || debugOn) && (!["new", "resume"].includes(b.name) || !givenAgent) && (b.name !== "resume" || !!agent?.workspace))
-    .map((b) => ({ name: b.name, description: (t.cmd as Record<string, string>)[b.name] ?? "", kind: t.command, args: b.args, builtin: true }));
+    .filter((b) => (b.name !== "files" || !!agent?.workspace) && (b.name !== "settings" || hasSettings) && (b.name !== "debug" || debugOn) && (b.name !== "resume" || (!givenAgent && !!agent?.workspace && clearBtn.style.display === "none")))
+    .map((b) => ({ name: b.name, description: b.name === "new" && clearBtn.style.display !== "none" ? t.confirmClear.split(/[?？]/)[0]! : (t.cmd as Record<string, string>)[b.name] ?? "", kind: t.command, args: b.args, builtin: true }));
   /** `/name [arg]` naming a built-in: run it here (nothing goes to the model). */
   const runBuiltin = (text: string): boolean => {
     const m = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text);
@@ -2396,6 +2409,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     // A host's own agent has no sessions to switch between: the chat cannot make a new one.
     const hasSessions = !givenAgent && (sessions ?? !!a.workspace);
     histBtn.style.display = newBtn.style.display = hasSessions && a.workspace ? "" : "none";
+    clearBtn.style.display = hasSessions && a.workspace ? "none" : "";
     filesBtn.style.display = a.workspace ? "" : "none";
     skillsBtn.style.display = a.workspace && skillsMenu !== false ? "" : "none";
     panel.setWorkspace(a.workspace);
@@ -2563,6 +2577,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return run;
   };
   const newSession = () => switchTo();
+  const clearConversation = async () => {
+    await ready;
+    const a = agent ?? givenAgent!;
+    ui.cancelAll();
+    await a.clear();
+    if (agent === a || givenAgent === a) { renderHistory(a.messages); showUsage_(a); renderQueue(); setAlert(); }
+  };
   const resume = (id: string) => switchTo(id);
   const deleteSession = async (id: string, keepOpen = false, space?: string) => {
     await ready;
@@ -2616,6 +2637,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     newSession,
     resume,
     deleteSession: (id) => deleteSession(id),
+    clear: clearConversation,
     setDebug(on) { debugOn = on; applyDebug(); },
     setAppearance(o) {
       if (o.theme) themeNow = o.theme;

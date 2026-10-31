@@ -71,7 +71,7 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `placeholder` | | Composer placeholder. |
 | `emptyState` | | Text or element shown while the conversation is empty. |
 | `suggestions` | | Starter prompts shown in the empty state. |
-| `sessions` | on with a workspace | The conversation list and *New chat*. |
+| `sessions` | on with a workspace | The conversation list and *New chat*. `false` (or your own `agent`): one conversation, and a *Clear* button that starts it over. |
 | `skillsMenu` | on with a workspace | The *Skills* button. |
 | `settings` | on | The settings gear. |
 | `attachments` | on | Paperclip, drop and paste. |
@@ -124,6 +124,7 @@ chat.setInput("Draft: ");      // fill the composer
 await chat.newSession();
 await chat.resume(id);
 await chat.deleteSession(id);
+await chat.clear();            // start the open conversation over (the Clear button)
 await chat.refresh();          // re-read skills and templates for the / menu
 chat.setDebug(true);
 chat.setAppearance({ theme: "dark", palette: "slate" });
@@ -152,6 +153,16 @@ renderChat(el, {
 });
 ```
 
+## One conversation: `sessions: false`
+
+An app with one conversation per document or project turns the list off:
+
+```js
+renderChat(el, { provider, workspace: projectWorkspace, sessions: false });
+```
+
+The header then has no *Chats* or *New chat*; a **Clear** button (after a confirmation) starts the conversation over — the messages, the queue and the usage go, the conversation keeps its id, the files stay. `/new` and `/clear` do the same, `/resume` is not offered, and `chat.clear()` does it from your code. A chat showing your own `agent` works the same way.
+
 ## Using your own agent
 
 ```js
@@ -159,7 +170,7 @@ const agent = createAgent(provider, { tools, workspace, ui: myDialogs });
 renderChat(el, { agent });
 ```
 
-The chat shows that agent; it does not make new ones (no conversation list or *New chat*).
+The chat shows that agent; it does not make new ones (no conversation list or *New chat*; *Clear* starts it over).
 
 ## Theming
 

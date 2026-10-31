@@ -141,10 +141,10 @@ console.log(result.reason, result.usage);
 |---|---|
 | [Providers](docs/providers.md) | Connecting a model API: `openAIProvider`, `runappsProvider`, writing your own, errors and retries |
 | [The agent](docs/agent.md) | Runs, steering and queueing, stopping and continuing, events, permissions and dialogs, sessions, compaction, all options |
-| [Tools](docs/tools.md) | `defineTool`, schemas, results, confirmations, progress, the built-in tools |
+| [Tools](docs/tools.md) | `defineTool`, schemas, results, confirmations, progress, calls that go nowhere, MCP servers, the built-in tools |
 | [Workspace and files](docs/workspace.md) | The virtual directory, mounting your app's data, a real folder, memory and project notes, prompt templates, PDFs, change events |
 | [Skills](docs/skills.md) | Skill folders and zips, the app's skills, lazy skills, the user's skills, writing descriptions |
-| [Chat UI](docs/chat-ui.md) | `renderChat` options and handle, what the UI does, commands, theming, dropdowns, debug |
+| [Chat UI](docs/chat-ui.md) | `renderChat` options and handle, what the UI does, commands, one-conversation mode, theming, dropdowns, debug |
 | [Node and the command line](docs/node.md) | A folder as the workspace, storage on disk, terminal dialogs, PDFs, the CLI example |
 | [API reference](docs/reference.md) | Every export in one place |
 

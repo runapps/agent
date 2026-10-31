@@ -29,7 +29,7 @@ One `prompt()` is a **run**. A run is made of **turns**: one model call, then th
 
 `prompt()` resolves with the result; it does not throw for these. Calling `prompt()` while a run is active queues the message like `followUp()`.
 
-Tool calls in a turn run one after another; `parallelTools: true` runs them at once. A tool that throws sends its message back to the model as an error, so the model can fix the call. A reply cut short by `max_tokens` runs none of its tool calls (each is told to re-issue with complete arguments). The same batch of tool calls three times in a row gets a warning to the model; six times stops the run.
+Tool calls in a turn run one after another; `parallelTools: true` runs them at once. A tool that throws sends its message back to the model as an error, so the model can fix the call. A reply cut short by `max_tokens` runs none of its tool calls (each is told to re-issue with complete arguments). Rounds of tool calls that bring nothing new — the same results, lines already read, the same errors — get a warning to the model after three in a row and stop the run after six ([Calls that go nowhere](tools.md#calls-that-go-nowhere)).
 
 ## Talking to a running agent
 
@@ -66,6 +66,7 @@ agent.on("run_start", ({ message }) => drawUserMessage(message));      // messag
 agent.on("reasoning_delta", ({ text }) => thinkingBox.textContent = text);
 agent.on("text_delta", ({ text }) => answerBox.innerHTML = markdown(text));
 agent.on("message_reset", () => answerBox.textContent = "");          // a retried call: drop what was shown
+agent.on("tool_call_delta", ({ index, name, arguments: json }) => draftCard(index, name, json));   // arguments as they stream
 agent.on("tool_start", ({ id, name, args }) => addCard(id, name, args));
 agent.on("tool_update", ({ id, content }) => cardProgress(id, content));
 agent.on("tool_end", ({ id, status, result, durationMs }) => finishCard(id, status, result));
@@ -81,11 +82,12 @@ agent.on("run_end", ({ reason, error, usage }) => setBusy(false));
 | `text_delta` | `delta`, `text` | Answer text streams in |
 | `message_reset` | `reason` | A call is retried after it streamed: discard what was shown |
 | `message_end` | `message`, `truncated` | An assistant message is complete |
+| `tool_call_delta` | `index`, `id`, `name`, `delta`, `arguments` | A tool call's arguments stream in (raw JSON so far, cut anywhere); nothing runs before the reply ends |
 | `tool_start` / `tool_update` / `tool_end` | `id`, `name`, `args` / `content` / `status`, `result`, `details`, `durationMs` | Tool calls |
 | `queued` | `kind`, `message` | `steer()` or `followUp()` added to the queue |
 | `steered` | `messages` | Queued steering entered the conversation (draw it now) |
 | `compaction_start` / `compaction` | `runId?`; `summary`, `tokensBefore`, `tokensAfter`, … | Older turns are being / were summarised |
-| `rewind` | `index` | `rewind()` dropped messages |
+| `rewind` | `index` | `rewind()` dropped messages (`clear()`: index 0) |
 | `session_saved` | `id` | The session was written to the workspace |
 | `run_end` | `RunResult` | A run ended |
 
@@ -142,7 +144,7 @@ await workspace.sessions.delete("chat-41");
 - `persist: false` keeps a conversation in memory only.
 - `agent.export()` returns the session (`SessionData`) for storage of your own; `createAgent(provider, { restore: data })` continues it.
 - `agent.lastEnd` says how the last run ended when it did not finish (`{ reason, error?, at }`), and is saved with the session until the next run starts.
-- `agent.reset()` forgets the conversation (the workspace stays).
+- `agent.clear()` starts the conversation over under the same id — stops a run, drops the queue, messages, title, usage — and saves that; the workspace's files stay. `agent.reset()` forgets the messages in memory only (not while running).
 
 ## Context and compaction
 
@@ -190,6 +192,7 @@ Both live in the workspace's directory: shared by every conversation that uses t
 | `maxInputTokens` | `"auto"` | The context budget: the model's window, or a number. |
 | `parallelTools` | `false` | Run a turn's tool calls at once. |
 | `keepTurns` | `4` | Turns kept intact when old turns have to be dropped. |
+| `loopGuard` | `{ warn: 3, stop: 6 }` | Rounds without anything new before the model is warned / the run stops; `false` turns it off. |
 | `temperature`, `top_p` | | Sent as is. |
 | `extra` | | Any other request field (`reasoning_effort`, …). |
 | `compaction` | on | See above. |
