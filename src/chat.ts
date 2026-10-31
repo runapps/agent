@@ -1767,7 +1767,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       queueMicrotask(renderQueue);
     });
     // Steering is drawn when it lands in the history (at a turn, or before the next prompt), once.
-    on("steered", (ev: { messages: ChatMessage[] }) => { for (const m of ev.messages) addUser(m.content as string | ContentPart[], m); renderQueue(); });
+    on("steered", (ev: { messages: ChatMessage[] }) => {
+      // The row in progress ends here: what the agent does after the steer is drawn below the user's message, not above it.
+      flushActive(true);
+      active = null;
+      for (const m of ev.messages) addUser(m.content as string | ContentPart[], m);
+      renderQueue();
+    });
     on("queued", () => renderQueue());
     // The host rewound the agent itself: show what it has now.
     on("rewind", () => { if (agent === a) { renderHistory(a.messages); showUsage_(a); } });
