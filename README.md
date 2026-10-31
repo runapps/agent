@@ -131,7 +131,9 @@ In the composer, Enter sends and Shift+Enter breaks a line; while the agent runs
 
 **Files, zipped.** A folder row's download icon, or the icon in the panel's header for the whole directory, builds a zip in the browser (`buildZip`, deflate through `CompressionStream` when available) and hands it to the browser to save.
 
-**Rewind.** Under each user message sit the time it was sent, a copy button and "rewind to here": the conversation after that message is dropped (`agent.rewind(index)`), and, when the session has a directory, the directory's files can be put back as they were when the message was sent — the chat snapshots the work files (not skills, not mounts, files up to 2 MB) at every prompt and keeps them with the directory (`workspace.putData`). The message goes back into the composer to edit and resend. User messages carry `ts` (when sent) in the saved session; the model never sees it.
+**Rewind.** Under each user message sit the time it was sent, a copy button and "rewind to here": the conversation after that message is dropped (`agent.rewind(index)`), the message (and its attachments) goes back into the composer, and, when the session has a directory of its own in IndexedDB (the per-session `workspace` factory, not a shared workspace or a `dir` folder), its files can be put back as they were when the message was sent. The chat snapshots the work files (not skills, not mounts, files up to 2 MB, 32 MB in all; files left out are recorded and never deleted by a restore) at every prompt, keeps the newest 30 with the directory (`workspace.putData`) and drops those of rewound messages. User messages carry `ts` (when sent) and, for an expanded slash command, `typed` (what was written) in the saved session; the model sees neither.
+
+**Scrolling.** The transcript follows new output while you are at the bottom; scrolling up stops that, and a small round button fades in above the composer to jump back to the latest.
 
 The transcript is a virtual list (`VirtualList`, also exported): a row is built the first time it scrolls into view and only the rows around the viewport are in the DOM, so a session with thousands of messages opens at once; rows keep their element, so an opened tool card stays open when it scrolls back in. Streaming text is re-rendered at most every 100 ms and the list follows the end until you scroll up.
 
@@ -142,10 +144,11 @@ Colours come from `--ra-*` custom properties on `.ra-chat`, so a host can restyl
 | | |
 |---|---|
 | `createAgent(client, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `continue`, `dequeue`, `clearQueue`, `abort`, `rewind`, `configure`, `settings`, `limits`, `context`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id` |
-| `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `mountOf`, `isSkillPath`, `getData`, `putData`, `onChange`, `skills`, `skillBody`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` (deleting a session saved from a directory of its own id drops that directory too) |
+| `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `mountOf`, `isSkillPath`, `isReadOnly`, `getData`, `putData`, `deleteData`, `onChange`, `close`, `skills`, `skillBody`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` — sessions are kept per directory (`[space, id]`): `get(id)` reads this directory's session, else the one in the directory named after it; deleting a session saved from a directory of its own id drops that directory too |
 | Tools | `defineTool`, `fileTools`, `sandboxTool`, `runInSandbox`, `askUserTool` |
-| UI | `domUI`, `nullUI`; implement `AgentUI` for your own |
+| UI | `domUI`, `nullUI`; implement `AgentUI` for your own (a question's `opts.signal` aborts when the run is stopped: close it as dismissed) |
 | Files | `memoryFS`; implement `AgentFS` to mount your document |
+| Events | `run_start` (`message` null for `continue()`), `turn_start`, `steered` (queued steering entered the history), `queued`, `text_delta`, `reasoning_delta`, `tool_start`/`tool_update`/`tool_end`, `compaction`, `rewind`, `session_saved`, `run_end` |
 | Helpers | `buildZip`, `listZip`, `readZipEntry`, `parseSkill`, `listTemplates`, `expandSlash`, `applyEdits`, `planCut`, `collectCompletion`, `buildSystemPrompt`, `estimateTokens`, `validateSchema` |
 
 `examples/agent-demo.html` is a page to try everything against a local backend or a key. Tests: `npm test` (node:test on the built output, fetch mocked).

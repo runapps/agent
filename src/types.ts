@@ -332,7 +332,7 @@ export interface AgentOptions {
    * scripts in a Worker with no DOM and no network. `false` removes it;
    * an object configures it (timeout, network).
    */
-  sandbox?: boolean | { timeoutMs?: number; network?: boolean };
+  sandbox?: boolean | { timeoutMs?: number; network?: boolean; maxLogChars?: number };
   /** The `ask_user` tool (default on). */
   askUser?: boolean;
   /**
