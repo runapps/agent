@@ -487,7 +487,8 @@ export class Agent {
         }
         this.emit("response", { runId, turn, durationMs: Date.now() - asked, finishReason: completion.finishReason, usage: completion.usage, message: completion.message });
         if (completion.usage) this.addUsage(completion.usage);
-        const assistant: ChatMessage = { role: "assistant", content: completion.message.content };
+        // `ts` (when it ended) lets a transcript say how long a reply worked; requests never carry it.
+        const assistant = { role: "assistant", content: completion.message.content, ts: Date.now() } as ChatMessage;
         if (completion.message.tool_calls?.length) assistant.tool_calls = completion.message.tool_calls;
         // A thinking model's reasoning stays with the turn: DeepSeek in thinking mode wants it back on tool-calling turns, and the transcript shows it.
         if (completion.reasoning) assistant.reasoning_content = completion.reasoning;

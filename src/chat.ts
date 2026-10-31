@@ -6,7 +6,7 @@
 // framework, styles injected once; the host gives the element a height.
 //
 // Look and behaviour follow the harness app's chat (React/Chakra, purple
-// palette): a right-aligned user bubble, a 26 px avatar before replies,
+// palette): a right-aligned user bubble, replies full width with their work folded,
 // collapsible tool cards with an icon, duration and status, a fixed-
 // height composer that never resizes while typing, and a virtual
 // transcript (`VirtualList`) that keeps only the rows near the viewport
@@ -161,6 +161,7 @@ const STRINGS = {
     apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue from here.",
     files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", tooBig: "Too large to edit here; download it.", conflict: "The file changed since you opened it. Overwrite it?", readOnly: "Read-only", autoSaved: "Unsaved edits saved", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved",
+    worked: "Worked for {t}", workedNoTime: "Work", sec: "{s}s", minSec: "{m}m {s}s", hourMin: "{h}h {m}m",
     command: "Command", user: "User", compacting: "Compacting the context…", nothingToCompact: "Nothing to compact yet", busyCmd: "Wait for the current task to finish, or stop it, first", copiedReply: "Copied the last reply", nothingToCopy: "No reply to copy yet", nothingToContinue: "Nothing to continue",
     unknownModel: "No model named \"{name}\"", modelSet: "Model: {name}", effortSet: "Thinking: {name}", effortLevels: "Thinking levels of {model}: {levels}", unknownEffort: "\"{name}\" is not a thinking level of {model} ({levels})", debugOff: "Debug mode is off",
     cmdsTitle: "Commands", cmdsMore: "Templates (/name) and skills (/skill:name) are listed as you type.", autoCompact: "Auto-compaction", autoCompactAt: "when less than {n} tokens are left", directory: "Directory", messagesLabel: "Messages",
@@ -190,6 +191,7 @@ const STRINGS = {
     apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续从这里接着跑",
     files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", tooBig: "文件太大，无法在这里编辑，可以下载。", conflict: "文件在你打开后被改过，要覆盖吗？", readOnly: "只读", autoSaved: "未保存的修改已自动保存", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存",
+    worked: "已工作 {t}", workedNoTime: "工作过程", sec: "{s}秒", minSec: "{m}分{s}秒", hourMin: "{h}小时{m}分",
     command: "命令", user: "用户", compacting: "正在压缩上下文…", nothingToCompact: "暂时没有可压缩的内容", busyCmd: "请等当前任务结束（或先停止）", copiedReply: "已复制最后一条回复", nothingToCopy: "还没有可复制的回复", nothingToContinue: "没有可继续的内容",
     unknownModel: "没有名为“{name}”的模型", modelSet: "模型：{name}", effortSet: "思考强度：{name}", effortLevels: "{model} 的思考强度：{levels}", unknownEffort: "“{name}”不是 {model} 的思考强度（{levels}）", debugOff: "调试模式未开启",
     cmdsTitle: "命令", cmdsMore: "模板（/名称）和 Skill（/skill:名称）在输入时列出。", autoCompact: "自动压缩", autoCompactAt: "剩余不足 {n} tokens 时", directory: "目录", messagesLabel: "消息",
@@ -368,9 +370,15 @@ const CSS = tokenCSS() + `
 .ra-modal label.ra-ck{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
 .ra-modal label.ra-ck input{width:auto;accent-color:var(--ra-accent)}
 .ra-modal .ra-dn{font-size:12px;color:var(--ra-fg-muted);margin:-4px 0 0 24px}
-.ra-asst{display:flex;gap:10px;align-items:flex-start}
-.ra-avatar{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:transparent;color:var(--ra-accent);display:flex;align-items:center;justify-content:center;margin-top:2px}
-.ra-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.ra-asst{min-width:0}
+.ra-body{min-width:0;display:flex;flex-direction:column;gap:8px}
+.ra-work{border-bottom:1px solid var(--ra-border);padding-bottom:6px;margin-bottom:4px}
+.ra-work>summary{display:inline-flex;align-items:center;gap:4px;font-size:13px;color:var(--ra-fg-muted);cursor:pointer;list-style:none;user-select:none;padding:2px 0}
+.ra-work>summary::-webkit-details-marker{display:none}
+.ra-work>summary:hover{color:var(--ra-fg)}
+.ra-work>summary .ra-chev{display:inline-flex;transition:transform .15s}
+.ra-work[open]>summary .ra-chev{transform:rotate(90deg)}
+.ra-work .ra-wb{display:flex;flex-direction:column;gap:8px;margin:8px 0 4px}
 .ra-md{font-size:14px;line-height:1.65;word-break:break-word;overflow-wrap:anywhere}
 .ra-md>:first-child{margin-top:0}.ra-md>:last-child{margin-bottom:0}
 .ra-md p{margin:.5em 0}.ra-md h1,.ra-md h2,.ra-md h3,.ra-md h4{margin:1em 0 .4em;line-height:1.3;font-weight:650}.ra-md h1{font-size:1.35em}.ra-md h2{font-size:1.2em}.ra-md h3{font-size:1.05em}
@@ -815,7 +823,7 @@ type Command = { name: string; description: string; kind: string; /** Built-in: 
 
 interface ToolCard { el: HTMLDetailsElement; name: string; args: unknown; end: HTMLElement; body: HTMLElement; update: HTMLElement | null; result: HTMLElement | null }
 
-/** A reply: avatar + body holding thinking, text and tool cards, filled live or from a saved message. */
+/** A reply: its body holds thinking, text and tool cards, filled live or from saved messages; once done, all but the answer folds into "Worked for …". */
 interface AsstRow extends VRow {
   body: HTMLElement;
   text: HTMLElement | null;
@@ -1209,10 +1217,47 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   const asstRow = (): AsstRow => {
     const el = h("div", "ra-asst");
-    const av = h("div", "ra-avatar"); av.innerHTML = I.spark();
     const body = h("div", "ra-body");
-    el.append(av, body);
+    el.append(body);
     return { render: () => el, el, body, text: null, think: null, thinkBody: null, md: "", reasoning: "" };
+  };
+
+  const fmtDuration = (ms: number): string => {
+    const s = Math.max(1, Math.round(ms / 1000));
+    if (s < 60) return t.sec.replace("{s}", String(s));
+    if (s < 3600) return t.minSec.replace("{m}", String(Math.floor(s / 60))).replace("{s}", String(s % 60));
+    return t.hourMin.replace("{h}", String(Math.floor(s / 3600))).replace("{m}", String(Math.floor((s % 3600) / 60)));
+  };
+  /**
+   * A finished reply: everything before its answer (thinking, tool calls, text written along the way)
+   * folds into one "Worked for 6m 38s" line, the answer stays below it. A reply that is only an answer
+   * has nothing to fold; one that ended without an answer (stopped, turn limit) folds whole.
+   */
+  const foldReply = (body: HTMLElement, ms?: number) => {
+    if (body.querySelector(":scope>.ra-work")) return;
+    const kids = Array.from(body.children);
+    const last = kids.at(-1);
+    const process = last?.classList.contains("ra-md") ? kids.slice(0, -1) : kids;
+    if (!process.length) return;
+    const d = h("details", "ra-work") as HTMLDetailsElement;
+    const sum = h("summary");
+    sum.append(h("span", "", ms !== undefined && ms > 0 ? t.worked.replace("{t}", fmtDuration(ms)) : t.workedNoTime));
+    const chev = h("span", "ra-chev"); chev.innerHTML = I.chev(13); sum.append(chev);
+    // Opening it keeps the line where it is; the steps open below.
+    sum.addEventListener("click", () => list.pin(sum));
+    const inner = h("div", "ra-wb");
+    inner.append(...process);
+    d.append(sum, inner);
+    body.prepend(d);
+  };
+  /** When the reply being drawn began (the run, or the steer it follows): its "worked for" time counts from here. */
+  let replyStart = 0;
+  const closeActive = () => {
+    if (!active) return;
+    flushActive(true);
+    foldReply(active.body, replyStart ? Date.now() - replyStart : undefined);
+    active = null;
+    list.schedule();
   };
 
   const ensureActive = (): AsstRow => {
@@ -1424,11 +1469,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     active = null;
     type HistCall = { id: string; name: string; args: unknown; result?: string; status?: ToolStatus };
     type Item = { kind: "think"; text: string } | { kind: "text"; text: string } | { kind: "call"; call: HistCall };
-    // One row per reply, as live: turns without text (thinking + tool calls) join the row before them; a turn that wrote text ends it.
-    let last: { items: Item[]; calls: HistCall[]; endedWithText: boolean } | null = null;
-    const flush = () => {
+    // One row per reply, as live: every turn between two user messages; text-less turns (thinking + tool calls) share a group.
+    let last: { items: Item[]; calls: HistCall[]; start?: number; end?: number } | null = null;
+    let lastUserTs: number | undefined;
+    const flush = (atEnd = false) => {
       if (!last) return;
       const m = last; last = null;
+      // A reply still being written (the session is running) is not folded yet.
+      const fold = !(atEnd && agent?.busy);
       addRow({
         render: () => {
           const r = asstRow();
@@ -1450,6 +1498,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
               else { if (c.id) cards.set(c.id, card); refreshGroup(card.el); }
             }
           }
+          if (fold) foldReply(r.body, m.start !== undefined && m.end !== undefined ? m.end - m.start : undefined);
           return r.el!;
         },
       });
@@ -1461,11 +1510,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         if (s !== null) { addNote(t.compacted, s); continue; }
         // The agent's own notes to the model (a loop warning) are not the user's messages.
         if (typeof m.content === "string" && m.content.startsWith("[environment]")) continue;
+        lastUserTs = tsOf(m);
         addRow(userRow(m.content as string | ContentPart[], m));
       } else if (m.role === "assistant") {
         const text = textOfContent(m.content);
         const rs = (m as { reasoning_content?: unknown }).reasoning_content; const reasoning = typeof rs === "string" ? rs : "";
-        if (!last || last.endedWithText) { flush(); last = { items: [], calls: [], endedWithText: false }; }
+        if (!last) last = { items: [], calls: [], start: lastUserTs };
+        last.end = tsOf(m) ?? last.end;
         if (reasoning) last.items.push({ kind: "think", text: reasoning });
         if (text) last.items.push({ kind: "text", text });
         for (const c of m.tool_calls ?? []) {
@@ -1476,14 +1527,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
           last.calls.push(call);
           if (call.id) histCalls.set(call.id, call);
         }
-        last.endedWithText = !!text;
       } else if (m.role === "tool") {
         const text = textOfContent(m.content);
         const call = last?.calls.find((c) => c.id === (m.tool_call_id ?? ""));
         if (call) { call.result = text; call.status = statusOfResult(text); histCalls.delete(call.id); }
       }
     }
-    flush();
+    flush(true);
     if (!messages.length) showEmpty();
     list.scrollToBottom();
   };
@@ -2068,21 +2118,21 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       }
       awaitingRow = null;
       active = null;
+      replyStart = Date.now();
       setBusy(true);
     });
     on("turn_start", () => {
       flushActive(true);
-      // Turns with no text (thinking and tool calls) stay in one row and one group, so a chain of calls
-      // reads as one step; a turn that wrote text closes the row. Each turn's thinking is its own.
-      if (active?.text) active = null;
-      else if (active) { active.think = null; active.thinkBody = null; active.reasoning = ""; }
+      // A run's turns share one row (folded into "Worked for …" at the end); a turn starts its own text and thinking,
+      // and consecutive text-less turns (thinking and tool calls) share one group, so a chain of calls reads as one step.
+      if (active) { active.text = null; active.md = ""; active.drawn = undefined; active.drawnFinal = undefined; active.think = null; active.thinkBody = null; active.reasoning = ""; }
       queueMicrotask(renderQueue);
     });
     // Steering is drawn when it lands in the history (at a turn, or before the next prompt), once.
     on("steered", (ev: { messages: ChatMessage[] }) => {
       // The row in progress ends here: what the agent does after the steer is drawn below the user's message, not above it.
-      flushActive(true);
-      active = null;
+      closeActive();
+      replyStart = Date.now();
       for (const m of ev.messages) addUser(m.content as string | ContentPart[], m);
       renderQueue();
     });
@@ -2131,8 +2181,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       addNote(ev.summary ? t.compacted : t.trimmed, ev.summary && s ? s : undefined);
     });
     on("run_end", (r: RunResult) => {
-      flushActive(true);
-      active = null;
+      closeActive();
       ui.cancelAll();
       if (r.reason === "error" && r.error) addError(r.error.message, a.messages.length ? () => void a.continue().catch((e) => ui.notify((e as Error).message, "error")) : undefined);
       else if (r.reason === "max_turns") addWarn(t.maxTurns.replace("{n}", String(a.settings.maxTurns)), { label: t.continueRun, onClick: () => { try { void a.continue().catch((e) => ui.notify((e as Error).message, "error")); } catch (e) { ui.notify((e as Error).message, "error"); } } }, t.maxTurnsHint);
