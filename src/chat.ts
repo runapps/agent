@@ -118,7 +118,7 @@ const STRINGS = {
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Paused at the turn limit ({n})", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove",
-    jumpEnd: "Jump to the latest", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
+    toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed", jumpEnd: "Jump to the latest", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     settings: "Settings", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
@@ -136,7 +136,7 @@ const STRINGS = {
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "已达最大轮数 {n}，暂停", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除",
-    jumpEnd: "回到最新", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
+    toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败", jumpEnd: "回到最新", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     settings: "设置", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
@@ -306,6 +306,15 @@ const CSS = `
 .ra-think summary .ra-chev{transition:transform .15s}
 .ra-think[open] summary .ra-chev{transform:rotate(90deg)}
 .ra-think .ra-think-body{font-size:12px;color:var(--ra-fg-muted);white-space:pre-wrap;border-left:2px solid var(--ra-border);padding-left:12px;margin:4px 0 0 4px;max-height:280px;overflow:auto}
+.ra-tg>summary{display:inline-flex;align-items:center;gap:6px;max-width:100%;font-size:13px;color:var(--ra-fg-muted);cursor:pointer;list-style:none;user-select:none;padding:2px 0}
+.ra-tg>summary::-webkit-details-marker{display:none}
+.ra-tg>summary:hover{color:var(--ra-fg)}
+.ra-tg>summary .ra-tgt{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra-tg>summary .ra-tgt code{font:12px ${MONO};background:none;padding:0;color:inherit}
+.ra-tg>summary .ra-tgf{color:var(--ra-red);flex-shrink:0}
+.ra-tg>summary .ra-chev{display:inline-flex;transition:transform .15s;flex-shrink:0}
+.ra-tg[open]>summary .ra-chev{transform:rotate(90deg)}
+.ra-tg .ra-tgb{display:flex;flex-direction:column;gap:8px;margin-top:6px}
 .ra-tool{border:1px solid var(--ra-border);border-radius:6px;overflow:hidden;font-size:14px}
 .ra-tool.fail{border-color:var(--ra-red)}
 .ra-tool>summary{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;list-style:none;user-select:none}
@@ -1114,10 +1123,49 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return { el, name, args, end, body: tb, update: null, result: null };
   };
 
+  /**
+   * Consecutive tool calls of a reply share one collapsed line — "Running read_file /x" while one runs,
+   * "Ran 3 tool calls" when done, failures counted — and their cards only show when it is opened.
+   */
+  const groupIn = (body: HTMLElement): HTMLElement => {
+    const last = body.lastElementChild;
+    if (last instanceof HTMLDetailsElement && last.classList.contains("ra-tg")) return last.querySelector<HTMLElement>(".ra-tgb")!;
+    const g = h("details", "ra-tg") as HTMLDetailsElement;
+    const sum = h("summary");
+    const inner = h("div", "ra-tgb");
+    g.append(sum, inner);
+    body.append(g);
+    return inner;
+  };
+  const refreshGroup = (cardEl: HTMLElement) => {
+    const g = cardEl.closest<HTMLDetailsElement>(".ra-tg");
+    if (!g) return;
+    const all = Array.from(g.querySelectorAll<HTMLElement>(".ra-tgb > .ra-tool"));
+    const running = all.filter((c) => c.querySelector(".ra-tend .ra-spin"));
+    const failed = all.filter((c) => c.classList.contains("fail")).length;
+    const sum = g.querySelector("summary")!;
+    sum.replaceChildren();
+    if (running.length) {
+      // The call in progress, named the way its card names it.
+      const c = running[running.length - 1]!;
+      const name = c.querySelector(".ra-tname")?.textContent ?? "";
+      const what = c.querySelector(".ra-tsum")?.textContent ?? "";
+      sum.append(h("span", "ra-spin"));
+      const txt = h("span", "ra-tgt"); txt.append(`${t.toolsRunning} ${name} `); if (what) txt.append(h("code", "", what));
+      sum.append(txt);
+    } else {
+      sum.append(h("span", "ra-tgt", all.length === 1 ? t.toolsDone1 : t.toolsDone.replace("{n}", String(all.length))));
+    }
+    if (failed) sum.append(h("span", "ra-tgf", t.toolsFailed.replace("{n}", String(failed))));
+    const chev = h("span", "ra-chev"); chev.innerHTML = I.chev(12);
+    sum.append(chev);
+  };
+
   const addCard = (id: string, name: string, args: unknown, body: HTMLElement): ToolCard => {
     const card = makeCard(name, args);
-    body.append(card.el);
+    groupIn(body).append(card.el);
     cards.set(id, card);
+    refreshGroup(card.el);
     list.schedule();
     return card;
   };
@@ -1140,6 +1188,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       card.body.append(h("div", "ra-tlabel", status === "error" ? t.error : t.result), card.result);
     }
     card.result.textContent = result.length > 20_000 ? result.slice(0, 20_000) + "…" : result || "(empty)";
+    refreshGroup(card.el);
     list.schedule();
   };
 
@@ -1196,7 +1245,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
           if (m.reasoning) { const [d] = thinkEl(m.reasoning, true); r.body.append(d); }
           if (m.text) { const el = h("div", "ra-md"); renderFinal(el, m.text); r.body.append(el); }
           // A call still running (the session is mid-run) gets its card registered, so its tool_end lands.
-          for (const c of m.calls) { const card = makeCard(c.name, c.args); r.body.append(card.el); if (c.status) finishCard(card, c.status, c.result ?? ""); else if (c.id) cards.set(c.id, card); }
+          for (const c of m.calls) { const card = makeCard(c.name, c.args); groupIn(r.body).append(card.el); if (c.status) finishCard(card, c.status, c.result ?? ""); else { if (c.id) cards.set(c.id, card); refreshGroup(card.el); } }
           return r.el!;
         },
       });
