@@ -258,7 +258,8 @@ const CSS = tokenCSS() + `
 @container (max-width:760px){.ra-fp{left:0;width:auto;border-left:0;box-shadow:none}.ra-chat.ra-files-open .ra-ed{right:0}.ra-chat.ra-editing .ra-fp{display:none}}
 @container (max-width:560px){.ra-head .ra-btn span{display:none}.ra-head .ra-btn{padding:0 7px}.ra-head{padding:8px 10px}.ra-badge{display:none}.ra-col{padding:0 12px}}
 @container (min-width:761px){.ra-dp{width:460px}}
-.ra-chat .ra-btn.on{background:var(--ra-muted);color:var(--ra-fg)}
+/* Selected (its panel is open) reads differently from hover, so a button just clicked shut does not look still on. */
+.ra-chat .ra-btn.on,.ra-chat .ra-btn.on:hover{background:var(--ra-accent-subtle);color:var(--ra-accent-fg)}
 .ra-chat button:focus{outline:none}
 .ra-chat button:focus-visible{outline:2px solid var(--ra-accent-muted);outline-offset:1px}
 .ra-dtabs{display:flex;gap:2px;min-width:0;overflow-x:auto}
