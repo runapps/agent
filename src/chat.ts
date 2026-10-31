@@ -115,14 +115,14 @@ const STRINGS = {
     enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "History", newChat: "New chat", noSessions: "No saved conversations",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
     other: "Other…", typeAnswer: "Type your answer", args: "Arguments", result: "Result", error: "Error", declined: "declined", blocked: "blocked", skipped: "skipped",
-    open: "Open in editor", stopped: "Stopped.", maxTurns: "Stopped after the maximum number of turns ({n}).", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
+    open: "Open in editor", stopped: "Stopped.", maxTurns: "Paused at the turn limit ({n})", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove", attachments: "Attachments",
     sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     settings: "Settings", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
-    apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue.",
+    apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue from here.",
     files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
   },
@@ -133,14 +133,14 @@ const STRINGS = {
     enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "历史", newChat: "新对话", noSessions: "还没有保存的对话",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
     other: "其他…", typeAnswer: "请输入", args: "参数", result: "结果", error: "错误", declined: "已拒绝", blocked: "已拦截", skipped: "已跳过",
-    open: "在编辑器中打开", stopped: "已停止。", maxTurns: "达到最大轮数（{n}），已停止。", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
+    open: "在编辑器中打开", stopped: "已停止。", maxTurns: "已达最大轮数 {n}，暂停", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除", attachments: "附件",
     sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     settings: "设置", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
-    apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续。",
+    apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续从这里接着跑",
     files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存", pickFile: "选择文件", folder: "文件夹",
   },
@@ -158,8 +158,8 @@ function pickLocale(opt?: "zh" | "en"): "zh" | "en" {
 /* ------------------------------------------------------------------ */
 
 const STYLE_ID = "runapps-agent-chat-style";
-const LIGHT = "--ra-bg:#fff;--ra-panel:#fff;--ra-subtle:#fafafa;--ra-muted:#f4f4f5;--ra-fg:#09090b;--ra-fg-muted:#52525b;--ra-border:#e4e4e7;--ra-p-subtle:#f3e8ff;--ra-p-muted:#e9d5ff;--ra-p-fg:#7e22ce;--ra-p-solid:#9333ea;--ra-ok:#16a34a;--ra-red:#dc2626;--ra-red-subtle:#fef2f2;--ra-shadow:0 1px 2px rgba(0,0,0,.05);--ra-shadow-md:0 4px 12px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06)";
-const DARK = "--ra-bg:#09090b;--ra-panel:#09090b;--ra-subtle:#101014;--ra-muted:#18181b;--ra-fg:#fafafa;--ra-fg-muted:#a1a1aa;--ra-border:#27272a;--ra-p-subtle:#3b0764;--ra-p-muted:#581c87;--ra-p-fg:#d8b4fe;--ra-p-solid:#9333ea;--ra-ok:#4ade80;--ra-red:#f87171;--ra-red-subtle:#2a1215;--ra-shadow:0 1px 2px rgba(0,0,0,.4);--ra-shadow-md:0 4px 16px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.4);color-scheme:dark";
+const LIGHT = "--ra-bg:#fff;--ra-panel:#fff;--ra-subtle:#fafafa;--ra-muted:#f4f4f5;--ra-fg:#09090b;--ra-fg-muted:#52525b;--ra-border:#e4e4e7;--ra-p-subtle:#f3e8ff;--ra-p-muted:#e9d5ff;--ra-p-fg:#7e22ce;--ra-p-solid:#9333ea;--ra-ok:#16a34a;--ra-red:#dc2626;--ra-red-subtle:#fef2f2;--ra-warn-fg:#b45309;--ra-warn-bg:#fffbeb;--ra-warn-border:#fde68a;--ra-shadow:0 1px 2px rgba(0,0,0,.05);--ra-shadow-md:0 4px 12px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06)";
+const DARK = "--ra-bg:#09090b;--ra-panel:#09090b;--ra-subtle:#101014;--ra-muted:#18181b;--ra-fg:#fafafa;--ra-fg-muted:#a1a1aa;--ra-border:#27272a;--ra-p-subtle:#3b0764;--ra-p-muted:#581c87;--ra-p-fg:#d8b4fe;--ra-p-solid:#9333ea;--ra-ok:#4ade80;--ra-red:#f87171;--ra-red-subtle:#2a1215;--ra-warn-fg:#fbbf24;--ra-warn-bg:rgba(251,191,36,.08);--ra-warn-border:rgba(251,191,36,.28);--ra-shadow:0 1px 2px rgba(0,0,0,.4);--ra-shadow-md:0 4px 16px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.4);color-scheme:dark";
 const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace';
 const CSS = `
 .ra-chat{${LIGHT};display:flex;flex-direction:column;height:100%;min-height:0;box-sizing:border-box;background:var(--ra-bg);color:var(--ra-fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",Arial,sans-serif;position:relative;overflow:hidden;-webkit-font-smoothing:antialiased}
@@ -385,7 +385,17 @@ const CSS = `
 .ra-chip-link:hover{border-color:var(--ra-p-solid)}
 .ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:rgba(147,51,234,.08);border:2px dashed var(--ra-p-solid);border-radius:8px;color:var(--ra-p-fg);font-weight:600;pointer-events:none}
 .ra-chat[data-drop="1"] .ra-drop{display:flex}
-.ra-usage{font-size:11px;color:var(--ra-fg-muted);text-align:right;margin-top:6px;min-height:14px}
+.ra-usage{display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:11px;color:var(--ra-fg-muted);margin-top:6px;min-height:16px}
+.ra-ring{display:inline-flex;cursor:default}
+.ra-ring circle{fill:none;stroke-width:2.5}
+.ra-ring .tr{stroke:var(--ra-border)}
+.ra-ring .pr{stroke:var(--ra-p-solid);stroke-linecap:round;transition:stroke-dashoffset .3s}
+.ra-ring.mid .pr{stroke:var(--ra-warn-fg)}
+.ra-ring.hi .pr{stroke:var(--ra-red)}
+.ra-warn{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:5px 6px 5px 10px;border:1px solid var(--ra-warn-border);background:var(--ra-warn-bg);color:var(--ra-warn-fg);border-radius:8px;font-size:12.5px;font-weight:500;line-height:1.4}
+.ra-warn>span{min-width:0}
+.ra-chat .ra-warn .ra-btn{height:22px;padding:0 8px;font-size:12px;border-color:var(--ra-warn-border);background:transparent;color:inherit}
+.ra-chat .ra-warn .ra-btn:hover{background:var(--ra-warn-border)}
 .ra-modal{position:absolute;inset:0;z-index:9;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.4);padding:16px}
 .ra-modal .ra-dlg{width:min(420px,100%);background:var(--ra-panel);border:1px solid var(--ra-border);border-radius:10px;box-shadow:var(--ra-shadow-md);padding:16px;display:flex;flex-direction:column;gap:10px}
 .ra-modal .ra-dt{font-size:15px;font-weight:600}
@@ -724,6 +734,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   box.append(cmds, files, ta, bar, fileInput);
   const drop = h("div", "ra-drop", t.drop);
   const usageEl = h("div", "ra-usage");
+  const usageText = h("span");
+  const ring = h("span", "ra-ring"); ring.style.display = "none";
+  usageEl.append(usageText, ring);
   if (showUsage === false) usageEl.style.display = "none";
   compCol.append(alertEl, queueEl, box, usageEl);
   comp.append(compCol);
@@ -1059,6 +1072,20 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return card;
   };
   const addNote = (text: string, summary?: string, action?: { label: string; onClick: () => void }) => { addRow({ render: () => noteEl(text, summary, action) }); list.schedule(); };
+  /** A short notice sized to its text (a run that stopped at the turn limit); its button runs the action and removes the notice. */
+  const addWarn = (text: string, action?: { label: string; onClick: () => void }, hint?: string) => {
+    const row: VRow = {
+      render: () => {
+        const el = h("div", "ra-warn"); el.setAttribute("role", "status"); if (hint) el.title = hint;
+        el.innerHTML = I.alert(14);
+        el.append(h("span", "", text));
+        if (action) { const b = h("button", "ra-btn xs", action.label); b.type = "button"; b.addEventListener("click", () => { list.remove(row); action.onClick(); }); el.append(b); }
+        return el;
+      },
+    };
+    addRow(row);
+    list.schedule();
+  };
 
   const addError = (message: string, retry?: () => void) => {
     const row: VRow = {
@@ -1437,15 +1464,19 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   /* --- wiring an agent --- */
   const showUsage_ = (a: Agent) => {
     const u = a.usage;
-    const base = u.calls ? `${fmtCost(u.total_cost)} · ${fmtTokens(u.prompt_tokens + u.completion_tokens)} tokens · ${u.calls} calls` : "";
-    usageEl.textContent = base;
-    if (!a.messages.length) return;
+    usageText.textContent = u.calls ? `${fmtCost(u.total_cost)} · ${fmtTokens(u.prompt_tokens + u.completion_tokens)} tokens · ${u.calls} calls` : "";
+    if (!a.messages.length) { ring.style.display = "none"; return; }
     void a.context().then((c) => {
       if (agent !== a) return;
-      const ratio = c.used / c.window;
-      const pct = ratio < 0.01 ? "<1%" : `${Math.min(999, Math.round(ratio * 100))}%`;
-      usageEl.textContent = `${base}${base ? " · " : ""}${t.context} ${pct}`;
-      usageEl.title = `${fmtTokens(c.used)} / ${fmtTokens(c.window)} tokens`;
+      // How full the context is, as a ring (like the app's own indicator); the numbers are in its tooltip.
+      const ratio = Math.min(1, c.used / c.window);
+      const pct = ratio < 0.01 ? "<1%" : `${Math.round(ratio * 100)}%`;
+      const r = 6, len = 2 * Math.PI * r;
+      ring.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle class="tr" cx="8" cy="8" r="${r}"/><circle class="pr" cx="8" cy="8" r="${r}" stroke-dasharray="${len.toFixed(2)}" stroke-dashoffset="${(len * (1 - Math.max(ratio, 0.02))).toFixed(2)}" transform="rotate(-90 8 8)"/></svg>`;
+      ring.className = "ra-ring" + (ratio >= 0.9 ? " hi" : ratio >= 0.7 ? " mid" : "");
+      ring.title = `${t.context} ${pct} · ${fmtTokens(c.used)} / ${fmtTokens(c.window)} tokens`;
+      ring.setAttribute("aria-label", ring.title);
+      ring.style.display = "";
     });
   };
 
@@ -1537,7 +1568,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       active = null;
       ui.cancelAll();
       if (r.reason === "error" && r.error) addError(r.error.message, a.messages.length ? () => void a.continue().catch((e) => ui.notify((e as Error).message, "error")) : undefined);
-      else if (r.reason === "max_turns") addNote(t.maxTurns.replace("{n}", String(a.settings.maxTurns)) + " " + t.maxTurnsHint, undefined, { label: t.continueRun, onClick: () => void a.continue().catch((e) => ui.notify((e as Error).message, "error")) });
+      else if (r.reason === "max_turns") addWarn(t.maxTurns.replace("{n}", String(a.settings.maxTurns)), { label: t.continueRun, onClick: () => { try { void a.continue().catch((e) => ui.notify((e as Error).message, "error")); } catch (e) { ui.notify((e as Error).message, "error"); } } }, t.maxTurnsHint);
       else if (r.reason === "aborted") addNote(t.stopped);
       setBusy(false);
       showUsage_(a);
