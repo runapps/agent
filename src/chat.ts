@@ -118,7 +118,9 @@ const STRINGS = {
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Paused at the turn limit ({n})", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove",
-    toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed", jumpEnd: "Jump to the latest", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
+    toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed",
+    actRead: "read {n} file(s)", actList: "listed {n} folder(s)", actSearch: "searched {n} time(s)", actWrite: "wrote {n} file(s)", actEdit: "edited {n} file(s)", actDelete: "deleted {n} file(s)", actRun: "ran {n} snippet(s)", actAsk: "asked you {n} time(s)", actOther: "used {name}",
+    ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", jumpEnd: "Jump to the latest", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     settings: "Settings", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
@@ -136,7 +138,9 @@ const STRINGS = {
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "已达最大轮数 {n}，暂停", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除",
-    toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败", jumpEnd: "回到最新", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
+    toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败",
+    actRead: "读取了 {n} 个文件", actList: "查看了 {n} 个目录", actSearch: "搜索了 {n} 次", actWrite: "写入了 {n} 个文件", actEdit: "修改了 {n} 个文件", actDelete: "删除了 {n} 个文件", actRun: "运行了 {n} 段代码", actAsk: "询问了你 {n} 次", actOther: "调用了 {name}",
+    ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", jumpEnd: "回到最新", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     settings: "设置", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
@@ -463,6 +467,12 @@ function summarizeArgs(name: string, args: unknown): string {
   return first === undefined ? "" : (typeof first === "string" ? first : JSON.stringify(first)).slice(0, 80);
 }
 
+type ToolKind = "Read" | "List" | "Search" | "Write" | "Edit" | "Delete" | "Run" | "Ask" | "Other";
+const TOOL_KIND: Record<string, ToolKind> = {
+  read_file: "Read", list_files: "List", search_files: "Search", write_file: "Write", edit_file: "Edit", delete_file: "Delete", run_js: "Run", ask_user: "Ask",
+};
+const pathArg = (args: unknown): string | undefined => (args && typeof args === "object" && typeof (args as { path?: unknown }).path === "string" ? (args as { path: string }).path : undefined);
+
 /** The status a saved tool result stands for, as the live card showed it. */
 function statusOfResult(text: string): ToolStatus {
   if (text.startsWith("Skipped")) return "skipped";
@@ -739,7 +749,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   if (typeof document === "undefined") throw new Error("runapps agent: renderChat needs a document");
   if (!opts.agent && !opts.client) throw new Error("runapps agent: renderChat needs a client (or an agent)");
   injectStyles();
-  const t = STRINGS[pickLocale(opts.locale)];
+  const lang = pickLocale(opts.locale);
+  const t = STRINGS[lang];
   const { client, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, settings: _settingsOpt, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const project = (client as unknown as { projectName?: string } | undefined)?.projectName ?? agentOpts.appName ?? "app";
@@ -832,6 +843,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   let active: AsstRow | null = null;
   let renderTimer: number | null = null;
   const cards = new Map<string, ToolCard>();
+  /** The call behind each tool card element, for the group line that sums them up. */
+  const cardCall = new WeakMap<Element, { name: string; args: unknown }>();
   /** Calls of the drawn history still waiting for a result (a resumed run): tool_end fills them in before their row is built. */
   const histCalls = new Map<string, { result?: string; status?: ToolStatus }>();
   let commands: Command[] = [];
@@ -1107,6 +1120,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   const makeCard = (name: string, args: unknown): ToolCard => {
     const el = h("details", "ra-tool") as HTMLDetailsElement;
+    cardCall.set(el, { name, args });
     const sum = h("summary");
     const icon = h("span", "ra-ticon"); icon.innerHTML = (TOOL_ICON[name] ?? I.wrench)();
     const end = h("span", "ra-tend");
@@ -1142,6 +1156,34 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     body.append(g);
     return inner;
   };
+  /** "读取了 3 个文件，修改了 1 个文件" — counted by kind, distinct paths for file tools, in the order they first ran. */
+  const describeCalls = (calls: Array<{ name: string; args: unknown }>): string => {
+    const order: string[] = [];
+    const seen = new Map<string, Set<string> | number>();
+    for (const c of calls) {
+      const kind = TOOL_KIND[c.name] ?? "Other";
+      const key = kind === "Other" ? `Other:${c.name}` : kind;
+      if (!seen.has(key)) { order.push(key); seen.set(key, kind === "Read" || kind === "Write" || kind === "Edit" || kind === "Delete" ? new Set<string>() : 0); }
+      const v = seen.get(key)!;
+      if (v instanceof Set) v.add(pathArg(c.args) ?? String(v.size)); else seen.set(key, v + 1);
+    }
+    return order.map((key) => {
+      const v = seen.get(key)!;
+      const n = String(v instanceof Set ? v.size : v);
+      if (key.startsWith("Other:")) return t.actOther.replace("{name}", key.slice(6));
+      return (t[`act${key}` as keyof Strings] as string).replace("{n}", n);
+    }).join(lang === "zh" ? "，" : ", ");
+  };
+  /** "正在修改 第一章.md" — the call in progress, by kind, with its file name or argument summary. */
+  const describeRunning = (c: { name: string; args: unknown }, el: HTMLElement): { verb: string; what: string; title?: string } => {
+    const kind = TOOL_KIND[c.name] ?? "Other";
+    const path = pathArg(c.args);
+    const verb = t[`ing${kind}` as keyof Strings] as string;
+    if (kind === "Other") return { verb: `${verb} ${c.name}`, what: el.querySelector(".ra-tsum")?.textContent ?? "" };
+    if (kind === "Ask") return { verb, what: "" };
+    if (path && kind !== "Search") return { verb, what: path.slice(path.lastIndexOf("/") + 1) || path, title: path };
+    return { verb, what: el.querySelector(".ra-tsum")?.textContent ?? "" };
+  };
   const refreshGroup = (cardEl: HTMLElement) => {
     const g = cardEl.closest<HTMLDetailsElement>(".ra-tg");
     if (!g) return;
@@ -1151,15 +1193,17 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const sum = g.querySelector("summary")!;
     sum.replaceChildren();
     if (running.length) {
-      // The call in progress, named the way its card names it.
-      const c = running[running.length - 1]!;
-      const name = c.querySelector(".ra-tname")?.textContent ?? "";
-      const what = c.querySelector(".ra-tsum")?.textContent ?? "";
+      const el = running[running.length - 1]!;
+      const r = describeRunning(cardCall.get(el) ?? { name: el.querySelector(".ra-tname")?.textContent ?? "", args: undefined }, el);
       sum.append(h("span", "ra-spin"));
-      const txt = h("span", "ra-tgt"); txt.append(`${t.toolsRunning} ${name} `); if (what) txt.append(h("code", "", what));
+      const txt = h("span", "ra-tgt"); txt.append(`${r.verb} `); if (r.what) txt.append(h("code", "", r.what));
+      if (r.title) txt.title = r.title;
       sum.append(txt);
     } else {
-      sum.append(h("span", "ra-tgt", all.length === 1 ? t.toolsDone1 : t.toolsDone.replace("{n}", String(all.length))));
+      const calls = all.map((el) => cardCall.get(el)).filter((c): c is { name: string; args: unknown } => !!c);
+      const label = calls.length ? describeCalls(calls) : (all.length === 1 ? t.toolsDone1 : t.toolsDone.replace("{n}", String(all.length)));
+      const txt = h("span", "ra-tgt", label); txt.title = all.length === 1 ? t.toolsDone1 : t.toolsDone.replace("{n}", String(all.length));
+      sum.append(txt);
     }
     if (failed) sum.append(h("span", "ra-tgf", t.toolsFailed.replace("{n}", String(failed))));
     const chev = h("span", "ra-chev"); chev.innerHTML = I.chev(12);
@@ -1240,17 +1284,34 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     cards.clear();
     histCalls.clear();
     active = null;
-    let last: { text: string; reasoning: string; calls: Array<{ id: string; name: string; args: unknown; result?: string; status?: ToolStatus }> } | null = null;
+    type HistCall = { id: string; name: string; args: unknown; result?: string; status?: ToolStatus };
+    type Item = { kind: "think"; text: string } | { kind: "text"; text: string } | { kind: "call"; call: HistCall };
+    // One row per reply, as live: turns without text (thinking + tool calls) join the row before them; a turn that wrote text ends it.
+    let last: { items: Item[]; calls: HistCall[]; endedWithText: boolean } | null = null;
     const flush = () => {
       if (!last) return;
       const m = last; last = null;
       addRow({
         render: () => {
           const r = asstRow();
-          if (m.reasoning) { const [d] = thinkEl(m.reasoning, true); r.body.append(d); }
-          if (m.text) { const el = h("div", "ra-md"); renderFinal(el, m.text); r.body.append(el); }
-          // A call still running (the session is mid-run) gets its card registered, so its tool_end lands.
-          for (const c of m.calls) { const card = makeCard(c.name, c.args); groupIn(r.body).append(card.el); if (c.status) finishCard(card, c.status, c.result ?? ""); else { if (c.id) cards.set(c.id, card); refreshGroup(card.el); } }
+          for (const it of m.items) {
+            if (it.kind === "think") {
+              // Thinking during a chain of calls sits in the group, before the calls it led to.
+              const [d] = thinkEl(it.text, true);
+              const lastEl = r.body.lastElementChild;
+              if (lastEl instanceof HTMLDetailsElement && lastEl.classList.contains("ra-tg")) lastEl.querySelector(".ra-tgb")!.append(d);
+              else r.body.append(d);
+            } else if (it.kind === "text") {
+              const el = h("div", "ra-md"); renderFinal(el, it.text); r.body.append(el);
+            } else {
+              const c = it.call;
+              const card = makeCard(c.name, c.args);
+              groupIn(r.body).append(card.el);
+              // A call still running (the session is mid-run) gets its card registered, so its tool_end lands.
+              if (c.status) finishCard(card, c.status, c.result ?? "");
+              else { if (c.id) cards.set(c.id, card); refreshGroup(card.el); }
+            }
+          }
           return r.el!;
         },
       });
@@ -1266,15 +1327,18 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       } else if (m.role === "assistant") {
         const text = textOfContent(m.content);
         const rs = (m as { reasoning_content?: unknown }).reasoning_content; const reasoning = typeof rs === "string" ? rs : "";
-        // Tool-only turns join the reply before them, as they do live.
-        if (!last || text || reasoning) { flush(); last = { text, reasoning, calls: [] }; }
+        if (!last || last.endedWithText) { flush(); last = { items: [], calls: [], endedWithText: false }; }
+        if (reasoning) last.items.push({ kind: "think", text: reasoning });
+        if (text) last.items.push({ kind: "text", text });
         for (const c of m.tool_calls ?? []) {
           let args: unknown = c.function.arguments;
           try { args = JSON.parse(c.function.arguments); } catch { /* keep the string */ }
-          const call = { id: c.id ?? "", name: c.function.name, args } as { id: string; name: string; args: unknown; result?: string; status?: ToolStatus };
+          const call: HistCall = { id: c.id ?? "", name: c.function.name, args };
+          last.items.push({ kind: "call", call });
           last.calls.push(call);
           if (call.id) histCalls.set(call.id, call);
         }
+        last.endedWithText = !!text;
       } else if (m.role === "tool") {
         const text = textOfContent(m.content);
         const call = last?.calls.find((c) => c.id === (m.tool_call_id ?? ""));
@@ -1696,8 +1760,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     });
     on("turn_start", () => {
       flushActive(true);
-      // A turn that was only tool calls keeps its group, so a chain of calls reads as one step.
-      if (active?.text || active?.think) active = null;
+      // Turns with no text (thinking and tool calls) stay in one row and one group, so a chain of calls
+      // reads as one step; a turn that wrote text closes the row. Each turn's thinking is its own.
+      if (active?.text) active = null;
+      else if (active) { active.think = null; active.thinkBody = null; active.reasoning = ""; }
       queueMicrotask(renderQueue);
     });
     // Steering is drawn when it lands in the history (at a turn, or before the next prompt), once.
@@ -1715,7 +1781,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const act = ensureActive();
       if (!act.think) {
         [act.think, act.thinkBody] = thinkEl("", false);
-        act.body.prepend(act.think);
+        // Inside the running group when the chain has started; otherwise before this turn's text.
+        const last = act.body.lastElementChild;
+        if (last instanceof HTMLDetailsElement && last.classList.contains("ra-tg") && !act.text) last.querySelector(".ra-tgb")!.append(act.think);
+        else if (act.text) act.body.insertBefore(act.think, act.text);
+        else act.body.append(act.think);
       }
       act.reasoning = ev.text;
       scheduleRender();

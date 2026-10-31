@@ -39,6 +39,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
     "Tool arguments are JSON matching the tool's schema. When a tool reports an error, read it, fix the call and try once more; if it fails again, tell the user what went wrong instead of repeating the call.",
     "If the user declines an action, do not attempt it another way.",
     "Answer in the user's language. Be brief: the user sees your tool activity, so do not narrate every step.",
+    "Before a task that takes several steps, say in one short sentence what you are going to do. After that, write only when there is something worth saying (a finding, a decision, a problem that blocks you); do not narrate routine reads, searches or edits.",
   ];
   if (input.hasAskUser) {
     rules.splice(4, 0, "Use ask_user only when the request is genuinely ambiguous and the answer changes your work; otherwise choose sensibly and say what you chose.");
