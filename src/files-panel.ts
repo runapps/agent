@@ -6,12 +6,12 @@
 
 import type { Workspace } from "./workspace.js";
 import type { FileStat } from "./types.js";
-import { h, I, modalConfirm, modalInput, downloadBlob } from "./dom.js";
+import { h, I, modalConfirm, modalInput, downloadBlob, renderMD } from "./dom.js";
 import { buildZip } from "./zip.js";
 
 export interface FilesStrings {
   files: string; upload: string; newFile: string; refresh: string; close: string; save: string; download: string; delete: string; cancel: string; ok: string;
-  confirmDeleteFile: string; newFilePath: string; noPreview: string; changedByAgent: string; noFiles: string; discard: string; saved: string; pickFile: string; folder: string; downloadZip: string; zipping: string;
+  confirmDeleteFile: string; newFilePath: string; noPreview: string; changedByAgent: string; noFiles: string; discard: string; saved: string; pickFile: string; folder: string; downloadZip: string; zipping: string; wrap: string; preview: string; edit: string;
 }
 
 export interface FilesPanelOptions {
@@ -111,15 +111,34 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   const edPath = h("span", "ra-edp");
   const edActs = h("div", "ra-eda");
   const saveBtn = h("button", "ra-btn xs solid"); saveBtn.type = "button"; saveBtn.innerHTML = I.save() + t.save; saveBtn.style.display = "none"; saveBtn.addEventListener("click", () => void save());
+  // Word wrap (remembered) and a Markdown preview rendered by the same renderer as the chat's replies.
+  const WRAP_KEY = "__runapps_agent_files:wrap";
+  let wrap = (() => { try { return localStorage.getItem(WRAP_KEY) !== "0"; } catch { return true; } })();
+  let previewing = false;
+  const wrapBtn = ibtn(I.wrap(), t.wrap, () => { wrap = !wrap; try { localStorage.setItem(WRAP_KEY, wrap ? "1" : "0"); } catch { /* private mode */ } applyWrap(); });
+  const mdBtn = ibtn(I.eye(), t.preview, () => { previewing = !previewing; applyView(); });
+  const md = h("div", "ra-md ra-edmd"); md.style.display = "none";
+  const applyWrap = () => { ta.classList.toggle("ra-wrap", wrap); wrapBtn.classList.toggle("on", wrap); };
+  const isMarkdown = (path: string | null) => !!path && /\.(md|markdown|mdx)$/i.test(path);
+  const applyView = () => {
+    const text = loaded !== null;
+    mdBtn.style.display = text && isMarkdown(active) ? "" : "none";
+    if (!text || !isMarkdown(active)) previewing = false;
+    mdBtn.innerHTML = previewing ? I.pen() : I.eye(); mdBtn.title = previewing ? t.edit : t.preview; mdBtn.setAttribute("aria-label", mdBtn.title); mdBtn.classList.toggle("on", previewing);
+    if (previewing) renderMD(md, draft ?? ta.value, false);
+    md.style.display = previewing ? "" : "none";
+    ta.style.display = text && !previewing ? "" : "none";
+  };
   const dlBtn = ibtn(I.download(), t.download, () => { if (active) void download(active); });
   const delBtn = ibtn(I.trash(), t.delete, () => { if (active) void remove(active); });
   const edClose = ibtn(I.x(14), t.close, () => void closeFile());
-  edActs.append(saveBtn, dlBtn, delBtn, edClose);
+  edActs.append(saveBtn, wrapBtn, mdBtn, dlBtn, delBtn, edClose);
   edHead.append(edPath, edActs);
   const edBody = h("div", "ra-edb");
   const ta = h("textarea", "ra-edta"); ta.spellcheck = false; ta.setAttribute("aria-label", t.files);
   const preview = h("div", "ra-edpv");
-  edBody.append(ta, preview);
+  edBody.append(ta, md, preview);
+  applyWrap();
   editor.append(edHead, edBody);
   const drop = h("div", "ra-fpdrop", t.upload);
   el.append(head, tree, fileInput, drop);
@@ -195,9 +214,10 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
         else { try { text = new TextDecoder("utf-8", { fatal: true }).decode(r.data); } catch { text = null; } }
       }
       if (text !== null) {
-        loaded = text; ta.value = text; ta.style.display = ""; preview.style.display = "none"; ta.readOnly = false;
+        loaded = text; ta.value = text; preview.style.display = "none"; ta.readOnly = false;
+        applyView();
       } else {
-        loaded = null; ta.style.display = "none"; preview.style.display = "";
+        loaded = null; ta.style.display = "none"; md.style.display = "none"; mdBtn.style.display = "none"; preview.style.display = "";
         if (image) {
           const blob = new Blob([r.data as BlobPart], { type: r.contentType || "image/*" });
           previewURL = URL.createObjectURL(blob);
@@ -207,7 +227,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
         preview.append(h("div", "ra-fpe", `${r.size} B`));
       }
     } catch (err) {
-      loaded = null; ta.style.display = "none"; preview.style.display = "";
+      loaded = null; ta.style.display = "none"; md.style.display = "none"; mdBtn.style.display = "none"; preview.style.display = "";
       preview.replaceChildren(h("div", "ra-fpe", (err as Error).message));
     }
     await refresh();

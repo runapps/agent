@@ -1,6 +1,8 @@
 // DOM helpers shared by the chat and its files panel: element factory,
-// inline lucide icons, and the chat's own dialogs (over the chat, not in
-// the agent's question area).
+// inline lucide icons, the Markdown → DOM renderer, and the chat's own
+// dialogs (over the chat, not in the agent's question area).
+
+import { renderMarkdown } from "./markdown.js";
 
 export function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -38,6 +40,9 @@ export const I = {
   checks: (s = 13) => svg(s, '<path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/>'),
   undo: (s = 13) => svg(s, '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>'),
   gear: (s = 14) => svg(s, '<path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.6a2 2 0 0 1-1 1.8l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.2a2 2 0 0 1 1 1.7V20a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.2a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.8v-.5a2 2 0 0 1 1-1.7l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>'),
+  wrap: (s = 14) => svg(s, '<path d="M3 6h18"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><path d="m16 16-2 2 2 2"/><path d="M3 18h7"/>'),
+  eye: (s = 14) => svg(s, '<path d="M2.1 12.4a1 1 0 0 1 0-.8 10.5 10.5 0 0 1 19.8 0 1 1 0 0 1 0 .8 10.5 10.5 0 0 1-19.8 0"/><circle cx="12" cy="12" r="3"/>'),
+  pen: (s = 14) => svg(s, '<path d="M21.2 6.4a2 2 0 0 0 0-2.8l-.8-.8a2 2 0 0 0-2.8 0L4 16.4V20h3.6z"/><path d="m15 5 4 4"/>'),
   copy: (s = 14) => svg(s, '<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'),
   fileText: (s = 13) => svg(s, '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8M16 13H8M16 17H8"/>'),
   filePlus: (s = 13) => svg(s, '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6M12 18v-6"/>'),
@@ -101,4 +106,26 @@ export function downloadBlob(name: string, data: string | Uint8Array, type?: str
   const a = h("a"); a.href = url; a.download = name;
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/** Markdown → DOM, with a header (language, copy) on each code block and a scroll wrapper on tables. */
+export function renderMD(el: HTMLElement, md: string, streaming: boolean): void {
+  el.innerHTML = renderMarkdown(md);
+  el.classList.toggle("ra-cursor", streaming);
+  for (const pre of Array.from(el.querySelectorAll("pre"))) {
+    const code = pre.querySelector("code");
+    const lang = code?.className.match(/language-([\w+#-]+)/)?.[1] ?? "";
+    const box = h("div", "ra-cb");
+    const head = h("div", "ra-cbh");
+    head.append(h("span", "", lang));
+    const copy = h("button", "ra-copy"); copy.type = "button"; copy.innerHTML = I.copy(); copy.title = "copy";
+    head.append(copy);
+    pre.replaceWith(box);
+    box.append(head, pre);
+  }
+  for (const table of Array.from(el.querySelectorAll("table"))) {
+    const w = h("div", "ra-tw");
+    table.replaceWith(w);
+    w.append(table);
+  }
 }

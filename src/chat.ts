@@ -20,7 +20,7 @@ import { summaryOf } from "./compaction.js";
 import { escapeHTML, renderMarkdown } from "./markdown.js";
 import { listTemplates } from "./templates.js";
 import { VirtualList, type VRow } from "./vlist.js";
-import { h, I, modalConfirm, downloadBlob } from "./dom.js";
+import { h, I, modalConfirm, downloadBlob, renderMD } from "./dom.js";
 import { filesPanel, freePath, type FilesPanel } from "./files-panel.js";
 import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, ToolStatus } from "./types.js";
 
@@ -123,7 +123,7 @@ const STRINGS = {
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     settings: "Settings", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
     apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue.",
-    files: "Files", downloadZip: "Download as zip", zipping: "Zipping", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
+    files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
   },
   zh: {
@@ -141,7 +141,7 @@ const STRINGS = {
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     settings: "设置", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
     apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续。",
-    files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
+    files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存", pickFile: "选择文件", folder: "文件夹",
   },
 };
@@ -242,6 +242,9 @@ const CSS = `
 .ra-edh .ra-eda{display:inline-flex;align-items:center;gap:2px}
 .ra-edb{flex:1;min-height:0;display:flex;flex-direction:column}
 .ra-edta{flex:1;min-height:0;resize:none;padding:14px 20px;font:13.5px/1.6 ${MONO};tab-size:2;white-space:pre;overflow:auto}
+.ra-edta.ra-wrap{white-space:pre-wrap;word-break:break-word}
+.ra-edmd{flex:1;min-height:0;overflow:auto;padding:16px 24px;max-width:860px}
+.ra-chat .ra-ib.on{background:var(--ra-p-subtle);color:var(--ra-p-fg)}
 .ra-edpv{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px}
 .ra-edpv img{max-width:100%;max-height:100%;border-radius:4px}
 .ra-fpdrop{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:rgba(147,51,234,.08);border:2px dashed var(--ra-p-solid);color:var(--ra-p-fg);font-weight:600;pointer-events:none}
@@ -513,28 +516,6 @@ function decodeText(file: File, bytes: Uint8Array): string | null {
 function safeName(name: string): string {
   const base = name.replace(/^.*[\\/]/, "").replace(/[\u0000-\u001f]/g, "").trim() || "file";
   return base.length > 120 ? base.slice(-120) : base;
-}
-
-/** Markdown → DOM, with a header (language, copy) on each code block and a scroll wrapper on tables. */
-function renderMD(el: HTMLElement, md: string, streaming: boolean): void {
-  el.innerHTML = renderMarkdown(md);
-  el.classList.toggle("ra-cursor", streaming);
-  for (const pre of Array.from(el.querySelectorAll("pre"))) {
-    const code = pre.querySelector("code");
-    const lang = code?.className.match(/language-([\w+#-]+)/)?.[1] ?? "";
-    const box = h("div", "ra-cb");
-    const head = h("div", "ra-cbh");
-    head.append(h("span", "", lang));
-    const copy = h("button", "ra-copy"); copy.type = "button"; copy.innerHTML = I.copy(); copy.title = "copy";
-    head.append(copy);
-    pre.replaceWith(box);
-    box.append(head, pre);
-  }
-  for (const table of Array.from(el.querySelectorAll("table"))) {
-    const w = h("div", "ra-tw");
-    table.replaceWith(w);
-    w.append(table);
-  }
 }
 
 /* ------------------------------------------------------------------ */
