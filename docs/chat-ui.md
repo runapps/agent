@@ -34,7 +34,7 @@
 - **Settings** — the gear: model (with context and output limits, and which models see pictures), thinking level when the model has one, max turns, max output, tool permissions. Kept per app in the browser and applied to every conversation.
 - **Rewind** — hover a user message: when it was sent, copy, *rewind to here* (the conversation after it is dropped, the message goes back into the composer, and the directory's files can be restored to that moment).
 - **How a run ended** — *Stopped.*, the turn limit with *Continue*, an error with *Retry*; kept across reloads until the next run.
-- **Context** — a ring under the composer shows how full the model's window is; older turns are summarised automatically.
+- **Context and spending** — a ring around the send button shows how full the model's window is; its tooltip has the spending (cost, tokens, calls) and the context figures. Older turns are summarised automatically.
 - **Time** — "Today 22:15" above messages that start a conversation or follow a pause.
 
 ## Slash commands
@@ -69,14 +69,14 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `resume` | `true` | Reopen the conversation this app last had open in this browser; a session id; or `false` for a new one. |
 | `title` | `appName` | Header title; `false` hides the whole header. |
 | `placeholder` | | Composer placeholder. |
-| `emptyState` | | Text or element shown while the conversation is empty. |
+| `emptyState` | | What an empty conversation shows: text, your own element, or `{ icon, title, text, align }`. |
 | `suggestions` | | Starter prompts shown in the empty state. |
 | `sessions` | on with a workspace | The conversation list and *New chat*. `false` (or your own `agent`): one conversation, and a *Clear* button that starts it over. |
 | `skillsMenu` | on with a workspace | The *Skills* button. |
 | `settings` | on | The settings gear. |
 | `attachments` | on | Paperclip, drop and paste. |
 | `uploadsDir` | `/uploads` | Where attachments are saved. |
-| `showUsage` | on | Cost, tokens and the context ring under the composer. |
+| `showUsage` | on | The context ring on the send button and the spending in its tooltip. |
 | `locale` | the document's | `"en"` or `"zh"`. |
 | `theme` | `"auto"` | `"auto"`, `"light"`, `"dark"`. |
 | `palette` | `"claude"` | `"claude"`, `"violet"`, `"slate"`, `"forest"`, or your own. |
@@ -104,7 +104,16 @@ renderChat(el, {
 });
 ```
 
-`emptyState` can also be an element of your own — a logo, a paragraph, links — or `null` for nothing:
+For an icon, a heading and a line under it, pass them as an object (`icon` is SVG markup or an element; `align: "start"` sets it to the left):
+
+```js
+renderChat(el, {
+  provider,
+  emptyState: { icon: '<svg viewBox="0 0 24 24">…</svg>', title: "Let's build something useful.", text: "Tell me what it should do.", align: "start" },
+});
+```
+
+`emptyState` can also be an element of your own — any HTML: a logo, a paragraph, links — or `null` for nothing:
 
 ```js
 const welcome = document.createElement("div");
@@ -173,6 +182,7 @@ The chat fills the element you give it and can live in a side panel of your own 
 - **Your file view** — `files: false` hides the chat's Files panel; file paths in replies call `onOpenFile(path)`.
 - **Your buttons** — `headerActions: [button]` puts them in the chat's header; give each an `aria-label` (in a narrow chat the labels fold to icons).
 - **Your colours** — `palette: { light: {…}, dark: {…} }` with your page's tokens, and `vars: { font }`.
+- **Your focus styles** — a generic rule of yours such as `textarea:focus-visible { outline: … }` does not reach the composer's text area: the rounded box shows focus.
 
 ## Using your own agent
 

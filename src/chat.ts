@@ -51,7 +51,12 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   title?: string | false;
   placeholder?: string;
   /** Shown while the transcript is empty: text, HTML element, or nothing. */
-  emptyState?: string | HTMLElement | null;
+  /**
+   * What an empty conversation shows: a line of text, your own element
+   * (any HTML), `{ icon, title, text, align }` for an icon (SVG markup or
+   * an element), a heading and a line under it, or `null` for nothing.
+   */
+  emptyState?: string | HTMLElement | null | { icon?: string | HTMLElement; title?: string; text?: string; align?: "center" | "start" };
   /** Starter prompts offered in the empty state; a click puts one in the composer. */
   suggestions?: string[];
   /**
@@ -398,6 +403,12 @@ const CSS = tokenCSS() + `
 .ra-log .ra-col{padding-top:6px;padding-bottom:6px}
 .ra-row{padding:10px 0}
 .ra-empty{padding:48px 0 24px;text-align:center;color:var(--ra-fg-muted)}
+.ra-empty.start{text-align:left;padding:56px 8px 24px}
+.ra-empty-icon{color:var(--ra-accent-fg);display:inline-flex;margin-bottom:14px}
+.ra-empty-icon svg{width:44px;height:44px}
+.ra-empty-title{margin:0 0 10px;font-size:20px;font-weight:600;color:var(--ra-fg);line-height:1.4}
+.ra-empty-text{margin:0;font-size:14px;line-height:1.7}
+.ra-empty.start .ra-sugs{justify-content:flex-start}
 .ra-sugs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
 .ra-sugs button{border:1px solid var(--ra-border);border-radius:999px;padding:5px 12px;font-size:13px;color:var(--ra-fg)}
 .ra-sugs button:hover{background:var(--ra-muted)}
@@ -528,6 +539,8 @@ const CSS = tokenCSS() + `
 .ra-box{position:relative;border:1px solid var(--ra-border);border-radius:12px;padding:8px 10px 6px;background:var(--ra-panel);box-shadow:var(--ra-shadow)}
 .ra-box:focus-within{border-color:color-mix(in srgb,var(--ra-fg) 28%,transparent)}
 .ra-box textarea{resize:none;height:64px;overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
+/* A host's generic focus rule (textarea:focus-visible{outline…}) must not draw a square inside the rounded box: the box shows focus. */
+.ra-chat .ra-box textarea:focus,.ra-chat .ra-box textarea:focus-visible{outline:none;box-shadow:none;background:transparent}
 .ra-chat[data-asking="1"] .ra-box textarea,.ra-chat[data-short="1"] .ra-box textarea{height:1.6em}
 .ra-chat[data-short="1"] .ra-bar .ra-hint{display:none}
 .ra-chat[data-asking="1"] .ra-ask{max-height:70%}
@@ -563,8 +576,10 @@ const CSS = tokenCSS() + `
 .ra-chip-link:hover{border-color:color-mix(in srgb,var(--ra-fg) 25%,transparent);background:var(--ra-subtle)}
 .ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-accent) 8%,transparent);border:2px dashed var(--ra-accent);border-radius:8px;color:var(--ra-accent-fg);font-weight:600;pointer-events:none}
 .ra-chat[data-drop="1"] .ra-drop{display:flex}
-.ra-usage{display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:11px;color:var(--ra-fg-muted);margin-top:6px;min-height:16px}
-.ra-ring{display:inline-flex;cursor:default}
+.ra-sendwrap{position:relative;display:inline-flex;align-items:center;justify-content:center}
+.ra-sendwrap .ra-ring{position:absolute;inset:-4px;pointer-events:none;display:block}
+.ra-sendwrap .ra-ring svg{width:100%;height:100%;display:block}
+.ra-chat[data-busy="1"] .ra-sendwrap .ra-ring{position:static;width:20px;height:20px;inset:auto}
 .ra-ring circle{fill:none;stroke-width:2.5}
 .ra-ring .tr{stroke:var(--ra-border)}
 .ra-ring .pr{stroke:var(--ra-accent);stroke-linecap:round;transition:stroke-dashoffset .3s}
@@ -1040,17 +1055,16 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const steerBtn = h("button", "ra-btn xs subtle"); steerBtn.type = "button"; steerBtn.innerHTML = I.corner() + escapeHTML(t.steer); steerBtn.title = t.steerTip;
   const fuBtn = h("button", "ra-btn xs subtle", t.followUp); fuBtn.type = "button"; fuBtn.title = t.followUpTip;
   const stopBtn = h("button", "ra-btn xs red"); stopBtn.type = "button"; stopBtn.innerHTML = I.square() + escapeHTML(t.stop);
-  acts.append(steerBtn, fuBtn, stopBtn, sendBtn);
+  // The send button carries the usage: a ring around it shows how full the context is; its tooltip has the spending.
+  const sendWrap = h("span", "ra-sendwrap");
+  acts.append(steerBtn, fuBtn, stopBtn, sendWrap);
   left.append(attachBtn, hint);
   bar.append(left, acts);
   box.append(cmds, files, ta, bar, fileInput);
   const drop = h("div", "ra-drop", t.drop);
-  const usageEl = h("div", "ra-usage");
-  const usageText = h("span");
   const ring = h("span", "ra-ring"); ring.style.display = "none";
-  usageEl.append(usageText, ring);
-  if (showUsage === false) usageEl.style.display = "none";
-  compCol.append(alertEl, queueEl, box, usageEl);
+  sendWrap.append(sendBtn, ring);
+  compCol.append(alertEl, queueEl, box);
   comp.append(compCol);
   const toasts = h("div", "ra-toasts");
   const statusCol = h("div", "ra-col"); statusCol.append(statusEl);
@@ -1212,8 +1226,17 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const showEmpty = () => {
     if (emptyState === null) return;
     emptyEl.replaceChildren();
+    emptyEl.classList.toggle("start", typeof emptyState === "object" && !(emptyState instanceof HTMLElement) && emptyState?.align === "start");
     if (emptyState instanceof HTMLElement) emptyEl.append(emptyState);
-    else emptyEl.append(h("div", "", typeof emptyState === "string" ? emptyState : t.empty));
+    else if (emptyState && typeof emptyState === "object") {
+      if (emptyState.icon) {
+        const icon = h("div", "ra-empty-icon");
+        if (typeof emptyState.icon === "string") icon.innerHTML = emptyState.icon; else icon.append(emptyState.icon);
+        emptyEl.append(icon);
+      }
+      if (emptyState.title) emptyEl.append(h("h3", "ra-empty-title", emptyState.title));
+      if (emptyState.text) emptyEl.append(h("p", "ra-empty-text", emptyState.text));
+    } else emptyEl.append(h("div", "", typeof emptyState === "string" ? emptyState : t.empty));
     if (suggestions?.length) {
       const row = h("div", "ra-sugs");
       for (const s of suggestions) { const b = h("button", "", s); b.type = "button"; b.addEventListener("click", () => { ta.value = s; ta.focus(); renderCmds(); }); row.append(b); }
@@ -2397,19 +2420,21 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   /* --- wiring an agent --- */
   const showUsage_ = (a: Agent) => {
+    if (showUsage === false) return;
     const u = a.usage;
-    usageText.textContent = u.calls ? t.usageLine.replace("{cost}", fmtCost(u.total_cost)).replace("{tokens}", fmtTokens(u.prompt_tokens + u.completion_tokens)).replace("{calls}", String(u.calls)) : "";
-    if (!a.messages.length) { ring.style.display = "none"; return; }
+    const spent = u.calls ? t.usageLine.replace("{cost}", fmtCost(u.total_cost)).replace("{tokens}", fmtTokens(u.prompt_tokens + u.completion_tokens)).replace("{calls}", String(u.calls)) : "";
+    const label = (context: string) => { const text = [spent, context].filter(Boolean).join("\n"); sendWrap.title = text; ring.setAttribute("aria-label", text); };
+    if (!a.messages.length) { ring.style.display = "none"; label(""); return; }
     void a.context().then((c) => {
       if (agent !== a) return;
-      // How full the context is, as a ring (like the app's own indicator); the numbers are in its tooltip.
+      // How full the context is, as a ring around the send button; the numbers (and the spending) are in its tooltip.
       const ratio = Math.min(1, c.used / c.window);
       const pct = ratio < 0.01 ? "<1%" : `${Math.round(ratio * 100)}%`;
-      const r = 6, len = 2 * Math.PI * r;
-      ring.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle class="tr" cx="8" cy="8" r="${r}"/><circle class="pr" cx="8" cy="8" r="${r}" stroke-dasharray="${len.toFixed(2)}" stroke-dashoffset="${(len * (1 - Math.max(ratio, 0.02))).toFixed(2)}" transform="rotate(-90 8 8)"/></svg>`;
+      const r = 18, len = 2 * Math.PI * r;
+      ring.innerHTML = `<svg viewBox="0 0 40 40" aria-hidden="true"><circle class="tr" cx="20" cy="20" r="${r}"/><circle class="pr" cx="20" cy="20" r="${r}" stroke-dasharray="${len.toFixed(2)}" stroke-dashoffset="${(len * (1 - Math.max(ratio, 0.02))).toFixed(2)}" transform="rotate(-90 20 20)"/></svg>`;
       ring.className = "ra-ring" + (ratio >= 0.9 ? " hi" : ratio >= 0.7 ? " mid" : "");
-      ring.title = `${t.context} ${pct} · ${fmtTokens(c.used)} / ${fmtTokens(c.window)} tokens`;
-      ring.setAttribute("aria-label", ring.title);
+      ring.setAttribute("role", "img");
+      label(`${t.context.charAt(0).toUpperCase()}${t.context.slice(1)} ${pct} · ${fmtTokens(c.used)} / ${fmtTokens(c.window)} tokens`);
       ring.style.display = "";
     });
   };
