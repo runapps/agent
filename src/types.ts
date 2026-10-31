@@ -158,7 +158,7 @@ export interface AgentFS {
 /* Skills                                                              */
 /* ------------------------------------------------------------------ */
 
-/** A skill folder found in the workspace (`/skills/<name>/SKILL.md`). */
+/** A skill folder found in the workspace (`<skillsDir>/<name>/SKILL.md`, default `/.agent/skills`). */
 export interface Skill {
   name: string;
   description: string;

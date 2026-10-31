@@ -21,7 +21,8 @@ export function openWorkspace(client: RunApps | null, opts: WorkspaceOptions = {
   const project = opts.project ?? (client as unknown as { projectName?: string } | null)?.projectName ?? undefined;
   return Workspace.open(client, { ...opts, project });
 }
-export { Workspace, memoryFS, normalizePath, type WorkspaceOptions, type WorkspaceRead, type SessionStore } from "./workspace.js";
+export { Workspace, memoryFS, normalizePath, DEFAULT_SKILLS_DIR, type WorkspaceOptions, type WorkspaceRead, type SessionStore } from "./workspace.js";
+export { directoryFS } from "./directory-fs.js";
 export { planCut, serializeConversation, summaryOf, type CompactionSettings, type CutPlan } from "./compaction.js";
 export { parseCommandArgs, substituteArgs, listTemplates, expandSlash, type PromptTemplate } from "./templates.js";
 export { applyEdits, normalizeForFuzzyMatch, type TextEdit } from "./edit.js";

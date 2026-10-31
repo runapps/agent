@@ -7,33 +7,69 @@
 <script src="https://www.runapps.ai/sdk/latest.js"></script>
 <script src="../../dist/agent.umd.js"></script>
 <style>
-  body { margin: 0; height: 100vh; display: grid; grid-template-columns: 1fr 300px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111; background: #fff; }
-  @media (prefers-color-scheme: dark) { body { color: #e5e7eb; background: #0b0d11; } aside { background: #14171d !important; border-color: #2a2f3a !important; } }
+  body { margin: 0; height: 100vh; display: grid; grid-template-columns: 1fr 320px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111; background: #fff; }
+  @media (prefers-color-scheme: dark) { body { color: #e5e7eb; background: #0b0d11; } aside { background: #14171d !important; border-color: #2a2f3a !important; } .box { border-color: #2a2f3a !important; } }
   #agent { min-height: 0; border-right: 1px solid #e5e7eb; }
-  @media (max-width: 720px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } #agent { border-right: 0; } aside { max-height: 35vh; border-top: 1px solid #e5e7eb; } }
-  aside { padding: 14px; font-size: 12px; background: #fafafa; overflow: auto; }
-  label { display: block; margin-bottom: 8px; }
-  input, select { font: inherit; width: 100%; box-sizing: border-box; }
-  button { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid #d1d5db; background: transparent; color: inherit; cursor: pointer; margin: 2px 0; }
-  pre { white-space: pre-wrap; word-break: break-all; font-size: 11px; }
+  @media (max-width: 720px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } #agent { border-right: 0; } aside { max-height: 40vh; border-top: 1px solid #e5e7eb; } }
+  aside { padding: 12px 14px; font-size: 12px; background: #fafafa; overflow: auto; }
+  aside h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+  label { display: block; margin-bottom: 6px; }
+  input[type=text], input[type=url], select { font: inherit; width: 100%; box-sizing: border-box; padding: 4px 6px; }
+  button { font: inherit; padding: 5px 10px; border-radius: 8px; border: 1px solid #d1d5db; background: transparent; color: inherit; cursor: pointer; margin: 2px 2px 2px 0; }
+  button.pri { background: #2563eb; border-color: #2563eb; color: #fff; }
+  pre { white-space: pre-wrap; word-break: break-all; font-size: 11px; margin: 4px 0; }
+  .box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 8px; margin: 4px 0; }
+  .skill { display: flex; gap: 6px; align-items: baseline; }
+  .skill b { font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
+  .skill span { flex: 1; min-width: 0; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .skill button { padding: 0 6px; font-size: 11px; }
+  .muted { opacity: .7; }
 </style>
 </head>
 <body>
 <div id="agent"></div>
 <aside>
-  <h3 style="margin:0 0 10px">Agent Chat Lab</h3>
+  <h3 style="margin:0 0 8px">Agent Chat Lab</h3>
+  <div class="box">
+    <div id="who" class="muted">未登录</div>
+    <button id="signin" class="pri">登录 RunApps</button>
+    <button id="signout">退出</button>
+  </div>
+
+  <h4>目录（agent 的工作区）</h4>
+  <div class="box">
+    <div>当前：<b id="dirname">IndexedDB · lab</b></div>
+    <button id="dir-idb">IndexedDB</button>
+    <button id="dir-opfs">浏览器私有目录 (OPFS)</button>
+    <button id="dir-local">打开本地文件夹…</button>
+    <div class="muted">技能放在目录的 <code>.agent/skills/&lt;name&gt;/SKILL.md</code>；本地文件夹需要 Chrome/Edge。</div>
+  </div>
+  <pre id="ws">…</pre>
+
+  <h4>技能</h4>
+  <div id="skills" class="box">…</div>
+  <div class="box">
+    <input type="file" id="skillfile" accept=".zip">
+    <button id="skill-upload">安装这个 zip</button>
+    <input type="url" id="skillurl" placeholder="zip 地址，如 ./extra-skill.zip" style="margin-top:6px">
+    <button id="skill-url">从地址安装</button>
+    <button id="skills-refresh">重新拉取 skills 源</button>
+  </div>
+
+  <h4>模型与外观</h4>
   <label>Model<br><select id="model"><option value="">(platform default)</option></select></label>
   <label>Theme<br><select id="theme"><option>auto</option><option>light</option><option>dark</option></select></label>
   <label>Locale<br><select id="locale"><option value="">(document)</option><option>zh</option><option>en</option></select></label>
-  <button id="remount">Re-mount with these options</button>
-  <button id="ask">Host prompt: 1+1=?</button>
-  <button id="confirm">Host ui.confirm()</button>
-  <button id="unmount">Unmount</button>
-  <h4>Workspace</h4>
-  <pre id="ws">…</pre>
-  <h4>Last run</h4>
+  <button id="remount">按这些选项重新挂载</button>
+
+  <h4>宿主调用</h4>
+  <button id="ask">chat.prompt("1+1=?")</button>
+  <button id="confirm">chat.ui.confirm()</button>
+  <button id="unmount">unmount()</button>
+
+  <h4>上一次运行</h4>
   <pre id="run"></pre>
-  <p style="opacity:.7">Signs in with RunApps through the SDK popup (project <code id="proj"></code>). The <b>run_js</b>, <b>ask_user</b> and file tools are on; skills come from <code>skills.zip</code>. A local backend can be used with <code>?local=1</code> and a <code>key.json</code> next to this page.</p>
+  <p class="muted">页面通过 RunApps SDK 弹窗登录（草稿项目 <code id="proj"></code>），模型来自网关目录。加 <code>?local=1</code> 并放一个 <code>key.json</code> 可改走本地后端。</p>
 </aside>
 <script type="module">
 const $ = (id) => document.getElementById(id);
@@ -41,25 +77,52 @@ const params = new URLSearchParams(location.search);
 const PROJECT = "proj-cb948f19"; // the draft app "Agent Chat Lab"
 $("proj").textContent = PROJECT;
 
+/* ---- client: prod with popup sign-in, or a local backend with ?local=1 ---- */
 let client;
 if (params.get("local")) {
   let key; try { key = (await (await fetch("./key.json")).json()).key; } catch {}
   client = new RunApps({ apiKey: key, baseURL: "http://localhost:8080", project: PROJECT });
+  $("who").textContent = "本地后端 " + (key ? "(key.json)" : "(no key.json!)");
+  $("signin").style.display = $("signout").style.display = "none";
 } else {
   client = new RunApps({ project: PROJECT, signInMode: "popup", sync: false });
+  client.auth?.onTokenChange?.(() => showUser());
 }
+async function showUser() {
+  try { const me = await client.me(); $("who").textContent = `已登录：${me.name || me.email || me.id}`; await loadModels(); }
+  catch { $("who").textContent = "未登录"; }
+}
+async function loadModels() {
+  const sel = $("model"); const cur = sel.value;
+  sel.replaceChildren(new Option("(platform default)", ""));
+  for (const m of await client.models.list({ capability: "text" })) sel.append(new Option(m.id + (m.is_default ? " ★" : ""), m.id));
+  sel.value = cur;
+}
+$("signin").onclick = async () => { try { await client.signIn(); } catch (e) { alert("登录未完成：" + e.message); } showUser(); };
+$("signout").onclick = () => { client.signOut(); showUser(); };
+if (params.get("local")) loadModels().catch((e) => console.warn("models", e)); else if (client.user) showUser();
 
-try {
-  for (const m of await client.models.list({ capability: "text" })) {
-    const o = document.createElement("option"); o.value = m.id; o.textContent = m.id + (m.is_default ? " ★" : ""); $("model").append(o);
-  }
-} catch (e) { console.warn("models", e); }
+/* ---- the directory: IndexedDB (default), OPFS, or a local folder ---- */
+let workspace, chat, dirKind = "idb", dirHandle = null;
+async function openDir(kind, handle) {
+  dirKind = kind; dirHandle = handle ?? null;
+  const common = { id: kind === "idb" ? "lab" : kind === "opfs" ? "opfs" : "local:" + handle.name, skills: "./skills.zip" };
+  const dir = handle ? RunAppsAgent.directoryFS(handle, { description: kind === "opfs" ? "the browser's private folder (OPFS)" : `the local folder "${handle.name}"` }) : undefined;
+  workspace = await RunAppsAgent.openWorkspace(client, { ...common, dir });
+  workspace.mount("/doc", RunAppsAgent.memoryFS({ "/plan.md": "# Q3 plan\n- hire 2 engineers\n- ship v2\n- write the launch post\n" }, { description: "the open document" }));
+  if (!(await workspace.exists("/prompts/haiku.md"))) await workspace.write("/prompts/haiku.md", "---\ndescription: a haiku about the arguments\nargument-hint: <topic>\n---\nWrite a haiku about $@. Only the haiku.\n");
+  $("dirname").textContent = kind === "idb" ? "IndexedDB · lab" : kind === "opfs" ? "OPFS（浏览器私有目录）" : `本地文件夹 “${handle.name}”`;
+  mount();
+  await refreshPanels();
+}
+$("dir-idb").onclick = () => openDir("idb");
+$("dir-opfs").onclick = async () => openDir("opfs", await navigator.storage.getDirectory());
+$("dir-local").onclick = async () => {
+  if (!window.showDirectoryPicker) return alert("这个浏览器没有 File System Access API（用 Chrome / Edge）");
+  try { openDir("local", await window.showDirectoryPicker({ mode: "readwrite" })); } catch (e) { if (e.name !== "AbortError") alert(e.message); }
+};
 
-const workspace = await RunAppsAgent.openWorkspace(client, { id: "lab", skills: "./skills.zip" });
-workspace.mount("/doc", RunAppsAgent.memoryFS({ "/plan.md": "# Q3 plan\n- hire 2 engineers\n- ship v2\n- write the launch post\n" }, { description: "the open document" }));
-if (!(await workspace.exists("/prompts/haiku.md"))) await workspace.write("/prompts/haiku.md", "---\ndescription: a haiku about the arguments\nargument-hint: <topic>\n---\nWrite a haiku about $@. Only the haiku.\n");
-
-let chat;
+/* ---- the chat ---- */
 function mount() {
   chat?.unmount();
   chat = RunAppsAgent.renderChat($("agent"), {
@@ -71,20 +134,42 @@ function mount() {
     appName: "Agent Chat Lab",
     instructions: "You are the assistant inside a small notes app. The user's open document is mounted at /doc.",
     title: "Agent Chat Lab",
-    suggestions: ["17 * 23 等于多少？", "把 /doc/plan.md 的第二项改成 ship v3", "/skill:unit-convert 10 lb to kg", "/haiku autumn", "帮我选一个颜色：问我喜欢冷色还是暖色"],
+    suggestions: ["17 * 23 等于多少？", "列出工作区里的文件", "把 /doc/plan.md 的第二项改成 ship v3", "/skill:unit-convert 10 lb to kg", "/haiku autumn", "帮我选一个颜色：问我喜欢冷色还是暖色"],
     onOpenFile: (path) => alert("open " + path),
   });
-  chat.agent.on("run_end", (r) => { $("run").textContent = JSON.stringify({ reason: r.reason, error: r.error?.message, usage: r.usage }, null, 1); listFiles(); });
-  chat.agent.on("session_saved", listFiles);
-  window.chat = chat;
+  chat.agent.on("run_end", (r) => { $("run").textContent = JSON.stringify({ reason: r.reason, error: r.error?.message, usage: r.usage }, null, 1); refreshPanels(); });
+  chat.agent.on("session_saved", refreshPanels);
+  window.chat = chat; window.workspace = workspace;
 }
-async function listFiles() { const files = await workspace.list("/"); $("ws").textContent = files.map((f) => `${f.path} (${f.size})`).join("\n"); }
-mount();
-listFiles();
-$("remount").onclick = mount;
+async function refreshPanels() {
+  const files = await workspace.list("/");
+  $("ws").textContent = files.map((f) => `${f.path} (${f.size})`).join("\n") || "(empty)";
+  const skills = await workspace.skills();
+  const box = $("skills"); box.replaceChildren();
+  for (const s of skills) {
+    const row = document.createElement("div"); row.className = "skill";
+    const b = document.createElement("b"); b.textContent = s.name;
+    const d = document.createElement("span"); d.textContent = s.description; d.title = s.description;
+    const x = document.createElement("button"); x.textContent = "删除"; x.onclick = async () => { await workspace.removeSkill(s.name); await chat.refresh(); refreshPanels(); };
+    row.append(b, d, x); box.append(row);
+  }
+  if (!skills.length) box.textContent = "(没有技能)";
+}
+$("skill-upload").onclick = async () => {
+  const f = $("skillfile").files[0]; if (!f) return alert("先选一个 zip");
+  try { const got = await workspace.installSkill(f); await chat.refresh(); refreshPanels(); chat.ui.notify("已安装：" + got.map((s) => s.name).join(", ")); } catch (e) { alert(e.message); }
+};
+$("skill-url").onclick = async () => {
+  const u = $("skillurl").value.trim(); if (!u) return;
+  try { const got = await workspace.installSkill(u); await chat.refresh(); refreshPanels(); chat.ui.notify("已安装：" + got.map((s) => s.name).join(", ")); } catch (e) { alert(e.message); }
+};
+$("skills-refresh").onclick = async () => { await workspace.refreshSkills(true); await chat.refresh(); refreshPanels(); };
+$("remount").onclick = () => { mount(); refreshPanels(); };
 $("ask").onclick = () => chat.prompt("1+1=?");
 $("confirm").onclick = async () => { const ok = await chat.ui.confirm("Host question", "Delete everything?", { danger: true, ok: "Delete" }); chat.ui.notify("confirm → " + ok, ok ? "warning" : "info"); };
 $("unmount").onclick = () => chat.unmount();
+
+await openDir("idb");
 </script>
 </body>
 </html>

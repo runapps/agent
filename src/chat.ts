@@ -49,6 +49,8 @@ export interface ChatHandle {
   newSession(): Promise<Agent>;
   /** Continues a saved session of the workspace. */
   resume(id: string): Promise<Agent>;
+  /** Re-reads the workspace's skills and templates for `/` completion (after installing a skill). */
+  refresh(): Promise<void>;
   unmount(): void;
 }
 
@@ -825,6 +827,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     setInput(text) { ta.value = text; autosize(); ta.focus(); renderCmds(); },
     newSession,
     resume,
+    refresh: refreshCommands,
     unmount() {
       if (!mounted) return;
       mounted = false;

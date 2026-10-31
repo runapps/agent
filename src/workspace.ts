@@ -1,16 +1,22 @@
-// Workspace: the agent's virtual file system — a POSIX-style tree kept in
-// IndexedDB (one database per project + session id), with a read-only
-// `/skills` layer unpacked from skills zips and mount points an app fills
-// with its own files (its document, a cloud folder). The file tools in
-// file-tools.ts and the sandbox's `fs` work on it; skills are found by
-// scanning `/skills/*/SKILL.md`.
+// Workspace: the directory the agent works in — a POSIX-style tree kept
+// in IndexedDB (one database per project + id), or a directory the app
+// provides (`dir`: a local folder through the File System Access API,
+// any `AgentFS`), plus mount points an app fills with its own files (its
+// document, a cloud folder). Skills are ordinary folders with a SKILL.md
+// under `<skillsDir>` (default `/.agent/skills`, as pi keeps them in the
+// project): hand-written, unpacked there from skills zips (`skills`
+// option, ETag-cached), or installed with `installSkill`. The file tools
+// in file-tools.ts and the sandbox's `fs` work on it.
 
 import type { RunApps } from "@runappsai/sdk";
 import type { AgentFS, FileStat, SessionData, SessionSummary, Skill } from "./types.js";
 import { listZip, readZipEntry, type Inflate, MAX_ZIP_BYTES } from "./zip.js";
 import { parseSkill } from "./skills.js";
 
-export const SKILLS_ROOT = "/skills";
+/** Where a workspace keeps its skills unless `skillsDir` says otherwise. */
+export const DEFAULT_SKILLS_DIR = "/.agent/skills";
+/** @deprecated use DEFAULT_SKILLS_DIR / `workspace.skillsDir` */
+export const SKILLS_ROOT = DEFAULT_SKILLS_DIR;
 const DB_PREFIX = "__runapps_agent_ws";
 
 type Layer = "skills" | "work";
@@ -39,6 +45,13 @@ interface Store {
   close(): void;
 }
 
+interface SkillsMeta {
+  etag?: string;
+  lastModified?: string;
+  files: string[];
+  at?: number;
+}
+
 /** Saved agent sessions of a workspace (`workspace.sessions`). */
 export interface SessionStore {
   /** Newest first. */
@@ -61,9 +74,17 @@ export interface WorkspaceOptions {
    * Skills zip(s): a path or URL fetched as is (`/skills.zip` in the
    * bundle, a public link), or `files:<path>` for a file in the user's
    * RunApps storage (fetched with the SDK's token). Unpacked under
-   * `/skills`, re-fetched only when the server's ETag changes.
+   * `skillsDir`, re-fetched only when the server's ETag changes.
    */
   skills?: string | string[];
+  /** The folder skills live in, `<skillsDir>/<name>/SKILL.md` (default `/.agent/skills`). */
+  skillsDir?: string;
+  /**
+   * The directory itself, instead of the IndexedDB tree: `directoryFS(handle)`
+   * for a folder picked with `showDirectoryPicker()`, or any `AgentFS`.
+   * Sessions and skills-zip bookkeeping still go to IndexedDB under `id`.
+   */
+  dir?: AgentFS;
   /** Inflate for runtimes without DecompressionStream (tests: zlib.inflateRawSync). */
   inflate?: Inflate;
   fetch?: typeof fetch;
@@ -80,6 +101,9 @@ export interface WorkspaceRead {
 export class Workspace {
   readonly id: string;
   readonly dbName: string;
+  /** Where skills live (`<skillsDir>/<name>/SKILL.md`). */
+  readonly skillsDir: string;
+  private readonly root: AgentFS | null;
   private store!: Store;
   private readonly mounts = new Map<string, AgentFS>();
   private readonly sources: string[];
@@ -118,6 +142,9 @@ export class Workspace {
     this.id = opts.id || "default";
     this.dbName = `${DB_PREFIX}:${opts.project || "app"}:${this.id}`;
     this.sources = opts.skills ? ([] as string[]).concat(opts.skills) : [];
+    this.skillsDir = normalizePath(opts.skillsDir || DEFAULT_SKILLS_DIR);
+    if (this.skillsDir === "/") throw new Error("runapps agent: skillsDir cannot be /");
+    this.root = opts.dir ?? null;
     this.inflate = opts.inflate;
     this.fetchFn = opts.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
     this.idb = opts.indexedDB !== undefined ? opts.indexedDB : (typeof indexedDB !== "undefined" ? indexedDB : null);
@@ -146,9 +173,7 @@ export class Workspace {
   /** Exposes `fs` under `prefix` (e.g. `/doc`); its paths are relative to the prefix. */
   mount(prefix: string, fs: AgentFS): void {
     const p = normalizePath(prefix);
-    if (p === "/" || p === SKILLS_ROOT || p.startsWith(SKILLS_ROOT + "/")) {
-      throw new Error(`runapps agent: cannot mount at ${p}`);
-    }
+    if (p === "/") throw new Error("runapps agent: cannot mount at / (open the workspace with `dir` instead)");
     this.mounts.set(p, fs);
   }
 
@@ -159,20 +184,49 @@ export class Workspace {
   /** What the system prompt says about the tree. */
   describe(): string {
     const lines = [
-      `${SKILLS_ROOT}/ — skills (read-only).`,
-      "Other paths are a scratch area that persists between conversations.",
+      this.root
+        ? `/ — ${this.root.description || "the working directory"}${this.root.write ? "" : " (read-only)"}.`
+        : "/ — the working directory; it persists between conversations.",
+      `${this.skillsDir}/ — skills, one folder per skill with a SKILL.md.`,
     ];
     for (const [p, fs] of this.mounts) lines.push(`${p}/ — ${fs.description || "app files"}${fs.write ? "" : " (read-only)"}.`);
     return lines.join("\n");
   }
 
+  /** The mount (or the root directory) that serves `path`; null means the IndexedDB tree. */
   private route(path: string): { fs: AgentFS; rel: string; prefix: string } | null {
     for (const [prefix, fs] of this.mounts) {
       if (path === prefix || path.startsWith(prefix + "/")) {
         return { fs, rel: path.slice(prefix.length) || "/", prefix };
       }
     }
-    return null;
+    return this.root ? { fs: this.root, rel: path, prefix: "" } : null;
+  }
+
+  private inSkills(path: string): boolean {
+    return path === this.skillsDir || path.startsWith(this.skillsDir + "/");
+  }
+
+  /* ---------------- raw access to the tree (root dir or IndexedDB) ---------------- */
+
+  private async putFile(path: string, data: string | Uint8Array, contentType: string | undefined, layer: Layer, source?: string): Promise<void> {
+    if (this.inSkills(path)) this.skillCache = null;
+    if (this.root) {
+      if (!this.root.write) throw new Error("/ is read-only");
+      await this.root.write(path, data, contentType ?? guessType(path, data));
+      return;
+    }
+    await this.store.put({ path, data, contentType: contentType ?? guessType(path, data), mtime: Date.now(), layer, source });
+  }
+
+  private async rmFile(path: string): Promise<void> {
+    if (this.inSkills(path)) this.skillCache = null;
+    if (this.root) {
+      if (!this.root.delete) throw new Error("/ is read-only");
+      await this.root.delete(path);
+      return;
+    }
+    await this.store.delete(path);
   }
 
   /* ---------------- files ---------------- */
@@ -182,13 +236,16 @@ export class Workspace {
     const p = normalizePath(prefix);
     const out: FileStat[] = [];
     const r = this.route(p);
-    if (r) {
+    if (r && r.prefix) {
       for (const f of await r.fs.list(r.rel)) out.push({ ...f, path: r.prefix + normalizePath(f.path) });
       return out.sort((a, b) => a.path.localeCompare(b.path));
     }
-    for (const rec of await this.store.list(p === "/" ? "/" : p + "/")) {
-      if (this.route(rec.path)) continue; // shadowed by a mount
-      out.push(statOf(rec));
+    const own: FileStat[] = this.root
+      ? (await this.root.list(p)).map((f) => ({ ...f, path: normalizePath(f.path) }))
+      : (await this.store.list(p === "/" ? "/" : p + "/")).map(statOf);
+    for (const f of own) {
+      if (this.route(f.path)?.prefix) continue; // shadowed by a mount
+      out.push(f);
     }
     for (const [mp, fs] of this.mounts) {
       if (p === "/" || mp.startsWith(p + "/")) {
@@ -207,7 +264,7 @@ export class Workspace {
         const s = await r.fs.stat(r.rel);
         return s ? { ...s, path: p } : null;
       }
-      const f = (await r.fs.list(r.rel)).find((x) => normalizePath(x.path) === r.rel);
+      const f = (await r.fs.list(r.rel)).find((x) => normalizePath(x.path) === normalizePath(r.rel));
       return f ? { ...f, path: p } : null;
     }
     const rec = await this.store.get(p);
@@ -261,56 +318,105 @@ export class Workspace {
   async write(path: string, content: string | Uint8Array, contentType?: string): Promise<void> {
     await this.ready();
     const p = normalizePath(path);
-    if (p === "/" ) throw new Error("Cannot write to /");
-    if (p === SKILLS_ROOT || p.startsWith(SKILLS_ROOT + "/")) throw new Error(`${SKILLS_ROOT} is read-only`);
+    if (p === "/") throw new Error("Cannot write to /");
     const r = this.route(p);
-    if (r) {
+    if (r && r.prefix) {
       if (!r.fs.write) throw new Error(`${r.prefix} is read-only`);
       await r.fs.write(r.rel, content, contentType);
       return;
     }
-    await this.store.put({ path: p, data: content, contentType: contentType ?? guessType(p, content), mtime: Date.now(), layer: "work" });
+    await this.putFile(p, content, contentType, "work");
   }
 
   async delete(path: string): Promise<void> {
     await this.ready();
     const p = normalizePath(path);
-    if (p === SKILLS_ROOT || p.startsWith(SKILLS_ROOT + "/")) throw new Error(`${SKILLS_ROOT} is read-only`);
     const r = this.route(p);
-    if (r) {
+    if (r && r.prefix) {
       if (!r.fs.delete) throw new Error(`${r.prefix} is read-only`);
       await r.fs.delete(r.rel);
       return;
     }
-    if (!(await this.store.get(p))) throw new Error(`No such file: ${p}`);
-    await this.store.delete(p);
+    if (!(await this.stat(p))) throw new Error(`No such file: ${p}`);
+    await this.rmFile(p);
   }
 
-  /** Removes everything the agent wrote (mounts and skills stay). */
+  /** Removes every file outside the skills folder (mounts and skills stay). */
   async clearWork(): Promise<void> {
     await this.ready();
-    for (const rec of await this.store.list("/")) if (rec.layer === "work") await this.store.delete(rec.path);
+    for (const f of await this.list("/")) {
+      if (this.inSkills(f.path) || this.route(f.path)?.prefix) continue;
+      await this.rmFile(f.path);
+    }
   }
 
   /* ---------------- skills ---------------- */
 
-  /** The skills in `/skills` (parsed once per refresh). */
+  /** The skills in `skillsDir` — every `<skillsDir>/<name>/SKILL.md` (parsed once, until a file there changes). */
   async skills(): Promise<Skill[]> {
     await this.ready();
     if (this.skillCache) return this.skillCache;
     const out: Skill[] = [];
     const seen = new Set<string>();
-    for (const rec of await this.store.list(SKILLS_ROOT + "/")) {
-      if (!/\/SKILL\.md$/.test(rec.path)) continue;
-      const text = typeof rec.data === "string" ? rec.data : decodeText(rec.data);
-      if (text === null) continue;
-      const parsed = parseSkill(text, rec.path);
+    const re = new RegExp("^" + this.skillsDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/[^/]+/SKILL\\.md$");
+    for (const f of await this.list(this.skillsDir)) {
+      if (!re.test(f.path)) continue;
+      let text: string;
+      try {
+        text = await this.readText(f.path);
+      } catch {
+        continue;
+      }
+      const parsed = parseSkill(text, f.path);
       if (!parsed || seen.has(parsed.skill.name)) continue;
       seen.add(parsed.skill.name);
       out.push(parsed.skill);
     }
     this.skillCache = out.sort((a, b) => a.name.localeCompare(b.name));
     return this.skillCache;
+  }
+
+  /**
+   * Adds a skill (or a pack of skills) from a zip: a URL / bundle path /
+   * `files:<path>` string, or the bytes themselves (a `File` from an
+   * `<input type=file>`, a Blob, a Uint8Array). A zip with SKILL.md at its
+   * root is one skill, named `name` (else after the file); a zip of
+   * folders is one skill per folder. Returns what was installed.
+   */
+  async installSkill(source: string | Blob | Uint8Array, opts: { name?: string } = {}): Promise<Skill[]> {
+    await this.ready();
+    let bytes: Uint8Array;
+    let key: string;
+    let base: string;
+    if (typeof source === "string") {
+      const fetched = await this.fetchSource(source);
+      if (!fetched) throw new Error("runapps agent: nothing fetched");
+      bytes = fetched.bytes;
+      key = `skills:${source}`;
+      base = opts.name ?? zipBaseName(source);
+    } else {
+      bytes = source instanceof Uint8Array ? source : new Uint8Array(await source.arrayBuffer());
+      if (bytes.byteLength > MAX_ZIP_BYTES) throw new Error("skills zip too large");
+      const fileName = (source as File).name ?? "";
+      base = opts.name ?? zipBaseName(fileName || "skill");
+      key = `skills:upload:${base}`;
+    }
+    const before = new Set((await this.skills()).map((s) => s.name));
+    const prev = await this.store.getMeta<SkillsMeta>(key);
+    await withLock(`${this.dbName}:skills`, () => this.unpackZip(bytes, key, base, prev));
+    this.skillCache = null;
+    const after = await this.skills();
+    const written = (await this.store.getMeta<SkillsMeta>(key))?.files ?? [];
+    return after.filter((s) => written.includes(s.path) || !before.has(s.name));
+  }
+
+  /** Deletes the skill's folder. Returns false when there is no such skill. */
+  async removeSkill(name: string): Promise<boolean> {
+    const skill = (await this.skills()).find((s) => s.name === name);
+    if (!skill) return false;
+    for (const f of await this.list(skill.dir)) await this.rmFile(f.path);
+    this.skillCache = null;
+    return true;
   }
 
   /** The body (instructions) of a skill, by name. */
@@ -342,11 +448,18 @@ export class Workspace {
 
   private async unpackSource(source: string, force: boolean): Promise<void> {
     const metaKey = `skills:${source}`;
-    const prev = await this.store.getMeta<{ etag?: string; lastModified?: string; files: string[] }>(metaKey);
-    const fetched = await this.fetchSource(source, force ? undefined : prev);
+    const prev = await this.store.getMeta<SkillsMeta>(metaKey);
+    // Files recorded outside the current skills folder (a workspace from
+    // before skillsDir, or a changed skillsDir) are unpacked afresh.
+    const moved = !!prev?.files.some((f) => !this.inSkills(f));
+    const fetched = await this.fetchSource(source, force || moved ? undefined : prev);
     if (!fetched) return; // unchanged
-    const entries = listZip(fetched.bytes).filter((e) => !e.isDir && !e.name.includes("__MACOSX/") && !/(^|\/)\.DS_Store$/.test(e.name));
-    const base = zipBaseName(source);
+    await this.unpackZip(fetched.bytes, metaKey, zipBaseName(source), prev, fetched);
+  }
+
+  /** Writes a zip's files under `skillsDir` and records them under `metaKey`, dropping files an earlier unpack of it wrote that are gone now. */
+  private async unpackZip(zip: Uint8Array, metaKey: string, base: string, prev?: SkillsMeta, fetched?: { etag?: string; lastModified?: string }): Promise<void> {
+    const entries = listZip(zip).filter((e) => !e.isDir && !e.name.includes("__MACOSX/") && !/(^|\/)\.DS_Store$/.test(e.name));
     const atRoot = entries.some((e) => e.name === "SKILL.md");
     const written: string[] = [];
     const now = Date.now();
@@ -354,22 +467,16 @@ export class Workspace {
       let rel = e.name.replace(/^\.?\/+/, "");
       if (rel.startsWith("skills/")) rel = rel.slice(7);
       if (!rel || rel.split("/").some((seg) => seg === "..")) continue;
-      const path = `${SKILLS_ROOT}/${atRoot ? base + "/" : ""}${rel}`;
-      const bytes = await readZipEntry(fetched.bytes, e, this.inflate);
+      const path = `${this.skillsDir}/${atRoot ? base + "/" : ""}${rel}`;
+      const bytes = await readZipEntry(zip, e, this.inflate);
       const text = decodeText(bytes);
-      await this.store.put({
-        path,
-        data: text ?? bytes,
-        contentType: guessType(path, text ?? bytes),
-        mtime: now,
-        layer: "skills",
-        source,
-      });
+      await this.putFile(path, text ?? bytes, guessType(path, text ?? bytes), "skills", metaKey);
       written.push(path);
     }
     // Files of this source that the new zip no longer has.
-    for (const old of prev?.files ?? []) if (!written.includes(old)) await this.store.delete(old);
-    await this.store.putMeta(metaKey, { etag: fetched.etag, lastModified: fetched.lastModified, files: written, at: now });
+    for (const old of prev?.files ?? []) if (!written.includes(old)) await this.rmFile(old).catch(() => undefined);
+    await this.store.putMeta(metaKey, { etag: fetched?.etag, lastModified: fetched?.lastModified, files: written, at: now });
+    this.skillCache = null;
   }
 
   private async fetchSource(

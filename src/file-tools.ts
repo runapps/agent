@@ -18,7 +18,7 @@ export function fileTools(ws: Workspace): Tool[] {
     defineTool<{ path?: string }>({
       name: "list_files",
       description:
-        "List the files under a folder of the workspace (recursive), one per line with the size in bytes. Output is truncated to 500 entries. Start at / to see everything; /skills holds the skills.",
+        `List the files under a folder of the workspace (recursive), one per line with the size in bytes. Output is truncated to 500 entries. Start at / to see everything; ${ws.skillsDir} holds the skills.`,
       parameters: {
         type: "object",
         properties: { path: { type: "string", description: "Folder to list. Default /" } },
