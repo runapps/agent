@@ -20,7 +20,7 @@ import { summaryOf } from "./compaction.js";
 import { escapeHTML } from "./markdown.js";
 import { listTemplates } from "./templates.js";
 import { VirtualList, type VRow } from "./vlist.js";
-import { h, I, modal, modalConfirm, renderMD } from "./dom.js";
+import { downloadBlob, h, I, modal, modalConfirm, renderMD } from "./dom.js";
 import { filesPanel, freePath } from "./files-panel.js";
 import { debugPanel } from "./debug-panel.js";
 import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
@@ -161,6 +161,11 @@ const STRINGS = {
     apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue from here.",
     files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", tooBig: "Too large to edit here; download it.", conflict: "The file changed since you opened it. Overwrite it?", readOnly: "Read-only", autoSaved: "Unsaved edits saved", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved",
+    command: "Command", user: "User", compacting: "Compacting the context…", nothingToCompact: "Nothing to compact yet", busyCmd: "Wait for the current task to finish, or stop it, first", copiedReply: "Copied the last reply", nothingToCopy: "No reply to copy yet", nothingToContinue: "Nothing to continue",
+    unknownModel: "No model named \"{name}\"", modelSet: "Model: {name}", effortSet: "Thinking: {name}", effortLevels: "Thinking levels of {model}: {levels}", unknownEffort: "\"{name}\" is not a thinking level of {model} ({levels})", debugOff: "Debug mode is off",
+    cmdsTitle: "Commands", cmdsMore: "Templates (/name) and skills (/skill:name) are listed as you type.", autoCompact: "Auto-compaction", autoCompactAt: "when less than {n} tokens are left", directory: "Directory", messagesLabel: "Messages",
+    cmdArgs: { compact: "[focus]", model: "[name]", effort: "[level]" },
+    cmd: { help: "Show these commands", new: "Start a new conversation", resume: "Open a saved conversation", compact: "Summarise older turns now; add what the summary must keep", continue: "Continue the last run", model: "Switch model; no name opens the settings", effort: "Set the thinking level", context: "Context use, model and spending", copy: "Copy the last reply", export: "Download the conversation as Markdown", files: "Open the file manager", settings: "Open the settings", debug: "Show or hide the debug panel" },
   },
   zh: {
     assistant: "助手", placeholder: "让 agent 做点什么…  输入 / 查看命令", placeholderBusy: "↵ 插入当前任务，{mod}↵ 排队到之后",
@@ -185,6 +190,11 @@ const STRINGS = {
     apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续从这里接着跑",
     files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", tooBig: "文件太大，无法在这里编辑，可以下载。", conflict: "文件在你打开后被改过，要覆盖吗？", readOnly: "只读", autoSaved: "未保存的修改已自动保存", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存",
+    command: "命令", user: "用户", compacting: "正在压缩上下文…", nothingToCompact: "暂时没有可压缩的内容", busyCmd: "请等当前任务结束（或先停止）", copiedReply: "已复制最后一条回复", nothingToCopy: "还没有可复制的回复", nothingToContinue: "没有可继续的内容",
+    unknownModel: "没有名为“{name}”的模型", modelSet: "模型：{name}", effortSet: "思考强度：{name}", effortLevels: "{model} 的思考强度：{levels}", unknownEffort: "“{name}”不是 {model} 的思考强度（{levels}）", debugOff: "调试模式未开启",
+    cmdsTitle: "命令", cmdsMore: "模板（/名称）和 Skill（/skill:名称）在输入时列出。", autoCompact: "自动压缩", autoCompactAt: "剩余不足 {n} tokens 时", directory: "目录", messagesLabel: "消息",
+    cmdArgs: { compact: "[重点]", model: "[名称]", effort: "[档位]" },
+    cmd: { help: "显示这些命令", new: "开始新对话", resume: "打开保存的对话", compact: "立即压缩较早的对话，可附上要保留的重点", continue: "继续上一次运行", model: "切换模型，不带名称则打开设置", effort: "设置思考强度", context: "上下文占用、模型和花费", copy: "复制最后一条回复", export: "把对话下载为 Markdown", files: "打开文件管理", settings: "打开设置", debug: "显示或隐藏调试面板" },
   },
 };
 type Strings = typeof STRINGS.en;
@@ -452,7 +462,7 @@ const CSS = tokenCSS() + `
 .ra-queue .ra-qi button:hover{background:var(--ra-muted);color:var(--ra-fg)}
 .ra-box{position:relative;border:1px solid var(--ra-border);border-radius:12px;padding:8px 10px 6px;background:var(--ra-panel);box-shadow:var(--ra-shadow)}
 .ra-box:focus-within{border-color:color-mix(in srgb,var(--ra-fg) 28%,transparent)}
-.ra-box textarea{resize:none;height:96px;overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
+.ra-box textarea{resize:none;height:64px;overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
 .ra-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;min-height:32px}
 .ra-bar .ra-hint{font-size:12px;color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.01em}
 .ra-kbd{display:inline-block;font:11px/1.4 var(--ra-mono);border:1px solid var(--ra-border);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--ra-muted);color:var(--ra-fg)}
@@ -463,6 +473,7 @@ const CSS = tokenCSS() + `
 .ra-cmds button{display:flex;gap:8px;align-items:center;width:100%;text-align:left;padding:6px 8px;border-radius:4px;font-size:13px}
 .ra-cmds button:hover,.ra-cmds button.ra-cur{background:var(--ra-muted)}
 .ra-cmds .ra-cn{font:600 14px var(--ra-mono)}
+.ra-cmds .ra-ca{font:12px var(--ra-mono);color:var(--ra-fg-muted);margin-left:-4px}
 .ra-cmds .ra-cd{font-size:12px;color:var(--ra-fg-muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ra-chat .ra-attach{width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--ra-fg-muted);margin-right:4px}
 .ra-chat .ra-attach:hover{background:var(--ra-muted);color:var(--ra-fg)}
@@ -800,7 +811,7 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
 /* Transcript rows                                                     */
 /* ------------------------------------------------------------------ */
 
-type Command = { name: string; description: string; kind: string };
+type Command = { name: string; description: string; kind: string; /** Built-in: runs on Enter when it takes no argument. */ args?: string; builtin?: boolean };
 
 interface ToolCard { el: HTMLDetailsElement; name: string; args: unknown; end: HTMLElement; body: HTMLElement; update: HTMLElement | null; result: HTMLElement | null }
 
@@ -886,7 +897,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const queueEl = h("div", "ra-queue"); queueEl.style.display = "none";
   const box = h("div", "ra-box");
   const cmds = h("div", "ra-cmds"); cmds.style.display = "none";
-  const ta = h("textarea"); ta.rows = 3; ta.setAttribute("aria-label", "Message");
+  const ta = h("textarea"); ta.rows = 2; ta.setAttribute("aria-label", "Message");
   const files = h("div", "ra-files"); files.style.display = "none";
   const bar = h("div", "ra-bar");
   const left = h("div", "ra-left");
@@ -1522,7 +1533,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const currentSuggestions = (): Command[] => {
     const v = ta.value;
     if (cmdsDismissed || !v.startsWith("/") || /\s/.test(v)) return [];
-    return commands.filter((c) => `/${c.name}`.startsWith(v)).slice(0, 8);
+    return [...builtinCommands(), ...commands].filter((c) => `/${c.name}`.startsWith(v)).slice(0, 40);
   };
   const renderCmds = () => {
     const found = currentSuggestions();
@@ -1531,9 +1542,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (cmdIndex >= found.length) cmdIndex = 0;
     found.forEach((c, i) => {
       const b = h("button", i === cmdIndex ? "ra-cur" : ""); b.type = "button";
-      b.append(h("span", "ra-cn", `/${c.name}`), h("span", "ra-badge", c.kind), h("span", "ra-cd", c.description));
-      b.addEventListener("mousedown", (e) => { e.preventDefault(); ta.value = `/${c.name} `; renderCmds(); ta.focus(); });
+      b.append(h("span", "ra-cn", `/${c.name}`));
+      if (c.args) b.append(h("span", "ra-ca", c.args));
+      b.append(h("span", "ra-badge", c.kind), h("span", "ra-cd", c.description));
+      b.addEventListener("mousedown", (e) => { e.preventDefault(); pickCommand(c); ta.focus(); });
       cmds.append(b);
+      if (i === cmdIndex) b.scrollIntoView?.({ block: "nearest" });
     });
   };
   // Typing only touches the popover, once per frame; the transcript and the box never change size.
@@ -1618,6 +1632,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const send = async (mode: "prompt" | "steer" | "followUp") => {
     const text = ta.value.trim();
     if ((!text && !pendingFiles.length) || !agent || sending) return;
+    if (runBuiltin(text)) return;
+    if (compacting) { ui.notify(t.compacting); return; }
     const a = agent;
     // The files are taken now, so a second Enter while they are being written cannot send them again.
     const taken = pendingFiles.splice(0);
@@ -1662,7 +1678,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (found.length) {
       if (e.key === "ArrowDown") { e.preventDefault(); cmdIndex = (cmdIndex + 1) % found.length; renderCmds(); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); cmdIndex = (cmdIndex - 1 + found.length) % found.length; renderCmds(); return; }
-      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); ta.value = `/${found[cmdIndex]!.name} `; renderCmds(); return; }
+      if (e.key === "Tab") { e.preventDefault(); ta.value = `/${found[cmdIndex]!.name} `; renderCmds(); return; }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); pickCommand(found[cmdIndex]!); return; }
       if (e.key === "Escape") { cmdsDismissed = true; cmds.style.display = "none"; return; }
     }
     if (e.key !== "Enter" || e.shiftKey) return;
@@ -1707,6 +1724,17 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const levels = (f.enum ?? []).filter((v): v is string => typeof v === "string");
     return levels.length ? { levels, def: typeof f.default === "string" ? f.default : undefined } : null;
   };
+  /** Puts the user's settings on an agent (every open session gets the same ones). */
+  const applyTo = (ag: Agent, s: UserSettings, p: "ask" | "auto" | null) => {
+    const hostEffort = (agentOpts.extra as { reasoning_effort?: unknown } | undefined)?.reasoning_effort;
+    ag.configure({ model: s.model ?? agentOpts.model, maxTurns: s.maxTurns ?? agentOpts.maxTurns ?? 100, maxTokens: s.maxTokens ?? (typeof agentOpts.maxTokens === "number" ? agentOpts.maxTokens : "auto"), permissions: p ?? agentOpts.permissions ?? "ask", reasoningEffort: s.reasoningEffort ?? (typeof hostEffort === "string" ? hostEffort : null) });
+    modelEl.textContent = ag.model ?? ""; modelEl.style.display = ag.model ? "" : "none";
+  };
+  const saveSettings = (next: UserSettings) => { userSettings = next; writeSettings(next); for (const ag of live.values()) applyTo(ag, next, permChoice); showUsage_(agent); };
+  const loadModels = async (): Promise<CatModel[]> => {
+    if (client) { try { modelsCache ??= (await client.models.list({ capability: "text" })) as unknown as CatModel[]; } catch { /* no catalogue */ } }
+    return modelsCache ?? [];
+  };
   const kTok = (n?: number) => (typeof n === "number" ? (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)) : "?");
   const openSettings = async () => {
     if (menu) { closeMenu(); return; }
@@ -1738,7 +1766,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     };
     modelSel.addEventListener("change", showLim);
     if (client) {
-      try { modelsCache ??= (await client.models.list({ capability: "text" })) as unknown as NonNullable<typeof modelsCache>; } catch { /* no catalogue */ }
+      await loadModels();
       if (menu !== mine) return;
       for (const m of modelsCache ?? []) modelSel.append(new Option(`${m.id}${m.is_default ? " ★" : ""} · ${kTok(m.max_input_tokens)} / ${kTok(m.max_tokens)}`, m.id));
     }
@@ -1762,11 +1790,6 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const applyB = h("button", "ra-btn xs solid", t.apply); applyB.type = "button";
     btns.append(resetB, applyB);
     menu.append(btns);
-    const applyTo = (ag: Agent, s: UserSettings, p: "ask" | "auto" | null) => {
-      const hostEffort = (agentOpts.extra as { reasoning_effort?: unknown } | undefined)?.reasoning_effort;
-      ag.configure({ model: s.model ?? agentOpts.model, maxTurns: s.maxTurns ?? agentOpts.maxTurns ?? 100, maxTokens: s.maxTokens ?? (typeof agentOpts.maxTokens === "number" ? agentOpts.maxTokens : "auto"), permissions: p ?? agentOpts.permissions ?? "ask", reasoningEffort: s.reasoningEffort ?? (typeof hostEffort === "string" ? hostEffort : null) });
-      modelEl.textContent = ag.model ?? ""; modelEl.style.display = ag.model ? "" : "none";
-    };
     resetB.addEventListener("click", () => { userSettings = {}; writeSettings({}); permChoice = null; for (const ag of live.values()) applyTo(ag, {}, null); closeMenu(); ui.notify(t.applied); showUsage_(agent); });
     applyB.addEventListener("click", () => {
       const next: UserSettings = {};
@@ -1774,10 +1797,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const n = parseInt(turns.value, 10); if (Number.isFinite(n) && n > 0) next.maxTurns = Math.min(1000, n);
       if (tokMode.value === "n") { const k = parseInt(tokN.value, 10); if (Number.isFinite(k) && k > 0) next.maxTokens = k; }
       if (effortSel.value && !effortSel.disabled) next.reasoningEffort = effortSel.value;
-      userSettings = next; writeSettings(next);
       if (perm.value === "ask" || perm.value === "auto") permChoice = perm.value;
-      for (const ag of live.values()) applyTo(ag, next, permChoice);
-      closeMenu(); ui.notify(t.applied); showUsage_(agent);
+      saveSettings(next);
+      closeMenu(); ui.notify(t.applied);
     });
   };
   setBtn.addEventListener("click", () => void openSettings());
@@ -1835,6 +1857,158 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   newBtn.addEventListener("click", () => { closeMenu(); void newSession().catch((err) => ui.notify((err as Error).message, "error")); });
   document.addEventListener("click", onDocClick, true);
   function onDocClick(e: Event) { if (menu && !menu.contains(e.target as Node) && !histBtn.contains(e.target as Node) && !setBtn.contains(e.target as Node)) closeMenu(); }
+
+  /* --- built-in commands --- */
+  type Builtin = { name: string; aliases?: string[]; args?: string; run: (arg: string) => void | Promise<void> };
+  const fail = (err: unknown) => ui.notify((err as Error).message, "error");
+  let compacting = false;
+  const copyText = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); return; } catch { /* not focused, or no permission: the old way */ }
+    const area = h("textarea"); area.value = text; area.style.cssText = "position:fixed;opacity:0;top:0;left:0";
+    root.append(area); area.select();
+    const ok = document.execCommand("copy");
+    area.remove(); ta.focus();
+    if (!ok) throw new Error(t.error);
+  };
+  const lastReply = (): string => {
+    for (let i = agent.messages.length - 1; i >= 0; i--) {
+      const m = agent.messages[i]!;
+      if (m.role !== "assistant") continue;
+      const text = textOfContent(m.content as string | ContentPart[]).trim();
+      if (text) return text;
+    }
+    return "";
+  };
+  /** The conversation as Markdown: what was said, and the tools each turn called. */
+  const transcriptMarkdown = (a: Agent): string => {
+    const out = [`# ${titleOfAgent(a)}`, ""];
+    for (const m of a.messages) {
+      if (m.role === "tool" || m.role === "system") continue;
+      const text = textOfContent(m.content as string | ContentPart[]).trim();
+      const s = m.role === "user" && typeof m.content === "string" ? summaryOf(m) : null;
+      if (s !== null) { out.push(`> **${t.compacted}**`, ">", ...s.split("\n").map((l) => `> ${l}`), ""); continue; }
+      const calls = m.role === "assistant" ? (m.tool_calls ?? []) : [];
+      if (!text && !calls.length) continue;
+      out.push(`## ${m.role === "user" ? t.user : t.assistant}`, "");
+      if (text) out.push(text, "");
+      for (const c of calls) {
+        let args: unknown = c.function.arguments;
+        try { args = JSON.parse(c.function.arguments); } catch { /* as sent */ }
+        const what = summarizeArgs(c.function.name, args);
+        out.push(`- \`${c.function.name}\`${what ? ` ${what}` : ""}`);
+      }
+      if (calls.length) out.push("");
+    }
+    return out.join("\n");
+  };
+  const pickModel = (models: CatModel[], q: string): CatModel | undefined => {
+    const l = q.toLowerCase();
+    const exact = models.find((m) => m.id.toLowerCase() === l);
+    if (exact) return exact;
+    const part = models.filter((m) => m.id.toLowerCase().includes(l));
+    return part.length === 1 ? part[0] : part.find((m) => m.id.toLowerCase().startsWith(l));
+  };
+  const builtins: Builtin[] = [
+    { name: "help", run: () => {
+      const lines = builtinCommands().map((c) => `- \`/${c.name}${c.args ? ` ${c.args}` : ""}\` — ${c.description}`);
+      addNote(t.cmdsTitle, [...lines, "", t.cmdsMore].join("\n"));
+    } },
+    { name: "new", aliases: ["clear"], run: () => { closeMenu(); return newSession().then(() => undefined); } },
+    { name: "resume", run: () => openMenu() },
+    { name: "compact", args: t.cmdArgs.compact, run: async (focus) => {
+      const a = agent;
+      if (a.busy) { ui.notify(t.busyCmd, "warning"); return; }
+      compacting = true;
+      ui.notify(t.compacting);
+      try {
+        // The compaction event draws the summary.
+        if (!(await a.compact(focus))) ui.notify(t.nothingToCompact);
+      } finally { compacting = false; if (agent === a) showUsage_(a); }
+    } },
+    { name: "continue", run: async () => {
+      if (agent.busy) { ui.notify(t.busyCmd, "warning"); return; }
+      if (!agent.messages.length) { ui.notify(t.nothingToContinue); return; }
+      await agent.continue();
+    } },
+    { name: "model", args: t.cmdArgs.model, run: async (q) => {
+      if (!q) return openSettings();
+      const m = pickModel(await loadModels(), q);
+      if (!m) { ui.notify(t.unknownModel.replace("{name}", q), "warning"); return; }
+      const next = { ...userSettings };
+      if (m.is_default && !agentOpts.model) delete next.model; else next.model = m.id;
+      // A thinking level the new model does not have would be refused.
+      const eff = effortOf(m);
+      if (next.reasoningEffort && !eff?.levels.includes(next.reasoningEffort)) delete next.reasoningEffort;
+      saveSettings(next);
+      ui.notify(t.modelSet.replace("{name}", m.id));
+    } },
+    { name: "effort", args: t.cmdArgs.effort, run: async (q) => {
+      const models = await loadModels();
+      const id = agent.model || models.find((x) => x.is_default)?.id;
+      const m = models.find((x) => x.id === id);
+      const eff = effortOf(m);
+      const name = m?.id ?? id ?? "?";
+      if (!eff) { ui.notify(`${name}: ${t.sEffortNone}`, "warning"); return; }
+      const levels = eff.levels.join(" / ");
+      if (!q) { ui.notify(t.effortLevels.replace("{model}", name).replace("{levels}", levels)); return; }
+      const next = { ...userSettings };
+      if (/^(default|auto|默认)$/i.test(q)) delete next.reasoningEffort;
+      else if (eff.levels.includes(q.toLowerCase())) next.reasoningEffort = q.toLowerCase();
+      else { ui.notify(t.unknownEffort.replace("{name}", q).replace("{model}", name).replace("{levels}", levels), "warning"); return; }
+      saveSettings(next);
+      ui.notify(t.effortSet.replace("{name}", next.reasoningEffort ?? (eff.def ? `${t.sEffortDefault} · ${eff.def}` : t.sEffortDefault)));
+    } },
+    { name: "context", run: async () => {
+      const a = agent;
+      const [c, lim] = await Promise.all([a.context(), a.limits()]);
+      const pct = Math.round((c.used / c.window) * 100);
+      const u = a.usage;
+      const comp = agentOpts.compaction;
+      const lines = [
+        `- ${t.sModel}: ${a.model || (await loadModels()).find((m) => m.is_default)?.id || t.sDefault}`,
+        `- ${t.context}: ${pct < 1 && c.used ? "<1" : pct}% · ${fmtTokens(c.used)} / ${fmtTokens(c.window)} tokens · ${t.sMaxTokens} ${fmtTokens(lim.output)}`,
+        `- ${t.messagesLabel}: ${a.messages.length}`,
+        u.calls ? `- ${fill(t.usageLine.replace("{cost}", fmtCost(u.total_cost)).replace("{tokens}", fmtTokens(u.prompt_tokens + u.completion_tokens)).replace("{calls}", String(u.calls)))}` : "",
+        comp === false ? "" : `- ${t.autoCompact}: ${t.autoCompactAt.replace("{n}", fmtTokens(Math.min(16_384, Math.floor(c.window * 0.2))))}`,
+        a.workspace ? `- ${t.directory}: \`${a.workspace.id}\`` : "",
+      ].filter(Boolean);
+      addNote(t.context, lines.join("\n"));
+    } },
+    { name: "copy", run: async () => {
+      const text = lastReply();
+      if (!text) { ui.notify(t.nothingToCopy); return; }
+      await copyText(text);
+      ui.notify(t.copiedReply);
+    } },
+    { name: "export", run: () => {
+      if (!agent.messages.length) { ui.notify(t.nothingToCopy); return; }
+      const name = titleOfAgent(agent).replace(/[\\/:*?"<>|\s]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "conversation";
+      downloadBlob(`${name}.md`, transcriptMarkdown(agent), "text/markdown;charset=utf-8");
+    } },
+    { name: "files", run: () => filesBtn.click() },
+    { name: "settings", run: () => openSettings() },
+    { name: "debug", run: () => { if (debugOn) debugBtn.click(); else ui.notify(t.debugOff); } },
+  ];
+  /** The built-ins this chat offers now (the files, settings and debug ones only where their button shows). */
+  const builtinCommands = (): Command[] => builtins
+    .filter((b) => (b.name !== "files" || !!agent?.workspace) && (b.name !== "settings" || hasSettings) && (b.name !== "debug" || debugOn) && (!["new", "resume"].includes(b.name) || !givenAgent) && (b.name !== "resume" || !!agent?.workspace))
+    .map((b) => ({ name: b.name, description: (t.cmd as Record<string, string>)[b.name] ?? "", kind: t.command, args: b.args, builtin: true }));
+  /** `/name [arg]` naming a built-in: run it here (nothing goes to the model). */
+  const runBuiltin = (text: string): boolean => {
+    const m = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text);
+    if (!m) return false;
+    const key = m[1]!.toLowerCase();
+    const b = builtins.find((x) => x.name === key || x.aliases?.includes(key));
+    if (!b || !builtinCommands().some((c) => c.name === b.name)) return false;
+    ta.value = ""; renderCmds();
+    try { void Promise.resolve(b.run((m[2] ?? "").trim())).catch(fail); } catch (err) { fail(err); }
+    return true;
+  };
+  /** A suggestion picked: a built-in runs at once when it needs no argument or its name is typed out; anything else is filled in for its arguments. */
+  const pickCommand = (c: Command) => {
+    if (c.builtin && (!c.args || ta.value.trim() === `/${c.name}`)) { ta.value = `/${c.name}`; void send("prompt"); return; }
+    ta.value = `/${c.name} `; renderCmds();
+  };
 
   /* --- wiring an agent --- */
   const showUsage_ = (a: Agent) => {

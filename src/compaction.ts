@@ -127,6 +127,8 @@ export interface CutPlan {
   previousSummary?: string;
   /** Turns kept verbatim. */
   kept: ChatMessage[];
+  /** What the user asked the summary to focus on (`compact(focus)`). */
+  focus?: string;
 }
 
 /**
@@ -186,10 +188,12 @@ function truncateForSummary(text: string, max: number): string {
 }
 
 /** The messages of a summarisation request. */
-export function summarizationMessages(toSummarize: ChatMessage[], previousSummary?: string): ChatMessage[] {
+export function summarizationMessages(toSummarize: ChatMessage[], previousSummary?: string, focus?: string): ChatMessage[] {
   let prompt = `<conversation>\n${serializeConversation(toSummarize)}\n</conversation>\n\n`;
   if (previousSummary) prompt += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
   prompt += previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
+  // pi's `/compact <instructions>`: what the user wants the summary to keep above all.
+  if (focus?.trim()) prompt += `\n\nThe user asked this summary to focus on: ${focus.trim()}`;
   return [
     { role: "system", content: SUMMARIZATION_SYSTEM_PROMPT },
     { role: "user", content: prompt },

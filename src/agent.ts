@@ -610,17 +610,25 @@ export class Agent {
   /**
    * Summarises the older turns into a checkpoint now (the loop does this
    * by itself when the window is nearly full). Resolves true when a
-   * summary replaced older turns.
+   * summary replaced older turns. `focus` tells the summary what to keep
+   * above all. Every turn before the latest may be summarised, even when
+   * all of them would fit in `keepRecentTokens`.
    */
-  compact(): Promise<boolean> {
+  compact(focus?: string): Promise<boolean> {
     if (this.current) return Promise.reject(new Error("runapps agent: cannot compact while a run is active"));
     // Runs like a run: messages sent meanwhile queue behind it instead of being lost when the history is replaced.
     const controller = new AbortController();
     const work = this.chain.then(async () => {
       await this.loaded;
       const window = await this.contextTokens();
-      const settings = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
-      const done = await this.compactWith(settings, undefined, controller.signal);
+      let settings = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
+      // Asked for, so it does something: everything before the latest turn may be summarised.
+      const h = this.history;
+      let last = h.length - 1;
+      while (last > 0 && !(h[last]!.role === "user" && summaryOf(h[last]!) === null)) last--;
+      const latestTurn = last > 0 ? h.slice(last).reduce((n, m) => n + estimateTokens([m]), 0) : Math.floor(estimateTokens(h) / 2);
+      settings = { ...settings, keepRecentTokens: Math.min(settings.keepRecentTokens, latestTurn) };
+      const done = await this.compactWith(settings, undefined, controller.signal, focus);
       if (done) await this.saveSession();
       return done;
     });
@@ -634,9 +642,10 @@ export class Agent {
     return work;
   }
 
-  private async compactWith(settings: CompactionSettings, runId: string | undefined, signal: AbortSignal): Promise<boolean> {
+  private async compactWith(settings: CompactionSettings, runId: string | undefined, signal: AbortSignal, focus?: string): Promise<boolean> {
     const plan = planCut(this.history, settings.keepRecentTokens);
     if (!plan) return false;
+    if (focus?.trim()) plan.focus = focus.trim();
     const tokensBefore = estimateTokens(this.history);
     let summary: string;
     try {
@@ -644,7 +653,7 @@ export class Agent {
         summary = await this.opts.compaction(plan, this);
       } else {
         const res = await this.client.chat.create(
-          { model: this.opts.model ?? "", messages: summarizationMessages(plan.toSummarize, plan.previousSummary), max_tokens: (await this.limits()).output },
+          { model: this.opts.model ?? "", messages: summarizationMessages(plan.toSummarize, plan.previousSummary, plan.focus), max_tokens: (await this.limits()).output },
           { signal },
         );
         if (res.usage) this.addUsage(res.usage);

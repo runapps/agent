@@ -501,6 +501,31 @@ test("agent — compact() and a prompt sent meanwhile: the prompt queues behind 
   assert.ok(agent.messages.some((m) => m.content === "NEW QUESTION"), "the message sent during compaction is in the history");
 });
 
+test("agent — compact(focus): the plan and the summarisation prompt carry what the user asked to keep", async () => {
+  const { client, requests } = scripted([reply({ text: "a1" }), reply({ text: "a2" }), reply({ text: "SUMMARY" })]);
+  let seen;
+  const agent = createAgent(client, { model: "m", sandbox: false, askUser: false });
+  await agent.prompt("one " + "x".repeat(40000));
+  await agent.prompt("two " + "x".repeat(40000));
+  // The scripted reply is a stream, so the summary itself fails and falls back to trimming: the request is what is checked.
+  await agent.compact("the API names");
+  const ask = requests.at(-1).messages.at(-1).content;
+  assert.match(ask, /focus on: the API names/);
+  const custom = createAgent(scripted([reply({ text: "b1" }), reply({ text: "b2" })]).client, { model: "m", sandbox: false, askUser: false, compaction: async (plan) => { seen = plan.focus; return "S"; } });
+  await custom.prompt("one " + "x".repeat(40000));
+  await custom.prompt("two " + "x".repeat(40000));
+  await custom.compact("  dates  ");
+  assert.equal(seen, "dates");
+  // A short conversation asked to compact has every turn but the latest summarised.
+  const short = createAgent(scripted([reply({ text: "c1 " + "w".repeat(400) }), reply({ text: "c2 " + "w".repeat(400) })]).client, { model: "m", sandbox: false, askUser: false, compaction: async () => "SHORT" });
+  await short.prompt("hi " + "w".repeat(400));
+  await short.prompt("again " + "w".repeat(400));
+  assert.equal(await short.compact(), true);
+  assert.equal(short.messages.length, 3);
+  assert.match(short.messages[1].content, /^again/);
+  assert.match(short.messages[2].content, /^c2/);
+});
+
 test("agent — a follow-up whose preface fails settles with an error; leftover steering goes before the next prompt", async () => {
   const { client, requests } = scripted([reply({ calls: [{ name: "get_weather", args: { city: "Rome" } }] }), reply({ text: "after" })]);
   const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false, maxTurns: 1 });
