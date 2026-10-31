@@ -49,6 +49,8 @@ export class VirtualList {
   private disposed = false;
   /** scrollTop the list itself last set; a scroll event landing there is not the user's. */
   private expectedTop = -1;
+  /** An element the user just clicked (a summary being opened): kept where it is on screen while rows resize. */
+  private pinned: { el: Element; offset: number; until: number } | null = null;
   private lastTop = 0;
 
   constructor(readonly scroller: HTMLElement, readonly inner: HTMLElement, opts: VListOptions = {}) {
@@ -76,6 +78,7 @@ export class VirtualList {
     const ours = this.expectedTop >= 0 && Math.abs(top - this.expectedTop) <= 1;
     this.expectedTop = -1;
     if (!ours) {
+      this.pinned = null;
       // At the bottom first: content that shrinks (a sent composer, an answered card) pulls scrollTop down
       // to the new end, which is not the user leaving it. Leaving is a move up that ends above the end.
       const atBottom = s.scrollHeight - top - s.clientHeight <= this.followWithin;
@@ -86,7 +89,7 @@ export class VirtualList {
     this.schedule();
   };
   // A wheel up only leaves the bottom when there is somewhere to go.
-  private onWheel = (e: WheelEvent) => { if (e.deltaY < 0 && this.scroller.scrollTop > 0) this.follow = false; };
+  private onWheel = (e: WheelEvent) => { this.pinned = null; if (e.deltaY < 0 && this.scroller.scrollTop > 0) this.follow = false; };
   private touchY = 0;
   private onTouch = (e: TouchEvent) => {
     this.touchY = e.touches[0]?.clientY ?? 0;
@@ -136,8 +139,28 @@ export class VirtualList {
 
   /** Jumps to the end and follows new output. */
   scrollToBottom(): void {
+    this.pinned = null;
     this.follow = true;
     this.layout();
+  }
+
+  /**
+   * Keeps `el` at its current place on screen while the rows around it
+   * change size for a moment (a details element being opened): the list
+   * stops following the bottom, so what opens grows downward instead of
+   * the view snapping to the end. A scroll by the user ends the pin.
+   */
+  pin(el: Element, ms = 800): void {
+    this.pinned = { el, offset: el.getBoundingClientRect().top - this.scroller.getBoundingClientRect().top, until: Date.now() + ms };
+    this.follow = false;
+  }
+
+  private applyPin(): void {
+    const p = this.pinned;
+    if (!p) return;
+    if (!p.el.isConnected || Date.now() > p.until) { this.pinned = null; return; }
+    const d = p.el.getBoundingClientRect().top - this.scroller.getBoundingClientRect().top - p.offset;
+    if (Math.abs(d) > 0.5) this.setTop(this.scroller.scrollTop + d);
   }
 
   /** Something changed size or was added: lay out on the next frame. */
@@ -193,6 +216,10 @@ export class VirtualList {
 
   layout(): void {
     if (this.disposed) return;
+    try { this.layoutRows(); } finally { this.applyPin(); }
+  }
+
+  private layoutRows(): void {
     const s = this.scroller;
     const n = this.rows.length;
     if (!n) { this.win.replaceChildren(); this.top.style.height = this.bottom.style.height = "0px"; return; }

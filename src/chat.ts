@@ -824,6 +824,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     },
   });
   jumpBtn.addEventListener("click", () => list.scrollToBottom());
+  // Opening or closing something in the transcript (tool calls, a card, the thinking) keeps the clicked line where it is.
+  log.addEventListener("click", (e) => {
+    const sum = (e.target as HTMLElement).closest("summary");
+    if (sum && log.contains(sum)) list.pin(sum);
+  }, true);
   let active: AsstRow | null = null;
   let renderTimer: number | null = null;
   const cards = new Map<string, ToolCard>();
