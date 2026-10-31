@@ -75,24 +75,45 @@ Paths are absolute and POSIX-style (`/a/b.txt`); `..` is resolved. Text is store
 Mount an `AgentFS` at a path and the agent reads (and, if you allow it, edits) your app's own data as files: the document being edited, a project's pages, a cloud folder.
 
 ```js
+const idOf = (path) => path.slice(1, -".xml".length);            // "/page-1.xml" → "page-1"
+const fileOf = (page) => ({ path: `/${page.id}.xml`, size: page.xml.length, mtime: page.updatedAt });
+
 const pagesFS = {
   description: "the diagram's pages, one XML file per page",
+
+  // Required: every file under `prefix` ("/" for all), and a file's content.
   async list(prefix) {
-    return diagram.pages.map((p) => ({ path: `/${p.id}.xml`, size: p.xml.length }));
+    return diagram.pages.map(fileOf).filter((f) => prefix === "/" || f.path.startsWith(prefix));
   },
   async read(path) {
-    const page = diagram.pages.find((p) => `/${p.id}.xml` === path);
+    const page = diagram.getPage(idOf(path));
     if (!page) throw new Error(`No such file: ${path}`);
-    return page.xml;
+    return page.xml;                                  // text as a string, anything else as a Uint8Array
   },
-  async write(path, content) {                    // leave write/delete out for a read-only mount
-    diagram.setPageXml(path.slice(1, -4), String(content));
+
+  // Optional: leave write and delete out for a read-only mount.
+  async write(path, content) {                       // creates or replaces
+    const xml = typeof content === "string" ? content : new TextDecoder().decode(content);
+    if (diagram.getPage(idOf(path))) diagram.setPageXml(idOf(path), xml);
+    else diagram.addPage(idOf(path), xml);
+  },
+  async delete(path) {
+    if (!diagram.getPage(idOf(path))) throw new Error(`No such file: ${path}`);
+    diagram.removePage(idOf(path));
+  },
+
+  // Optional: a quick look at one file (without it, the workspace finds the file in list()).
+  async stat(path) {
+    const page = diagram.getPage(idOf(path));
+    return page ? fileOf(page) : null;
   },
 };
 
 workspace.mount("/diagram", pagesFS);
 // The agent sees /diagram/page-1.xml, … and its description in the system prompt.
 ```
+
+There is no edit method to write: **editing is `read` then `write`**. The agent's `edit_file` reads the file, applies its replacements and writes the result back, so a mount with `read` and `write` supports `read_file`, `write_file` and `edit_file` alike; `delete` adds `delete_file` (and the files panel's delete). Without `write`/`delete` those are refused as read-only, and the files panel shows the mount with a lock.
 
 Paths given to the mount are relative to it (`/page-1.xml`). A mount is your live data, not storage: nothing of it is saved by the workspace. `memoryFS({ "/a.md": "…" }, { description, readonly })` is a ready-made in-memory one (its `files` map is the content). `workspace.unmount("/diagram")` removes it.
 
