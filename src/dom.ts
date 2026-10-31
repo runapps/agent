@@ -118,7 +118,7 @@ export function renderMD(el: HTMLElement, md: string, streaming: boolean): void 
     const box = h("div", "ra-cb");
     const head = h("div", "ra-cbh");
     head.append(h("span", "", lang));
-    const copy = h("button", "ra-copy"); copy.type = "button"; copy.innerHTML = I.copy(); copy.title = "copy";
+    const copy = h("button", "ra-copy"); copy.type = "button"; copy.innerHTML = I.copy(); copy.title = /^zh/i.test(document.documentElement.lang || navigator.language || "") ? "复制" : "Copy"; copy.setAttribute("aria-label", copy.title);
     copy.addEventListener("click", () => {
       void navigator.clipboard?.writeText((code?.textContent ?? "").replace(/\n$/, "")).then(() => { copy.innerHTML = I.check(14); setTimeout(() => { copy.innerHTML = I.copy(); }, 1200); });
     });

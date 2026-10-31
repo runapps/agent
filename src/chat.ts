@@ -141,6 +141,7 @@ const STRINGS = {
   en: {
     assistant: "Assistant", placeholder: "Ask the agent to do something…  type / for commands", placeholderBusy: "↵ to steer the current task, {mod}↵ to queue for later",
     send: "Send", stop: "Stop", steer: "Steer", followUp: "Follow-up", steerTip: "Insert into the current task", followUpTip: "Queue after the current task",
+    usageLine: "{cost} · {tokens} tokens · {calls} calls", emptyResult: "(empty)",
     queued: "Queued messages", clear: "Clear queue", thinking: "Thinking…", thought: "Thought process",
     enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "History", newChat: "New chat", noSessions: "No saved conversations",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
@@ -163,7 +164,8 @@ const STRINGS = {
   },
   zh: {
     assistant: "助手", placeholder: "让 agent 做点什么…  输入 / 查看命令", placeholderBusy: "↵ 插入当前任务，{mod}↵ 排队到之后",
-    send: "发送", stop: "停止", steer: "Steer", followUp: "Follow-up", steerTip: "插入到当前任务 (steer)", followUpTip: "排到当前任务之后 (follow-up)",
+    send: "发送", stop: "停止", steer: "插入", followUp: "排队", steerTip: "插入到当前任务，下一步就会看到", followUpTip: "排到当前任务结束之后",
+    usageLine: "{cost} · {tokens} tokens · {calls} 次调用", emptyResult: "（空）",
     queued: "排队中的消息", clear: "清空队列", thinking: "思考中…", thought: "思考过程",
     enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "历史", newChat: "新对话", noSessions: "还没有保存的对话",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
@@ -566,6 +568,7 @@ function fmtCost(usd: number): string {
   return `$${usd.toFixed(3)}`;
 }
 function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 1 : 2)}M`;
   return n >= 10_000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 function fmtSize(n: number): string {
@@ -1360,7 +1363,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       card.result = h("pre", "");
       card.body.append(h("div", "ra-tlabel", status === "error" ? t.error : t.result), card.result);
     }
-    card.result.textContent = result.length > 20_000 ? result.slice(0, 20_000) + "…" : result || "(empty)";
+    card.result.textContent = result.length > 20_000 ? result.slice(0, 20_000) + "…" : result || t.emptyResult;
     refreshGroup(card.el);
     list.schedule();
   };
@@ -1498,7 +1501,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const l = h("div", "ra-qi");
       const x = h("button"); x.type = "button"; x.innerHTML = I.x(11); x.title = t.remove; x.setAttribute("aria-label", t.remove);
       x.addEventListener("click", () => { agent.dequeue(item.message); renderQueue(); });
-      l.append(h("span", "ra-badge", item.kind === "steer" ? "steer" : "follow-up"), h("span", "", textOfContent(item.message.content)), x);
+      l.append(h("span", "ra-badge", item.kind === "steer" ? t.steer : t.followUp), h("span", "", textOfContent(item.message.content)), x);
       queueEl.append(l);
     }
   };
@@ -1836,7 +1839,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   /* --- wiring an agent --- */
   const showUsage_ = (a: Agent) => {
     const u = a.usage;
-    usageText.textContent = u.calls ? `${fmtCost(u.total_cost)} · ${fmtTokens(u.prompt_tokens + u.completion_tokens)} tokens · ${u.calls} calls` : "";
+    usageText.textContent = u.calls ? t.usageLine.replace("{cost}", fmtCost(u.total_cost)).replace("{tokens}", fmtTokens(u.prompt_tokens + u.completion_tokens)).replace("{calls}", String(u.calls)) : "";
     if (!a.messages.length) { ring.style.display = "none"; return; }
     void a.context().then((c) => {
       if (agent !== a) return;
