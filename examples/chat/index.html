@@ -23,6 +23,8 @@
   aside h3 { margin: 0; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   aside h3 .switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--fg2); cursor: pointer; }
   aside h3 .switch input { accent-color: var(--p); margin: 0; }
+  aside .card .switch { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg); cursor: pointer; }
+  aside .card .switch input { accent-color: var(--p); margin: 0; }
   aside h3 .logo { width: 24px; height: 24px; border-radius: 7px; background: #d97757; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
   section { display: flex; flex-direction: column; gap: 8px; }
   section > h4 { margin: 0; font-size: 11px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: .06em; }
@@ -79,6 +81,7 @@
       <div class="kv">目录 <code id="wsid">…</code></div>
       <div id="ws" class="muted">…</div>
       <div class="muted">目录是 IndexedDB 里的一棵树；<code>/.agent/skills/</code> 是加载时由 <code>/skills/</code> 生成的只读目录；<code>/skills/</code> 放用户的技能（上传的 zip、智能体写的技能文件夹，所有会话共用）。独立模式下「历史」切换会话即切换目录；共用模式下所有会话读写同一份文件，删除会话不删文件。</div>
+      <label class="switch" title="关掉后：没有 /skills/，用户不能上传、删除技能，智能体也不能新建技能；只用应用通过 skills 选项提供的技能（这里用 extra-skill.zip 按需加载做演示）"><input type="checkbox" id="userskills"><span>允许用户上传 / 管理技能</span></label>
       <div class="row"><button id="clear" class="danger">清空目录（保留技能）</button></div>
     </div>
   </section>
@@ -142,9 +145,14 @@ $("dirmode").value = dirMode();
 // The page's own selects get the chat's dropdown (they stay, hidden, so .value and onchange work as before).
 for (const id of ["dirmode", "palette", "theme", "locale"]) RunAppsAgent.enhanceSelect($(id), document.querySelector("aside"));
 $("dirmode").onchange = () => { localStorage.setItem("lab_dirmode", $("dirmode").value); mount(); };
+// User skills on: the user's own go in /skills (Skills button, or the agent writes them), no built-in ones.
+// Off: only the app's skills — here one lazy skill, loaded from extra-skill.zip the first time it is used.
+const userSkillsOn = () => localStorage.getItem("lab_userskills") !== "0";
+$("userskills").checked = userSkillsOn();
+$("userskills").onchange = () => { localStorage.setItem("lab_userskills", $("userskills").checked ? "1" : "0"); mount(); };
+const APP_SKILLS = [{ name: "cheer", description: "Cheer the user up with one short encouraging line; use when they sound tired or ask for motivation.", load: () => "./extra-skill.zip" }];
 async function workspaceFor(sessionId) {
-  // No built-in skills: the user's own go in /skills (Skills button, or the agent writes them).
-  const ws = await RunAppsAgent.openWorkspace(client, { id: dirMode() === "shared" ? "shared" : sessionId });
+  const ws = await RunAppsAgent.openWorkspace(client, { id: dirMode() === "shared" ? "shared" : sessionId, ...(userSkillsOn() ? {} : { userSkills: false, skills: APP_SKILLS }) });
   // Seed files live in the directory itself (IndexedDB), so what the agent writes under them survives reloads.
   // (A `ws.mount("/doc", memoryFS(...))` would start over on every open — that is for a host's live document, not for storage.)
   if (!(await ws.exists("/doc/plan.md"))) await ws.write("/doc/plan.md", "# Q3 plan\n- hire 2 engineers\n- ship v2\n- write the launch post\n");

@@ -149,6 +149,12 @@ export interface WorkspaceOptions {
    */
   userSkillsDir?: string | false;
   /**
+   * Whether the user has skills of their own (default true). `false`:
+   * only the app's `skills` — no `userSkillsDir`, nothing to upload,
+   * remove or write, and the agent is not told it may make skills.
+   */
+  userSkills?: boolean;
+  /**
    * The directory itself, instead of the IndexedDB tree: `directoryFS(handle)`
    * for a folder picked with `showDirectoryPicker()`, or any `AgentFS`.
    * Sessions and skills-zip bookkeeping still go to IndexedDB under `id`.
@@ -253,7 +259,7 @@ export class Workspace {
     this.sources = typeof opts.skills === "function" ? opts.skills : opts.skills ? ([] as SkillSource[]).concat(opts.skills) : [];
     this.skillsDir = normalizePath(opts.skillsDir || DEFAULT_SKILLS_DIR);
     if (this.skillsDir === "/") throw new Error("runapps agent: skillsDir cannot be /");
-    this.userSkillsDir = opts.userSkillsDir === false ? null : normalizePath(opts.userSkillsDir || DEFAULT_USER_SKILLS_DIR);
+    this.userSkillsDir = opts.userSkills === false || opts.userSkillsDir === false ? null : normalizePath(opts.userSkillsDir || DEFAULT_USER_SKILLS_DIR);
     const nested = (a: string, b: string) => a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
     if (this.userSkillsDir === "/" || (this.userSkillsDir && nested(this.userSkillsDir, this.skillsDir))) throw new Error("runapps agent: userSkillsDir must be its own folder, apart from skillsDir");
     this.root = opts.dir ?? null;

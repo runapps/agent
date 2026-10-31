@@ -2195,9 +2195,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     }
     mine.append(h("div", "ra-skf", (ws.userSkillsDir ? t.skillsHint.replace("{user}", ws.userSkillsDir) : t.skillsHintNoUser).replace("{dir}", ws.skillsDir)));
     // A zip dropped on the menu installs like the upload button.
-    mine.addEventListener("dragover", (e) => { if (e.dataTransfer?.types.includes("Files")) { e.preventDefault(); e.stopPropagation(); mine.classList.add("drop"); } });
+    // Without user skills (the app's only), a dropped zip is no install: the menu takes no drops.
+    if (ws.userSkillsDir) mine.addEventListener("dragover", (e) => { if (e.dataTransfer?.types.includes("Files")) { e.preventDefault(); e.stopPropagation(); mine.classList.add("drop"); } });
     mine.addEventListener("dragleave", () => mine.classList.remove("drop"));
-    mine.addEventListener("drop", (e) => { e.preventDefault(); e.stopPropagation(); mine.classList.remove("drop"); void installZips(e.dataTransfer?.files); });
+    if (ws.userSkillsDir) mine.addEventListener("drop", (e) => { e.preventDefault(); e.stopPropagation(); mine.classList.remove("drop"); void installZips(e.dataTransfer?.files); });
   };
   skillsBtn.addEventListener("click", () => void openSkills());
 
