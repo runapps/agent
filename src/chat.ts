@@ -150,7 +150,7 @@ const STRINGS = {
     assistant: "Assistant", placeholder: "Ask the agent to do something…  type / for commands", placeholderBusy: "↵ to steer the current task, {mod}↵ to queue for later",
     send: "Send", stop: "Stop", steer: "Steer", followUp: "Follow-up", steerTip: "Insert into the current task", followUpTip: "Queue after the current task",
     usageLine: "{cost} · {tokens} tokens · {calls} calls", emptyResult: "(empty)",
-    queued: "Queued messages", clear: "Clear queue", thinking: "Thinking…", thought: "Thought process",
+    queued: "Queued messages", queuedN: "{n} message queued", queuedNs: "{n} messages queued", queueNext: "Next:", sendNow: "Send now (insert into the current task)", editQueued: "Edit", expand: "Show all", collapse: "Collapse", clear: "Clear queue", thinking: "Thinking…", thought: "Thought process",
     enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "Chats", newChat: "New chat", noSessions: "No other conversations yet", notSaved: "not saved yet",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
     other: "Other…", typeAnswer: "Type your answer", args: "Arguments", result: "Result", error: "Error", declined: "declined", blocked: "blocked", skipped: "skipped",
@@ -187,7 +187,7 @@ const STRINGS = {
     assistant: "助手", placeholder: "让 agent 做点什么…  输入 / 查看命令", placeholderBusy: "↵ 插入当前任务，{mod}↵ 排队到之后",
     send: "发送", stop: "停止", steer: "插入", followUp: "排队", steerTip: "插入到当前任务，下一步就会看到", followUpTip: "排到当前任务结束之后",
     usageLine: "{cost} · {tokens} tokens · {calls} 次调用", emptyResult: "（空）",
-    queued: "排队中的消息", clear: "清空队列", thinking: "思考中…", thought: "思考过程",
+    queued: "排队中的消息", queuedN: "{n} 条消息排队中", queuedNs: "{n} 条消息排队中", queueNext: "下一条：", sendNow: "立即发送（插入当前任务）", editQueued: "编辑", expand: "展开", collapse: "收起", clear: "清空队列", thinking: "思考中…", thought: "思考过程",
     enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "会话", newChat: "新对话", noSessions: "还没有其它对话", notSaved: "尚未保存",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
     other: "其他…", typeAnswer: "请输入", args: "参数", result: "结果", error: "错误", declined: "已拒绝", blocked: "已拦截", skipped: "已跳过",
@@ -502,17 +502,22 @@ const CSS = tokenCSS() + `
 .ra-q textarea.ra-field{min-height:96px;max-height:200px;resize:vertical}
 .ra-btns{display:flex;justify-content:flex-end;gap:8px}
 .ra-status{font-size:14px;color:var(--ra-fg-muted);padding:4px 0}
-.ra-comp{flex-shrink:0;border-top:1px solid var(--ra-border);padding:8px 0 14px}
+.ra-comp{flex-shrink:0;padding:8px 0 14px}
 .ra-alert{font-size:14px;color:var(--ra-red);margin-bottom:8px;white-space:pre-wrap}
-.ra-queue{border:1px solid var(--ra-border);border-radius:6px;padding:8px;margin-bottom:8px;font-size:12px}
-.ra-queue .ra-qh{display:flex;justify-content:space-between;align-items:center;color:var(--ra-fg-muted);margin-bottom:4px}
-.ra-queue .ra-qh button{width:20px;height:20px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center}
-.ra-queue .ra-qh button:hover{background:var(--ra-muted)}
-.ra-queue .ra-qi{display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:1px 0}
-.ra-queue .ra-qi span{overflow:hidden;text-overflow:ellipsis}
-.ra-queue .ra-qi>span:nth-child(2){flex:1;min-width:0}
-.ra-queue .ra-qi button{width:18px;height:18px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--ra-fg-muted);flex-shrink:0}
-.ra-queue .ra-qi button:hover{background:var(--ra-muted);color:var(--ra-fg)}
+.ra-queue{background:var(--ra-muted);border-radius:12px;margin:0 6px 8px;font-size:13px;overflow:hidden}
+.ra-queue .ra-qr{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 14px;min-height:36px;box-sizing:border-box}
+.ra-queue .ra-qr+.ra-qr{border-top:1px solid color-mix(in srgb,var(--ra-border) 70%,transparent)}
+.ra-queue .ra-qn{flex:none;color:var(--ra-fg);font-weight:500}
+.ra-queue .ra-qt{flex:1;min-width:0;color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra-queue .ra-qt b{font-weight:500;color:var(--ra-fg-muted);margin-right:4px}
+.ra-queue .ra-qk{flex:none;font-size:10.5px;line-height:16px;padding:0 6px;border-radius:999px;background:var(--ra-accent-subtle);color:var(--ra-accent-fg)}
+.ra-queue .ra-qa{flex:none;display:inline-flex;gap:2px}
+.ra-queue .ra-qa button,.ra-queue .ra-qtog{width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--ra-fg-muted)}
+.ra-queue .ra-qa button:hover,.ra-queue .ra-qtog:hover{background:var(--ra-panel);color:var(--ra-fg)}
+.ra-queue .ra-qhd{cursor:pointer}
+.ra-queue .ra-qtog svg{transition:transform .15s}
+.ra-queue.open .ra-qtog svg{transform:rotate(180deg)}
+.ra-queue .ra-qlist .ra-qr{padding-left:14px}
 .ra-box{position:relative;border:1px solid var(--ra-border);border-radius:12px;padding:8px 10px 6px;background:var(--ra-panel);box-shadow:var(--ra-shadow)}
 .ra-box:focus-within{border-color:color-mix(in srgb,var(--ra-fg) 28%,transparent)}
 .ra-box textarea{resize:none;height:64px;overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
@@ -1695,23 +1700,55 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     steerBtn.style.display = fuBtn.style.display = stopBtn.style.display = busy ? "" : "none";
     renderQueue();
   };
+  /** The queue above the composer: one message shows whole with its actions; several fold into "N queued · Next: …" (a click opens the list). */
+  let queueOpen = false;
   const renderQueue = () => {
     const q = agent?.queued ?? [];
     queueEl.style.display = q.length ? "" : "none";
     queueEl.replaceChildren();
-    if (!q.length) return;
-    const hd = h("div", "ra-qh");
-    hd.append(h("span", "", t.queued));
-    const clear = h("button"); clear.type = "button"; clear.innerHTML = I.x(); clear.title = t.clear; clear.setAttribute("aria-label", t.clear);
-    clear.addEventListener("click", () => { agent.clearQueue(); renderQueue(); });
-    hd.append(clear);
-    queueEl.append(hd);
-    for (const item of q) {
-      const l = h("div", "ra-qi");
-      const x = h("button"); x.type = "button"; x.innerHTML = I.x(11); x.title = t.remove; x.setAttribute("aria-label", t.remove);
-      x.addEventListener("click", () => { agent.dequeue(item.message); renderQueue(); });
-      l.append(h("span", "ra-badge", item.kind === "steer" ? t.steer : t.followUp), h("span", "", textOfContent(item.message.content)), x);
-      queueEl.append(l);
+    if (!q.length) { queueOpen = false; return; }
+    const a = agent;
+    const textOf = (m: ChatMessage) => textOfContent(m.content as string | ContentPart[]).replace(/\s*\[attachments\][\s\S]*$/, "").replace(/\s+/g, " ").trim();
+    const btn = (icon: string, title: string, fn: () => void) => { const b = h("button"); b.type = "button"; b.innerHTML = icon; b.title = title; b.setAttribute("aria-label", title); b.addEventListener("click", (e) => { e.stopPropagation(); fn(); }); return b; };
+    const actions = (item: (typeof q)[number]) => {
+      const box = h("span", "ra-qa");
+      // Send now: a queued follow-up becomes a steer, inserted at the next step of the running task.
+      if (item.kind !== "steer") box.append(btn(I.enter(), t.sendNow, () => { if (a.dequeue(item.message)) a.steer(item.message.content as string | ContentPart[]); renderQueue(); }));
+      box.append(btn(I.pen(), t.editQueued, () => {
+        if (!a.dequeue(item.message)) return;
+        ta.value = ta.value.trim() ? `${textOf(item.message)}\n${ta.value}` : textOf(item.message);
+        ta.focus(); renderQueue();
+      }));
+      box.append(btn(I.x(14), t.remove, () => { a.dequeue(item.message); renderQueue(); }));
+      return box;
+    };
+    const kindTag = (item: (typeof q)[number]) => (item.kind === "steer" ? h("span", "ra-qk", t.steer) : null);
+    queueEl.classList.toggle("open", queueOpen && q.length > 1);
+    if (q.length === 1) {
+      const item = q[0]!;
+      const row = h("div", "ra-qr");
+      const tag = kindTag(item);
+      row.append(h("span", "ra-qn", t.queuedN.replace("{n}", "1")));
+      if (tag) row.append(tag);
+      row.append(h("span", "ra-qt", textOf(item.message)), actions(item));
+      queueEl.append(row);
+      return;
+    }
+    const head = h("div", "ra-qr ra-qhd");
+    const next = h("span", "ra-qt");
+    if (!queueOpen) { next.append(h("b", "", t.queueNext)); next.append(textOf(q[0]!.message)); }
+    const tog = h("span", "ra-qtog"); tog.innerHTML = I.chevDown(14); tog.title = queueOpen ? t.collapse : t.expand;
+    head.append(h("span", "ra-qn", t.queuedNs.replace("{n}", String(q.length))), next, tog);
+    head.addEventListener("click", () => { queueOpen = !queueOpen; renderQueue(); });
+    queueEl.append(head);
+    if (queueOpen) {
+      for (const item of q) {
+        const row = h("div", "ra-qr");
+        const tag = kindTag(item);
+        if (tag) row.append(tag);
+        row.append(h("span", "ra-qt", textOf(item.message)), actions(item));
+        queueEl.append(row);
+      }
     }
   };
   const setAlert = (message?: string) => { alertEl.style.display = message ? "" : "none"; alertEl.textContent = message ?? ""; };
