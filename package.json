@@ -28,13 +28,12 @@
   },
   "files": [
     "dist",
-    "src",
     "docs",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsup",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && tsup",
     "test": "npm run build && node --test --test-timeout=20000 tests/*.test.mjs",
     "release:cdn": "bash scripts/publish-cdn.sh"
   },

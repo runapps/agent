@@ -9,7 +9,7 @@ export default defineConfig([
   {
     entry: { index: "src/index.ts" },
     format: ["cjs"],
-    sourcemap: true,
+    sourcemap: false,
     clean: false,
     target: "es2020",
     platform: "neutral",
@@ -20,7 +20,7 @@ export default defineConfig([
     format: ["iife"],
     globalName: "RunAppsAgent",
     banner: { js: `/* @runappsai/agent ${version} */` },
-    sourcemap: true,
+    sourcemap: false,
     minify: true,
     clean: false,
     target: "es2020",
