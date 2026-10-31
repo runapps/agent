@@ -112,7 +112,7 @@ const STRINGS = {
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove", attachments: "Attachments",
     sent: "sent", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
-    rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.",
+    rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     files: "Files", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
@@ -128,7 +128,7 @@ const STRINGS = {
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除", attachments: "附件",
     sent: "已发送", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
-    rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。",
+    rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     files: "文件", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存", pickFile: "选择文件", folder: "文件夹",
@@ -354,6 +354,8 @@ const CSS = `
 .ra-chip button:hover{background:var(--ra-muted);color:var(--ra-fg)}
 .ra-user .ra-files{justify-content:flex-end;padding:0;margin-top:6px}
 .ra-user .ra-chip{background:var(--ra-bg)}
+.ra-chip-link{cursor:pointer}
+.ra-chip-link:hover{border-color:var(--ra-p-solid)}
 .ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:rgba(147,51,234,.08);border:2px dashed var(--ra-p-solid);border-radius:8px;color:var(--ra-p-fg);font-weight:600;pointer-events:none}
 .ra-chat[data-drop="1"] .ra-drop{display:flex}
 .ra-usage{font-size:11px;color:var(--ra-fg-muted);text-align:right;margin-top:6px;min-height:14px}
@@ -777,6 +779,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   filesBtn.addEventListener("click", () => void panel.toggle());
   /** Opens a path: the host's editor when it has one, else the files panel. */
   const openPath = (path: string) => { if (onOpenFile) onOpenFile(path); else void panel.open(path); };
+  const openIfExists = async (path: string) => {
+    const ws = agent?.workspace;
+    if (ws && !(await ws.exists(path))) { ui.notify(`${t.rewindGoneFile.replace("{path}", path)}`, "warning"); return; }
+    openPath(path);
+  };
   const emptyEl = h("div", "ra-empty");
   const emptyRow: VRow = { render: () => emptyEl };
 
@@ -819,7 +826,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const chips = h("div", "ra-files");
       for (const line of attached.split("\n").slice(1)) {
         const m = /^- (.+?) \(([^)]*)\)/.exec(line);
-        if (m) chips.append(chipEl(m[1]!.replace(/^.*\//, ""), m[2]!.replace(/^.*, /, ""), null));
+        if (!m) continue;
+        const chip = chipEl(m[1]!.replace(/^.*\//, ""), m[2]!.replace(/^.*, /, ""), null);
+        // A file saved in the directory: click to find it in the files panel.
+        if (m[1]!.startsWith("/")) { const path = m[1]!; chip.classList.add("ra-chip-link"); chip.title = `${t.open} ${path}`; chip.setAttribute("role", "button"); chip.tabIndex = 0; chip.addEventListener("click", () => void openIfExists(path)); chip.addEventListener("keydown", (e) => { if (e.key === "Enter") void openIfExists(path); }); }
+        chips.append(chip);
       }
       if (chips.childElementCount) b.append(chips);
     }
