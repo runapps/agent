@@ -24,7 +24,9 @@ export interface SelectBox {
 
 /**
  * `host` is the element the list is positioned in (the chat's root: the
- * list may leave the menu the box sits in, never the chat).
+ * list may leave the menu the box sits in, never the chat). It needs a
+ * position (relative is fine) and the chat's tokens: the chat's root, or
+ * any element with the class `ra-ui`.
  */
 export function selectBox(host: HTMLElement, opts: { options?: SelectOption[]; value?: string; filterAt?: number; placeholder?: string; filterLabel?: string } = {}): SelectBox {
   let options: SelectOption[] = opts.options ?? [];
@@ -102,10 +104,11 @@ export function selectBox(host: HTMLElement, opts: { options?: SelectOption[]; v
     const below = hr.bottom - br.bottom - 8, above = br.top - hr.top - 8;
     const want = Math.min(pop.scrollHeight, 320);
     const up = below < want && above > below;
-    pop.style.left = `${br.left - hr.left}px`;
+    // Positions are in the host's content box: a host that scrolls (a sidebar) adds its scroll offset.
+    pop.style.left = `${br.left - hr.left + host.scrollLeft}px`;
     pop.style.width = `${br.width}px`;
     pop.style.maxHeight = `${Math.max(120, Math.min(320, up ? above : below))}px`;
-    if (up) pop.style.bottom = `${hr.bottom - br.top + 4}px`; else pop.style.top = `${br.bottom - hr.top + 4}px`;
+    pop.style.top = up ? `${br.top - hr.top + host.scrollTop - pop.offsetHeight - 4}px` : `${br.bottom - hr.top + host.scrollTop + 4}px`;
     btn.setAttribute("aria-expanded", "true");
     document.addEventListener("pointerdown", outside, true);
     (input ?? btn).focus();
@@ -141,23 +144,23 @@ export function selectBox(host: HTMLElement, opts: { options?: SelectOption[]; v
 
 /** The dropdown's look, in the chat's tokens. */
 export const SELECT_CSS = `
-.ra-chat .ra-sel{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:6px 10px 6px 12px;box-sizing:border-box;font:inherit;font-size:13px;color:var(--ra-fg);background:var(--ra-bg);border:1px solid var(--ra-border);border-radius:8px;text-align:left;cursor:pointer}
-.ra-chat .ra-sel:hover:not(:disabled){border-color:color-mix(in srgb,var(--ra-fg) 25%,var(--ra-border))}
-.ra-chat .ra-sel:focus-visible,.ra-chat .ra-sel[aria-expanded=true]{border-color:var(--ra-accent);outline:0;box-shadow:0 0 0 3px var(--ra-accent-subtle)}
-.ra-chat .ra-sel:disabled{opacity:.55;cursor:not-allowed}
-.ra-chat .ra-sel .ra-sell{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ra-chat .ra-sel .ra-sell.ph{color:var(--ra-fg-muted)}
-.ra-chat .ra-sel .ra-selc{flex:none;display:inline-flex;color:var(--ra-fg-muted);transition:transform .15s}
-.ra-chat .ra-sel[aria-expanded=true] .ra-selc{transform:rotate(180deg)}
-.ra-chat .ra-selp{position:absolute;z-index:30;display:flex;flex-direction:column;background:var(--ra-panel);border:1px solid var(--ra-border);border-radius:10px;box-shadow:var(--ra-shadow-md);padding:4px;box-sizing:border-box;overflow:hidden;font-size:13px}
-.ra-chat .ra-selp .ra-self{flex:none;margin:2px 2px 4px;padding:6px 9px;font:inherit;font-size:13px;color:var(--ra-fg);background:var(--ra-bg);border:1px solid var(--ra-border);border-radius:6px;outline:0}
-.ra-chat .ra-selp .ra-self:focus{border-color:var(--ra-accent)}
-.ra-chat .ra-selp .ra-sellist{overflow-y:auto;min-height:0}
-.ra-chat .ra-selo{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:6px;cursor:pointer;color:var(--ra-fg)}
-.ra-chat .ra-selo.act{background:var(--ra-muted)}
-.ra-chat .ra-selo .ra-selt{flex:none;width:14px;display:inline-flex;color:var(--ra-accent-fg)}
-.ra-chat .ra-selo .ra-selol{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ra-chat .ra-selo.cur .ra-selol{font-weight:500}
-.ra-chat .ra-selo .ra-selon{flex:none;font-size:11.5px;color:var(--ra-fg-muted);font-variant-numeric:tabular-nums}
-.ra-chat .ra-selnone{padding:8px;color:var(--ra-fg-muted)}
+:is(.ra-chat,.ra-ui) .ra-sel{display:flex;align-items:center;gap:8px;width:100%;min-width:0;min-height:34px;padding:6px 10px 6px 12px;box-sizing:border-box;font:inherit;font-size:13px;color:var(--ra-fg);background:var(--ra-bg);border:1px solid var(--ra-border);border-radius:8px;text-align:left;cursor:pointer}
+:is(.ra-chat,.ra-ui) .ra-sel:hover:not(:disabled){border-color:color-mix(in srgb,var(--ra-fg) 25%,var(--ra-border))}
+:is(.ra-chat,.ra-ui) .ra-sel:focus-visible,:is(.ra-chat,.ra-ui) .ra-sel[aria-expanded=true]{border-color:var(--ra-accent);outline:0;box-shadow:0 0 0 3px var(--ra-accent-subtle)}
+:is(.ra-chat,.ra-ui) .ra-sel:disabled{opacity:.55;cursor:not-allowed}
+:is(.ra-chat,.ra-ui) .ra-sel .ra-sell{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(.ra-chat,.ra-ui) .ra-sel .ra-sell.ph{color:var(--ra-fg-muted)}
+:is(.ra-chat,.ra-ui) .ra-sel .ra-selc{flex:none;display:inline-flex;color:var(--ra-fg-muted);transition:transform .15s}
+:is(.ra-chat,.ra-ui) .ra-sel[aria-expanded=true] .ra-selc{transform:rotate(180deg)}
+:is(.ra-chat,.ra-ui) .ra-selp{position:absolute;z-index:30;display:flex;flex-direction:column;background:var(--ra-panel);border:1px solid var(--ra-border);border-radius:10px;box-shadow:var(--ra-shadow-md);padding:4px;box-sizing:border-box;overflow:hidden;font-size:13px}
+:is(.ra-chat,.ra-ui) .ra-selp .ra-self{flex:none;margin:2px 2px 4px;padding:6px 9px;font:inherit;font-size:13px;color:var(--ra-fg);background:var(--ra-bg);border:1px solid var(--ra-border);border-radius:6px;outline:0}
+:is(.ra-chat,.ra-ui) .ra-selp .ra-self:focus{border-color:var(--ra-accent)}
+:is(.ra-chat,.ra-ui) .ra-selp .ra-sellist{overflow-y:auto;min-height:0}
+:is(.ra-chat,.ra-ui) .ra-selo{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:6px;cursor:pointer;color:var(--ra-fg)}
+:is(.ra-chat,.ra-ui) .ra-selo.act{background:var(--ra-muted)}
+:is(.ra-chat,.ra-ui) .ra-selo .ra-selt{flex:none;width:14px;display:inline-flex;color:var(--ra-accent-fg)}
+:is(.ra-chat,.ra-ui) .ra-selo .ra-selol{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(.ra-chat,.ra-ui) .ra-selo.cur .ra-selol{font-weight:500}
+:is(.ra-chat,.ra-ui) .ra-selo .ra-selon{flex:none;font-size:11.5px;color:var(--ra-fg-muted);font-variant-numeric:tabular-nums}
+:is(.ra-chat,.ra-ui) .ra-selnone{padding:8px;color:var(--ra-fg-muted)}
 `;

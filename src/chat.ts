@@ -21,7 +21,7 @@ import { escapeHTML } from "./markdown.js";
 import { listTemplates } from "./templates.js";
 import { VirtualList, type VRow } from "./vlist.js";
 import { downloadBlob, h, I, modal, modalConfirm, renderMD } from "./dom.js";
-import { selectBox, SELECT_CSS } from "./select.js";
+import { selectBox, SELECT_CSS, type SelectBox } from "./select.js";
 import { filesPanel, freePath } from "./files-panel.js";
 import { debugPanel } from "./debug-panel.js";
 import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
@@ -572,6 +572,31 @@ const CSS = tokenCSS() + `
 .ra-toast{background:#18181b;color:#fff;font-size:13px;padding:8px 14px;border-radius:8px;box-shadow:var(--ra-shadow-md);white-space:pre-wrap;word-break:break-word}
 .ra-toast.warning{background:#d97706}.ra-toast.error{background:#dc2626}
 ` + SELECT_CSS;
+
+/**
+ * Gives a page's own `<select>` the chat's dropdown: the select stays (hidden) and in step — its
+ * `value` and `change` work as before — and a selectBox shows in its place. `host` positions the
+ * list (a positioned element with the class `ra-ui`, or the chat's root).
+ */
+export function enhanceSelect(select: HTMLSelectElement, host: HTMLElement, opts: { filterAt?: number; filterLabel?: string } = {}): SelectBox {
+  injectStyles();
+  const read = () => Array.from(select.options).map((o) => ({ value: o.value, label: o.textContent ?? o.value }));
+  const box = selectBox(host, { options: read(), value: select.value, ...opts });
+  select.style.display = "none";
+  select.after(box.el);
+  box.el.addEventListener("change", () => {
+    if (select.value === box.value) return;
+    select.value = box.value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  // Code that sets the select (or its options) is followed.
+  new MutationObserver(() => { box.setOptions(read()); box.value = select.value; }).observe(select, { childList: true, subtree: true, characterData: true });
+  const desc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+  if (desc?.set && desc.get) {
+    Object.defineProperty(select, "value", { configurable: true, get() { return desc.get!.call(this); }, set(v: string) { desc.set!.call(this, v); box.value = desc.get!.call(this); } });
+  }
+  return box;
+}
 
 function injectStyles(): void {
   if (typeof document === "undefined" || document.getElementById(STYLE_ID)) return;

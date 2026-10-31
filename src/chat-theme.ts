@@ -97,14 +97,18 @@ const decl = (vals: Partial<Record<string, string>>) => Object.entries(vals).map
  */
 export function tokenCSS(): string {
   const base = CHAT_PALETTES.claude;
+  // `.ra-ui` gives the same tokens to a host's own element (a page's sidebar using selectBox):
+  // dark follows the system unless it says data-scheme="light".
   const out = [
-    `:where(.ra-chat){--ra-font:${FONT};--ra-mono:${MONO};${decl(base.light)}}`,
-    `:where(.ra-chat[data-scheme=dark]){${decl(base.dark)};color-scheme:dark}`,
+    `:where(.ra-chat, .ra-ui){--ra-font:${FONT};--ra-mono:${MONO};${decl(base.light)}}`,
+    `:where(.ra-chat[data-scheme=dark], .ra-ui[data-scheme=dark]){${decl(base.dark)};color-scheme:dark}`,
+    `@media (prefers-color-scheme: dark){:where(.ra-ui:not([data-scheme=light])){${decl(base.dark)};color-scheme:dark}}`,
   ];
   for (const [name, p] of Object.entries(CHAT_PALETTES)) {
     if (name === "claude") continue;
-    out.push(`:where(.ra-chat[data-palette=${name}]){${decl(p.light)}}`);
-    out.push(`:where(.ra-chat[data-palette=${name}][data-scheme=dark]){${decl(p.dark)}}`);
+    out.push(`:where(.ra-chat[data-palette=${name}], .ra-ui[data-palette=${name}]){${decl(p.light)}}`);
+    out.push(`:where(.ra-chat[data-palette=${name}][data-scheme=dark], .ra-ui[data-palette=${name}][data-scheme=dark]){${decl(p.dark)}}`);
+    out.push(`@media (prefers-color-scheme: dark){:where(.ra-ui[data-palette=${name}]:not([data-scheme=light])){${decl(p.dark)}}}`);
   }
   return out.join("\n");
 }

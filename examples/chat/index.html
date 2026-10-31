@@ -19,7 +19,7 @@
   #agent::before { content: 'renderChat(<div id="agent">)'; position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 5; padding: 1px 8px; font: 11px var(--mono); color: #fff; background: #f59e0b; border-radius: 0 0 6px 6px; pointer-events: none; }
   @media (max-width: 720px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } #agent { margin: 6px; } aside { max-height: 45vh; border-left: 0; border-top: 1px solid var(--border); } }
 
-  aside { padding: 14px 16px 24px; font-size: 13px; background: var(--panel); border-left: 1px solid var(--border); overflow: auto; display: flex; flex-direction: column; gap: 18px; }
+  aside { position: relative; padding: 14px 16px 24px; font-size: 13px; background: var(--panel); border-left: 1px solid var(--border); overflow: auto; display: flex; flex-direction: column; gap: 18px; }
   aside h3 { margin: 0; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   aside h3 .switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--fg2); cursor: pointer; }
   aside h3 .switch input { accent-color: var(--p); margin: 0; }
@@ -35,9 +35,8 @@
 
   label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fg2); }
   /* Sidebar controls only: a page-wide button/input rule would also restyle the SDK's sign-in badge (a <button> it draws on the page). */
-  aside select, aside input[type=url], aside input[type=text] { font: inherit; font-size: 13px; width: 100%; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; outline: 0; }
-  aside select { appearance: none; -webkit-appearance: none; padding-right: 26px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
-  aside select:focus, aside input:focus { border-color: var(--p); }
+  aside input[type=url], aside input[type=text] { font: inherit; font-size: 13px; width: 100%; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; outline: 0; }
+  aside input:focus { border-color: var(--p); }
   aside button { font: inherit; font-size: 12.5px; font-weight: 500; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   aside button:hover { background: var(--muted); }
   aside button.pri { background: var(--p); border-color: var(--p); color: #fff; }
@@ -60,7 +59,7 @@
 </head>
 <body>
 <div id="agent"></div>
-<aside>
+<aside class="ra-ui">
   <h3><span class="logo">✦</span>Agent Chat Lab
     <label class="switch" title="调试模式：显示 renderChat 的边界，聊天标题栏多一个「调试」面板（调用链、请求、事件、上下文、工具）"><input type="checkbox" id="debug"><span>调试模式</span></label>
   </h3>
@@ -140,6 +139,8 @@ if (!params.get("local") && client.user) showUser();
 /* ---- directories: one per session (the chat opens one under each session's id), or one shared by every session ---- */
 const dirMode = () => localStorage.getItem("lab_dirmode") || "session";
 $("dirmode").value = dirMode();
+// The page's own selects get the chat's dropdown (they stay, hidden, so .value and onchange work as before).
+for (const id of ["dirmode", "palette", "theme", "locale"]) RunAppsAgent.enhanceSelect($(id), document.querySelector("aside"));
 $("dirmode").onchange = () => { localStorage.setItem("lab_dirmode", $("dirmode").value); mount(); };
 async function workspaceFor(sessionId) {
   // No built-in skills: the user's own go in /skills (Skills button, or the agent writes them).
