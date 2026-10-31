@@ -224,6 +224,8 @@ export interface AgentEventMap {
   compaction: { runId?: string; summary: boolean; tokensBefore: number; tokensAfter: number; droppedTurns: number; elidedResults: number };
   /** The session was written to the workspace. */
   session_saved: { id: string };
+  /** `rewind(index)` dropped the messages from `index` on. */
+  rewind: { index: number };
   queued: { kind: "steer" | "followUp"; message: ChatMessage };
   run_end: RunResult;
 }

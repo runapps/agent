@@ -29,7 +29,7 @@ export interface FilesPanel {
   readonly visible: boolean;
   /** Shows the panel; with a path, opens that file. */
   open(path?: string): Promise<void>;
-  close(): void;
+  close(): Promise<void>;
   toggle(): Promise<void>;
   setWorkspace(ws: Workspace | null): void;
   refresh(): Promise<void>;
@@ -97,7 +97,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   const uploadBtn = ibtn(I.upload(), t.upload, () => fileInput.click());
   const newBtn = ibtn(I.filePlus(14), t.newFile, () => void newFile());
   const refreshBtn = ibtn(I.refresh(), t.refresh, () => void refresh());
-  const closeBtn = ibtn(I.x(14), t.close, () => close());
+  const closeBtn = ibtn(I.x(14), t.close, () => void close());
   head.append(title, h("span", "ra-sp"), uploadBtn, newBtn, refreshBtn, closeBtn);
   const tree = h("div", "ra-tree");
   const editor = h("div", "ra-ed"); editor.style.display = "none";
@@ -207,12 +207,14 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     await refresh();
   };
 
-  const closeFile = async () => {
-    if (!(await confirmDiscard())) return;
+  const closeFile = async (): Promise<boolean> => {
+    if (!active) return true;
+    if (!(await confirmDiscard())) return false;
     active = null; loaded = null; setDraft(null);
     if (previewURL) { URL.revokeObjectURL(previewURL); previewURL = null; }
     showEditor(false);
     await refresh();
+    return true;
   };
 
   const save = async () => {
@@ -289,7 +291,9 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     await refresh();
     if (path) await openFile(path);
   };
-  const close = () => {
+  /** Hides the tree and closes the open file with it (unsaved changes are asked about; declining keeps both open). */
+  const close = async (): Promise<void> => {
+    if (!(await closeFile())) return;
     visible = false;
     el.style.display = "none";
     root.classList.remove("ra-files-open");
@@ -300,11 +304,11 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     get visible() { return visible; },
     open,
     close,
-    toggle: () => (visible ? (close(), Promise.resolve()) : open()),
+    toggle: () => (visible ? close() : open()),
     setWorkspace(next) {
       ws = next;
       active = null; loaded = null; setDraft(null); showEditor(false); changedPaths.clear(); selectedDir = "/";
-      if (!next) close(); else void refresh();
+      if (!next) { visible = false; el.style.display = "none"; root.classList.remove("ra-files-open"); } else void refresh();
     },
     refresh,
     changed(path) {

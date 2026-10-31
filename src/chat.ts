@@ -111,6 +111,9 @@ const STRINGS = {
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Stopped after the maximum number of turns.", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove", attachments: "Attachments",
+    sent: "sent", justNow: "just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
+    rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.",
+    running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     files: "Files", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
   },
@@ -124,6 +127,9 @@ const STRINGS = {
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "达到最大轮数，已停止。", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除", attachments: "附件",
+    sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
+    rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。",
+    running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     files: "文件", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存", pickFile: "选择文件", folder: "文件夹",
   },
@@ -182,6 +188,9 @@ const CSS = `
 .ra-menu .ra-mi:hover .ra-x{opacity:1}
 .ra-menu .ra-x:hover{background:var(--ra-red-subtle);color:var(--ra-red)}
 .ra-menu .ra-none{padding:8px 10px;color:var(--ra-fg-muted);font-size:13px}
+.ra-menu .ra-mi .ra-spin{margin-right:6px}
+.ra-chat .ra-btn.ra-bg{position:relative}
+.ra-chat .ra-btn.ra-bg::after{content:"";position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;background:var(--ra-p-solid)}
 .ra-menu .ra-mf{border-top:1px solid var(--ra-border);margin-top:4px;padding-top:4px;display:flex;justify-content:flex-end}
 .ra-main{flex:1;min-height:0;display:flex;position:relative}
 .ra-chat{container-type:inline-size}
@@ -228,6 +237,13 @@ const CSS = `
 .ra-user{display:flex;justify-content:flex-end}
 .ra-user .ra-bubble{max-width:85%;background:var(--ra-p-subtle);border-radius:12px;padding:8px 14px;white-space:pre-wrap;word-break:break-word;font-size:14px}
 .ra-user img{display:block;max-width:240px;border-radius:4px;margin-top:6px}
+.ra-user{flex-direction:column;align-items:flex-end}
+.ra-uf{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ra-fg-muted);margin-top:2px;opacity:0;transition:opacity .15s;height:24px}
+.ra-user:hover .ra-uf,.ra-uf:focus-within{opacity:1}
+.ra-uf .ra-ut{display:inline-flex;align-items:center;gap:4px;margin-right:4px}
+.ra-uf .ra-ib{width:24px;height:24px}
+.ra-modal label.ra-ck{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.ra-modal label.ra-ck input{width:auto;accent-color:var(--ra-p-solid)}
 .ra-asst{display:flex;gap:10px;align-items:flex-start}
 .ra-avatar{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:var(--ra-p-subtle);color:var(--ra-p-fg);display:flex;align-items:center;justify-content:center;margin-top:2px}
 .ra-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
@@ -406,6 +422,42 @@ function fmtSize(n: number): string {
   return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function relTime(ts: number, t: Strings): string {
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return t.justNow;
+  if (s < 3600) return t.minutesAgo.replace("{n}", String(Math.floor(s / 60)));
+  if (s < 86400) return t.hoursAgo.replace("{n}", String(Math.floor(s / 3600)));
+  return new Date(ts).toLocaleString();
+}
+const tsOf = (m: ChatMessage | undefined): number | undefined => (m as (ChatMessage & { ts?: number }) | undefined)?.ts;
+
+/** The directory's work files at one moment (what rewinding restores): skills and mounts are left out, big files too. */
+interface Checkpoint { at: number; files: Array<{ path: string; contentType?: string; data: string | Uint8Array }>; partial: boolean }
+const CKPT_FILE_MAX = 2 * 1024 * 1024;
+const CKPT_TOTAL_MAX = 32 * 1024 * 1024;
+const ckptKey = (ts: number) => `ckpt:${ts}`;
+async function takeCheckpoint(ws: Workspace, ts: number): Promise<void> {
+  const files: Checkpoint["files"] = [];
+  let total = 0, partial = false;
+  for (const f of await ws.list("/")) {
+    if (ws.isSkillPath(f.path) || ws.mountOf(f.path)) continue;
+    if (f.size > CKPT_FILE_MAX || total + f.size > CKPT_TOTAL_MAX) { partial = true; continue; }
+    const r = await ws.read(f.path);
+    files.push({ path: f.path, contentType: r.contentType, data: r.data });
+    total += f.size;
+  }
+  await ws.putData(ckptKey(ts), { at: ts, files, partial } satisfies Checkpoint);
+}
+async function restoreCheckpoint(ws: Workspace, c: Checkpoint): Promise<void> {
+  const keep = new Set(c.files.map((f) => f.path));
+  for (const f of await ws.list("/")) {
+    if (ws.isSkillPath(f.path) || ws.mountOf(f.path) || keep.has(f.path)) continue;
+    if (f.size > CKPT_FILE_MAX && c.partial) continue; // a big file was not in the snapshot; leave it
+    await ws.delete(f.path);
+  }
+  for (const f of c.files) await ws.write(f.path, f.data, f.contentType);
+}
+
 const MAX_ATTACHMENT = 20 * 1024 * 1024;
 const MAX_IMAGE_PART = 8 * 1024 * 1024;
 const MAX_INLINE_TEXT = 64 * 1024;
@@ -458,7 +510,7 @@ function renderMD(el: HTMLElement, md: string, streaming: boolean): void {
 interface Pending { card: HTMLElement; cancel: () => void }
 
 /** `AgentUI` whose questions are cards above the composer and whose notices are toasts in the chat. */
-function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChange: () => void): AgentUI & { cancelAll(): void } {
+function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChange: () => void): AgentUI & { cancelAll(all?: boolean): void; park(): HTMLElement[]; restore(cards: HTMLElement[]): void } {
   const pending = new Set<Pending>();
   const open = <T,>(build: (card: HTMLElement, done: (v: T) => void) => void, cancelValue: T): Promise<T> =>
     new Promise<T>((resolve) => {
@@ -554,8 +606,20 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
       setTimeout(() => el.remove(), level === "error" ? 8000 : 4000);
     },
 
-    cancelAll() {
-      for (const p of [...pending]) p.cancel();
+    /** Declines the questions on screen (`all`: the parked ones of other sessions too). */
+    cancelAll(all = false) {
+      for (const p of [...pending]) if (all || p.card.isConnected) p.cancel();
+    },
+    /** Takes the cards on screen out of the DOM, still pending, for the session being left. */
+    park() {
+      const out: HTMLElement[] = [];
+      for (const p of pending) if (p.card.isConnected) { p.card.remove(); out.push(p.card); }
+      onChange();
+      return out;
+    },
+    restore(cards) {
+      for (const c of cards) askArea.append(c);
+      if (cards.length) onChange();
     },
   };
 }
@@ -666,6 +730,47 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   let mounted = true;
 
   const ui = inlineUI(askCol, toasts, t, () => list.schedule());
+  const MAX_BACKGROUND = 3;
+  /** Sessions the chat made that are still running after the user switched away (and the current one). */
+  const live = new Map<string, Agent>();
+  const bgSubs = new Map<string, Array<() => void>>();
+  const parked = new Map<string, HTMLElement[]>();
+  /** Background sessions whose question waits for the user to come back. */
+  const waiting = new Set<string>();
+  const waiters = new Map<string, Array<() => void>>();
+  const whenCurrent = (id: string) => new Promise<void>((res) => { if (agent?.id === id) res(); else { waiting.add(id); const w = waiters.get(id) ?? []; w.push(res); waiters.set(id, w); markBackground(); } });
+  const wake = (id: string) => { const w = waiters.get(id); waiters.delete(id); waiting.delete(id); w?.forEach((f) => f()); };
+  /** The chat's dialogs for one session: a question from a session that is not on screen waits until it is. */
+  const uiFor = (id: string): AgentUI => ({
+    confirm: async (...a) => { await whenCurrent(id); return ui.confirm(...a); },
+    select: async (...a) => { await whenCurrent(id); return ui.select(...a); },
+    input: async (...a) => { await whenCurrent(id); return ui.input(...a); },
+    notify: (m, l) => ui.notify(m, l),
+  });
+  const background = () => [...live.values()].filter((a) => a !== agent && (a.busy || a.queued.length > 0 || waiting.has(a.id)));
+  const titleOfAgent = (a: Agent) => { const m = a.messages.find((x) => x.role === "user"); const text = m ? textOfContent(m.content as string | ContentPart[]).replace(/\s+/g, " ").trim() : ""; return text.length > 40 ? text.slice(0, 37) + "…" : text || t.untitled; };
+  const markBackground = () => histBtn.classList.toggle("ra-bg", background().length > 0);
+  /** The work files as they are when a message is sent, so a rewind to it can put them back. */
+  const checkpoint = async (a: Agent, msg: ChatMessage) => {
+    const ts = tsOf(msg);
+    if (!a.workspace || !ts) return;
+    try { await takeCheckpoint(a.workspace, ts); } catch (err) { console.warn("runapps agent: checkpoint failed", err); }
+  };
+  /** Keeps an eye on a session running in the background: a notice when it ends, dropped once idle. */
+  const watchBackground = (a: Agent) => {
+    if (bgSubs.has(a.id)) return;
+    const subs: Array<() => void> = [];
+    subs.push(a.on("run_end", () => {
+      if (agent === a) return;
+      ui.notify(`${titleOfAgent(a)} · ${t.finished}`);
+      // `busy` flips after the run's promise settles, a tick after this event.
+      setTimeout(() => { if (agent !== a && !a.busy && !a.queued.length && !waiting.has(a.id)) { live.delete(a.id); unwatchBackground(a); } markBackground(); }, 50);
+    }));
+    subs.push(a.on("run_start", (ev: { message: ChatMessage }) => { markBackground(); void checkpoint(a, ev.message); }));
+    bgSubs.set(a.id, subs);
+    markBackground();
+  };
+  const unwatchBackground = (a: Agent) => { bgSubs.get(a.id)?.forEach((u) => u()); bgSubs.delete(a.id); };
   const panel = filesPanel({ t, root, editorHost: chatCol, notify: (m, l) => ui.notify(m, l), onChange: () => void refreshCommands() });
   main.append(panel.el);
   filesBtn.addEventListener("click", () => void panel.toggle());
@@ -700,8 +805,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (size) chip.append(h("small", "", size));
     return chip;
   };
-  const userEl = (content: string | ContentPart[]): HTMLElement => {
-    const row = h("div", "ra-user");
+  interface UserRow extends VRow { msg?: ChatMessage; text: string; update(): void }
+  const userEl = (content: string | ContentPart[], row: UserRow): HTMLElement => {
+    const el = h("div", "ra-user");
     const b = h("div", "ra-bubble");
     // The attachment list (a text part of its own) is shown as chips, not as text.
     const parts = typeof content === "string" ? [content] : Array.isArray(content) ? content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text").map((p) => p.text) : [];
@@ -717,10 +823,71 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (chips.childElementCount) b.append(chips);
     }
     for (const url of imagesOf(content)) { const img = h("img"); img.src = url; img.alt = ""; b.append(img); }
-    row.append(b);
+    // Footer, shown on hover: sent + when, copy, rewind.
+    const foot = h("div", "ra-uf");
+    const time = h("span", "ra-ut");
+    const copy = h("button", "ra-ib"); copy.type = "button"; copy.innerHTML = I.copy(13); copy.title = t.copy; copy.setAttribute("aria-label", t.copy);
+    copy.addEventListener("click", () => { void navigator.clipboard?.writeText(row.text).then(() => ui.notify(t.copied)); });
+    const back = h("button", "ra-ib"); back.type = "button"; back.innerHTML = I.undo(); back.title = t.rewind; back.setAttribute("aria-label", t.rewind);
+    back.addEventListener("click", () => void rewindTo(row));
+    foot.append(time, copy, back);
+    row.update = () => {
+      const ts = tsOf(row.msg);
+      time.innerHTML = I.checks() + `<span>${escapeHTML(ts ? relTime(ts, t) : t.sent)}</span>`;
+      back.disabled = !row.msg;
+    };
+    row.update();
+    el.append(b, foot);
+    return el;
+  };
+  const userRow = (content: string | ContentPart[], msg?: ChatMessage): UserRow => {
+    const parts = typeof content === "string" ? [content] : content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text").map((p) => p.text);
+    const row: UserRow = { msg, text: parts.filter((p) => !p.startsWith(ATTACH_MARK)).join("\n"), update: () => undefined, render: () => userEl(content, row) };
     return row;
   };
-  const addUser = (content: string | ContentPart[]) => { addRow({ render: () => userEl(content) }); list.scrollToBottom(); };
+  let lastUserRow: UserRow | null = null;
+  const addUser = (content: string | ContentPart[], msg?: ChatMessage) => { const row = userRow(content, msg); lastUserRow = row; addRow(row); list.scrollToBottom(); return row; };
+
+  /** A dialog for rewinding: drop what follows the message, optionally put the files back as they were. */
+  const rewindDialog = (hasFiles: boolean): Promise<{ files: boolean } | null> => new Promise((resolve) => {
+    const overlay = h("div", "ra-modal");
+    const dlg = h("div", "ra-dlg"); dlg.setAttribute("role", "dialog"); dlg.setAttribute("aria-modal", "true");
+    dlg.append(h("div", "ra-dt", t.rewindTitle), h("div", "ra-dm", t.rewindMsg));
+    const ck = h("input"); ck.type = "checkbox"; ck.checked = hasFiles; ck.disabled = !hasFiles;
+    const lab = h("label", "ra-ck"); lab.append(ck, h("span", "", t.rewindFiles));
+    dlg.append(lab);
+    const done = (v: { files: boolean } | null) => { overlay.remove(); resolve(v); };
+    const rowB = h("div", "ra-btns");
+    const cancel = h("button", "ra-btn", t.cancel); cancel.type = "button"; cancel.addEventListener("click", () => done(null));
+    const ok = h("button", "ra-btn solid", t.rewind); ok.type = "button"; ok.addEventListener("click", () => done({ files: ck.checked && hasFiles }));
+    rowB.append(cancel, ok);
+    dlg.append(rowB);
+    overlay.append(dlg);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) done(null); });
+    overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(null); } });
+    root.append(overlay);
+    queueMicrotask(() => ok.focus());
+  });
+  const rewindTo = async (row: UserRow) => {
+    if (!row.msg || !agent) return;
+    const index = agent.messages.indexOf(row.msg);
+    if (index < 0) { ui.notify(t.rewindGone, "warning"); return; }
+    const ws = agent.workspace;
+    const ts = tsOf(row.msg);
+    const ckpt = ws && ts ? await ws.getData<Checkpoint>(ckptKey(ts)) : undefined;
+    const choice = await rewindDialog(!!ckpt);
+    if (!choice) return;
+    try {
+      if (agent.busy) { ui.cancelAll(); await agent.abort(); }
+      await agent.rewind(index);
+      if (choice.files && ws && ckpt) await restoreCheckpoint(ws, ckpt);
+      renderHistory(agent.messages);
+      showUsage_(agent);
+      void panel.refresh();
+      void refreshCommands();
+      ta.value = row.text; ta.focus(); renderCmds();
+    } catch (err) { ui.notify((err as Error).message, "error"); }
+  };
 
   const asstRow = (): AsstRow => {
     const el = h("div", "ra-asst");
@@ -865,7 +1032,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         flush();
         const s = typeof m.content === "string" ? summaryOf(m) : null;
         if (s !== null) { addNote(t.compacted, s); continue; }
-        addRow({ render: () => userEl(m.content as string | ContentPart[]) });
+        addRow(userRow(m.content as string | ContentPart[], m));
       } else if (m.role === "assistant") {
         const text = textOfContent(m.content);
         const rs = (m as unknown as { reasoning?: unknown }).reasoning; const reasoning = typeof rs === "string" ? rs : "";
@@ -1075,7 +1242,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     for (const s of found) {
       const row = h("div", "ra-mi" + (s.id === agent.id ? " ra-cur" : ""));
       const b = h("button"); b.type = "button";
-      b.append(h("span", "", s.title || t.untitled), h("small", "", `${s.messages} ${t.messages} · ${new Date(s.savedAt).toLocaleString()}`));
+      const bg = live.get(s.id);
+      const state = bg && bg !== agent ? (waiting.has(s.id) ? ` · ${t.waitingAnswer}` : bg.busy || bg.queued.length ? ` · ${t.running}` : "") : "";
+      const name = h("span", "", s.title || t.untitled);
+      if (state && !waiting.has(s.id)) name.prepend(h("span", "ra-spin"));
+      b.append(name, h("small", "", `${s.messages} ${t.messages} · ${new Date(s.savedAt).toLocaleString()}${state}`));
       b.addEventListener("click", () => { closeMenu(); void resume(s.id); });
       const x = h("button", "ra-x"); x.type = "button"; x.innerHTML = I.trash(); x.title = t.delete; x.setAttribute("aria-label", t.delete);
       x.addEventListener("click", async (e) => {
@@ -1113,8 +1284,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const attach = async (a: Agent) => {
     for (const u of unsub) u();
     unsub = [];
-    ui.cancelAll();
+    if (agent && agent !== a) parked.set(agent.id, ui.park());
     agent = a;
+    live.set(a.id, a);
+    unwatchBackground(a);
+    ui.restore(parked.get(a.id) ?? []);
+    parked.delete(a.id);
+    wake(a.id);
+    markBackground();
     cards.clear();
     active = null;
     queuedShown = new Set();
@@ -1134,8 +1311,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const on = (name: string, fn: (ev: any) => void) => unsub.push(a.on(name as never, fn as never));
     on("run_start", (ev: { message: ChatMessage }) => {
       // A prompt sent from here was drawn then; one from a queued follow-up (or the host's agent) is drawn now.
-      if (!root.dataset.sent) addUser(ev.message.content as string | ContentPart[]);
+      if (!root.dataset.sent) addUser(ev.message.content as string | ContentPart[], ev.message);
+      else if (lastUserRow) { lastUserRow.msg = ev.message; lastUserRow.update(); }
       delete root.dataset.sent;
+      void checkpoint(a, ev.message);
       queuedShown = new Set(a.queued.map((q) => q.message));
       active = null;
       setBusy(true);
@@ -1145,7 +1324,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       // A turn that was only tool calls keeps its group, so a chain of calls reads as one step.
       if (active?.text || active?.think) active = null;
       // Queued steering joins this turn (the agent takes it right after this event): draw it now.
-      for (const q of a.queued) if (q.kind === "steer" && queuedShown.delete(q.message)) addUser(q.message.content as string | ContentPart[]);
+      for (const q of a.queued) if (q.kind === "steer" && queuedShown.delete(q.message)) addUser(q.message.content as string | ContentPart[], q.message);
       queueMicrotask(renderQueue);
     });
     on("queued", (ev: { message: ChatMessage }) => { queuedShown.add(ev.message); renderQueue(); });
@@ -1210,14 +1389,21 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const sid = id ?? newId();
     const workspace = typeof wsOpt === "function" ? await wsOpt(sid) : wsOpt ?? null;
     const instructions = workspace ? [agentOpts.instructions, FILES_HINT].filter(Boolean).join("\n\n") : agentOpts.instructions;
-    return new Agent(client!, { ...agentOpts, instructions, id: sid, workspace, ui: agentOpts.ui ?? ui });
+    return new Agent(client!, { ...agentOpts, instructions, id: sid, workspace, ui: agentOpts.ui ?? uiFor(sid) });
   };
 
   const switchTo = async (id?: string): Promise<Agent> => {
     if (givenAgent) throw new Error("runapps agent: newSession/resume need the chat to own its agent (pass a client, not an agent)");
-    ui.cancelAll();
-    await agent.abort();
-    const a = await makeAgent(id);
+    if (id && id === agent?.id) return agent;
+    const prev = agent;
+    if (prev) {
+      const stays = prev.busy || prev.queued.length > 0;
+      if (stays) {
+        if (background().length >= MAX_BACKGROUND) { ui.notify(t.bgLimit.replace("{n}", String(background().length)), "warning"); return prev; }
+        watchBackground(prev);  // keeps running; its questions wait for the user to come back
+      } else live.delete(prev.id);  // idle and saved: rebuilt from storage when resumed
+    }
+    const a = (id && live.get(id)) || await makeAgent(id);
     await attach(a);
     return a;
   };
@@ -1227,7 +1413,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     await ready;
     const ws = agent.workspace;
     if (!ws) return;
-    if (id !== agent.id) { await ws.sessions.delete(id); return; }
+    if (id !== agent.id) {
+      const bg = live.get(id);
+      if (bg) { await bg.abort(); live.delete(id); unwatchBackground(bg); wake(id); parked.delete(id); markBackground(); }
+      await ws.sessions.delete(id);
+      return;
+    }
     // The open session: stop it, drop its directory (files, skills, the saved session) and start afresh.
     await agent.abort();
     if (typeof wsOpt === "function") await ws.destroy(); else await ws.sessions.delete(id);
@@ -1262,14 +1453,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (!mounted) return;
       mounted = false;
       for (const u of unsub) u();
-      ui.cancelAll();
+      ui.cancelAll(true);
       closeMenu();
       document.removeEventListener("click", onDocClick, true);
       if (renderTimer !== null) clearTimeout(renderTimer);
       if (cmdFrame !== null) cancelAnimationFrame(cmdFrame);
       list.dispose();
       panel.dispose();
-      if (!givenAgent && agent) void agent.abort();
+      if (!givenAgent) for (const a of live.values()) { unwatchBackground(a); void a.abort(); }
       root.remove();
     },
   };

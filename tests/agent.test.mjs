@@ -393,3 +393,23 @@ test("agent — steer + follow-up queued mid-batch: the rest of the batch is ski
   assert.deepEqual(texts(requests[2]), ["go", "change course", "and then this"]);
   assert.ok(requests[1].messages.some((m) => m.role === "tool" && /Skipped: the user sent a new instruction/.test(m.content)));
 });
+
+test("agent — user messages carry `ts` in the session but not in the request; rewind(index) drops what follows and saves", async () => {
+  const { client, requests } = scripted([reply({ text: "one" }), reply({ text: "two" }), reply({ text: "three" })]);
+  const agent = createAgent(client, { model: "m", sandbox: false, askUser: false });
+  await agent.prompt("first");
+  await agent.prompt("second");
+  assert.equal(agent.messages.length, 4);
+  assert.ok(typeof agent.messages[0].ts === "number" && typeof agent.messages[2].ts === "number", "sent time kept on the message");
+  for (const r of requests) for (const m of r.messages) assert.equal("ts" in m, false, "the model never sees ts");
+  const events = [];
+  agent.on("rewind", (e) => events.push(e.index));
+  await agent.rewind(2);
+  assert.deepEqual(agent.messages.map((m) => m.content), ["first", "one"]);
+  assert.deepEqual(events, [2]);
+  assert.deepEqual(agent.export().messages.map((m) => m.content), ["first", "one"], "the saved session is the rewound one");
+  await agent.prompt("second again");
+  assert.equal(agent.messages.length, 4);
+  assert.equal(agent.messages[3].content, "three");
+  await assert.rejects(agent.rewind(9), /no message at 9/);
+});

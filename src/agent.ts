@@ -53,6 +53,13 @@ interface Queued {
   resolve?: (r: RunResult) => void;
 }
 
+/** The message as the model sees it: without the chat's own bookkeeping fields. */
+function stripMeta(m: ChatMessage): ChatMessage {
+  if (!("ts" in m)) return m;
+  const { ts: _ts, ...rest } = m as ChatMessage & { ts?: number };
+  return rest as ChatMessage;
+}
+
 export class Agent {
   readonly id: string;
   readonly client: RunApps;
@@ -288,7 +295,25 @@ export class Agent {
 
   private userMessage(content: PromptContent): ChatMessage {
     const parts: ContentPart[] = typeof content === "string" ? [{ type: "text", text: content }] : content.slice();
-    return { role: "user", content: parts.length === 1 && parts[0]!.type === "text" ? parts[0]!.text : parts };
+    // `ts` (when it was sent) rides along in the saved session and is stripped before the model sees it.
+    return { role: "user", content: parts.length === 1 && parts[0]!.type === "text" ? parts[0]!.text : parts, ts: Date.now() } as ChatMessage;
+  }
+
+  /**
+   * Goes back to before message `index` (as in `messages`): later messages
+   * are dropped and the session saved. The caller re-sends or edits the
+   * message. Not while a run is active.
+   */
+  async rewind(index: number): Promise<void> {
+    if (this.current) throw new Error("runapps agent: cannot rewind while a run is active; abort() first");
+    if (!Number.isInteger(index) || index < 0 || index > this.history.length) throw new Error(`runapps agent: no message at ${index}`);
+    this.clearQueue();
+    this.history = this.history.slice(0, index);
+    this.committed = this.history.length;
+    this.lastBatches = [];
+    this.loopWarned = false;
+    await this.saveSession();
+    this.emit("rewind", { index });
   }
 
   private start(message: ChatMessage, signal?: AbortSignal): Promise<RunResult> {
@@ -368,7 +393,7 @@ export class Agent {
         const params: ChatCompletionParams = {
           ...(this.opts.extra ?? {}),
           model: this.opts.model ?? "",
-          messages: [{ role: "system", content: system }, ...this.history],
+          messages: [{ role: "system", content: system }, ...this.history.map(stripMeta)],
           max_tokens: maxTokens,
         };
         if (!params.model) delete (params as Partial<ChatCompletionParams>).model;

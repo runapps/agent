@@ -365,6 +365,26 @@ export class Workspace {
   }
 
   /** Removes every file outside the skills folder (mounts and skills stay). */
+  /** The mount a path falls under, or null for the directory itself. */
+  mountOf(path: string): string | null {
+    return this.route(normalizePath(path))?.prefix || null;
+  }
+  /** Whether a path is under the skills folder. */
+  isSkillPath(path: string): boolean {
+    return this.inSkills(normalizePath(path));
+  }
+
+  /** A value of the host's kept with this directory (checkpoints, settings); `null` deletes it. */
+  async getData<T>(key: string): Promise<T | undefined> {
+    await this.ready();
+    const v = await this.store.getMeta<T | null>("data:" + key);
+    return v === null ? undefined : v;
+  }
+  async putData(key: string, value: unknown): Promise<void> {
+    await this.ready();
+    await this.store.putMeta("data:" + key, value);
+  }
+
   async clearWork(): Promise<void> {
     await this.ready();
     for (const f of await this.list("/")) {

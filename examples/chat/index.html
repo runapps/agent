@@ -39,10 +39,12 @@
     <button id="signout">退出</button>
   </div>
 
-  <h4>当前会话的目录</h4>
+  <h4>目录</h4>
   <div class="box">
-    <div>会话 / 目录 id：<code id="sid">…</code></div>
-    <div class="muted">每个会话一个独立目录（IndexedDB 里的一棵树）；技能在 <code>.agent/skills/&lt;name&gt;/SKILL.md</code>，新会话从 <code>skills.zip</code> 解包。左上「历史」切换会话即切换目录。</div>
+    <label>目录模式<br><select id="dirmode"><option value="session">每个会话独立目录</option><option value="shared">所有会话共用一个目录</option></select></label>
+    <div>会话：<code id="sid">…</code></div>
+    <div>目录：<code id="wsid">…</code></div>
+    <div class="muted">目录是 IndexedDB 里的一棵树；技能在 <code>.agent/skills/&lt;name&gt;/SKILL.md</code>，从 <code>skills.zip</code> 解包。独立模式下「历史」切换会话即切换目录；共用模式下所有会话读写同一份文件，删除会话不删文件。</div>
     <button id="clear">清空这个目录（保留技能）</button>
   </div>
   <div id="ws" class="muted">…</div>
@@ -95,17 +97,23 @@ async function showUser() {
 }
 async function loadModels() {
   const sel = $("model"); const cur = sel.value;
-  sel.replaceChildren(new Option("(platform default)", ""));
-  for (const m of await client.models.list({ capability: "text" })) sel.append(new Option(m.id + (m.is_default ? " ★" : ""), m.id));
+  const models = await client.models.list({ capability: "text" });
+  const def = models.find((m) => m.is_default);
+  // The first entry is the platform default, named, so you can see which model you get without choosing.
+  sel.replaceChildren(new Option(def ? `默认 · ${def.id}` : "(platform default)", ""));
+  for (const m of models) sel.append(new Option(m.id + (m.is_default ? " ★" : ""), m.id));
   sel.value = cur;
 }
 $("signin").onclick = async () => { try { await client.signIn(); } catch (e) { alert("登录未完成：" + e.message); } showUser(); };
 $("signout").onclick = () => { client.signOut(); showUser(); };
 if (params.get("local")) loadModels().catch((e) => console.warn("models", e)); else if (client.user) showUser();
 
-/* ---- one directory per session: the chat opens a workspace under each session's id ---- */
+/* ---- directories: one per session (the chat opens one under each session's id), or one shared by every session ---- */
+const dirMode = () => localStorage.getItem("lab_dirmode") || "session";
+$("dirmode").value = dirMode();
+$("dirmode").onchange = () => { localStorage.setItem("lab_dirmode", $("dirmode").value); mount(); };
 async function workspaceFor(sessionId) {
-  const ws = await RunAppsAgent.openWorkspace(client, { id: sessionId, skills: "./skills.zip" });
+  const ws = await RunAppsAgent.openWorkspace(client, { id: dirMode() === "shared" ? "shared" : sessionId, skills: "./skills.zip" });
   // Seed files live in the directory itself (IndexedDB), so what the agent writes under them survives reloads.
   // (A `ws.mount("/doc", memoryFS(...))` would start over on every open — that is for a host's live document, not for storage.)
   if (!(await ws.exists("/doc/plan.md"))) await ws.write("/doc/plan.md", "# Q3 plan\n- hire 2 engineers\n- ship v2\n- write the launch post\n");
@@ -143,6 +151,7 @@ async function mount() {
 async function refreshPanels() {
   const ws = workspace(); if (!ws) return;
   $("sid").textContent = chat.agent.id;
+  $("wsid").textContent = ws.id;
   const files = await ws.list("/");
   const skillFiles = files.filter((f) => f.path.startsWith(ws.skillsDir + "/")).length;
   $("ws").textContent = `${files.length} 个文件（其中技能 ${skillFiles} 个）· 用左上「文件」按钮浏览、编辑、上传、下载`;

@@ -111,6 +111,10 @@ In the composer, Enter sends and Shift+Enter breaks a line; while the agent runs
 
 **Files.** The header's "Files" button opens the session's directory beside the transcript (over it on narrow screens), modelled on the harness app's sidebar and editor pane: a tree (folders fold, the agent's changes get an orange dot) in the side panel, and, when a file is opened, an editor in place of the transcript (text with ⌘S to save, a preview for pictures, download, delete; close it to get the chat back), plus upload (picker or drop into the panel, into the selected folder) and new file. In a reply, a `code` span naming a file of the directory (for example `/uploads/report.csv`) becomes a link that opens it there, with a download button; `[name](/path)` links do the same; every tool card for a file has "open" and "download". The agent is told this in its instructions, so it names the files it produces. The host's `onOpenFile` takes over opening when given.
 
+**Sessions keep running.** Starting a new chat or resuming another while the agent works does not stop it: the session goes on in the background (its agent object is kept, its questions wait until you come back, the history menu marks it "running" and the History button shows a dot, a notice appears when it ends). Up to three may run in the background; past that the chat asks you to stop one first. `unmount()` stops them all.
+
+**Rewind.** Hovering a user message shows when it was sent, a copy button and "rewind to here": the conversation after that message is dropped (`agent.rewind(index)`), and, when the session has a directory, the directory's files can be put back as they were when the message was sent — the chat snapshots the work files (not skills, not mounts, files up to 2 MB) at every prompt and keeps them with the directory (`workspace.putData`). The message goes back into the composer to edit and resend. User messages carry `ts` (when sent) in the saved session; the model never sees it.
+
 The transcript is a virtual list (`VirtualList`, also exported): a row is built the first time it scrolls into view and only the rows around the viewport are in the DOM, so a session with thousands of messages opens at once; rows keep their element, so an opened tool card stays open when it scrolls back in. Streaming text is re-rendered at most every 100 ms and the list follows the end until you scroll up.
 
 Colours come from `--ra-*` custom properties on `.ra-chat`, so a host can restyle without touching the markup. `examples/chat/index.html` is a complete page (serve the package root and open `/examples/chat/index.html`).
@@ -119,8 +123,8 @@ Colours come from `--ra-*` custom properties on `.ra-chat`, so a host can restyl
 
 | | |
 |---|---|
-| `createAgent(client, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `dequeue`, `clearQueue`, `abort`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id` |
-| `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `skills`, `skillBody`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` (deleting a session saved from a directory of its own id drops that directory too) |
+| `createAgent(client, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `dequeue`, `clearQueue`, `abort`, `rewind`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id` |
+| `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `mountOf`, `isSkillPath`, `getData`, `putData`, `skills`, `skillBody`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` (deleting a session saved from a directory of its own id drops that directory too) |
 | Tools | `defineTool`, `fileTools`, `sandboxTool`, `runInSandbox`, `askUserTool` |
 | UI | `domUI`, `nullUI`; implement `AgentUI` for your own |
 | Files | `memoryFS`; implement `AgentFS` to mount your document |
