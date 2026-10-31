@@ -736,6 +736,12 @@ export class Agent {
     this._usage.calls++;
   }
 
+  /** How full the model's context is: tokens the next call would send (estimated) against the window. */
+  async context(): Promise<{ used: number; window: number }> {
+    const [window, system] = await Promise.all([this.contextTokens(), this.systemPrompt().catch(() => "")]);
+    return { used: estimateTokens(this.history, system), window };
+  }
+
   private contextTokens(): Promise<number> {
     if (typeof this.opts.maxInputTokens === "number") return Promise.resolve(this.opts.maxInputTokens);
     if (!this.inputTokens) {

@@ -111,7 +111,7 @@ const STRINGS = {
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Stopped after the maximum number of turns.", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove", attachments: "Attachments",
-    sent: "sent", justNow: "just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
+    sent: "sent", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     files: "Files", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
@@ -127,7 +127,7 @@ const STRINGS = {
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "达到最大轮数，已停止。", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除", attachments: "附件",
-    sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
+    sent: "已发送", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     files: "文件", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
@@ -238,10 +238,10 @@ const CSS = `
 .ra-user .ra-bubble{max-width:85%;background:var(--ra-p-subtle);border-radius:12px;padding:8px 14px;white-space:pre-wrap;word-break:break-word;font-size:14px}
 .ra-user img{display:block;max-width:240px;border-radius:4px;margin-top:6px}
 .ra-user{flex-direction:column;align-items:flex-end}
-.ra-uf{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ra-fg-muted);margin-top:2px;opacity:0;transition:opacity .15s;height:24px}
-.ra-user:hover .ra-uf,.ra-uf:focus-within{opacity:1}
-.ra-uf .ra-ut{display:inline-flex;align-items:center;gap:4px;margin-right:4px}
-.ra-uf .ra-ib{width:24px;height:24px}
+.ra-uf{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ra-fg-muted);margin-top:4px;height:22px;padding-right:2px}
+.ra-uf .ra-ut{margin-right:6px;font-variant-numeric:tabular-nums}
+.ra-uf .ra-ib{width:22px;height:22px;opacity:.55}
+.ra-uf .ra-ib:hover{opacity:1}
 .ra-modal label.ra-ck{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
 .ra-modal label.ra-ck input{width:auto;accent-color:var(--ra-p-solid)}
 .ra-asst{display:flex;gap:10px;align-items:flex-start}
@@ -422,12 +422,13 @@ function fmtSize(n: number): string {
   return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function relTime(ts: number, t: Strings): string {
-  const s = Math.round((Date.now() - ts) / 1000);
-  if (s < 60) return t.justNow;
-  if (s < 3600) return t.minutesAgo.replace("{n}", String(Math.floor(s / 60)));
-  if (s < 86400) return t.hoursAgo.replace("{n}", String(Math.floor(s / 3600)));
-  return new Date(ts).toLocaleString();
+/** "18:00" today, "10/31 18:00" earlier this year, else with the year. */
+function clockTime(ts: number): string {
+  const d = new Date(ts), now = new Date();
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  if (d.toDateString() === now.toDateString()) return hm;
+  const md = `${d.getMonth() + 1}/${d.getDate()}`;
+  return d.getFullYear() === now.getFullYear() ? `${md} ${hm}` : `${d.getFullYear()}/${md} ${hm}`;
 }
 const tsOf = (m: ChatMessage | undefined): number | undefined => (m as (ChatMessage & { ts?: number }) | undefined)?.ts;
 
@@ -833,7 +834,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     foot.append(time, copy, back);
     row.update = () => {
       const ts = tsOf(row.msg);
-      time.innerHTML = I.checks() + `<span>${escapeHTML(ts ? relTime(ts, t) : t.sent)}</span>`;
+      time.textContent = ts ? clockTime(ts) : "";
       back.disabled = !row.msg;
     };
     row.update();
@@ -1278,7 +1279,16 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   /* --- wiring an agent --- */
   const showUsage_ = (a: Agent) => {
     const u = a.usage;
-    usageEl.textContent = u.calls ? `${fmtCost(u.total_cost)} · ${fmtTokens(u.prompt_tokens + u.completion_tokens)} tokens · ${u.calls} calls` : "";
+    const base = u.calls ? `${fmtCost(u.total_cost)} · ${fmtTokens(u.prompt_tokens + u.completion_tokens)} tokens · ${u.calls} calls` : "";
+    usageEl.textContent = base;
+    if (!a.messages.length) return;
+    void a.context().then((c) => {
+      if (agent !== a) return;
+      const ratio = c.used / c.window;
+      const pct = ratio < 0.01 ? "<1%" : `${Math.min(999, Math.round(ratio * 100))}%`;
+      usageEl.textContent = `${base}${base ? " · " : ""}${t.context} ${pct}`;
+      usageEl.title = `${fmtTokens(c.used)} / ${fmtTokens(c.window)} tokens`;
+    });
   };
 
   const attach = async (a: Agent) => {
