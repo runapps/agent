@@ -647,6 +647,7 @@ export class Agent {
     const plan = planCut(this.history, settings.keepRecentTokens);
     if (!plan) return false;
     if (focus?.trim()) plan.focus = focus.trim();
+    this.emit("compaction_start", { runId });
     const tokensBefore = estimateTokens(this.history);
     let summary: string;
     try {

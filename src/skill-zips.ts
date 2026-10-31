@@ -31,6 +31,8 @@ export interface SkillZipInfo {
   source: string;
   /** The skill folders it holds (names under skillsDir). */
   folders: string[];
+  /** It comes from the app's own `skills` option (shipped with the app). */
+  builtin?: boolean;
 }
 
 interface Parsed {

@@ -80,7 +80,7 @@
       <div class="kv">目录 <code id="wsid">…</code></div>
       <div id="ws" class="muted">…</div>
       <div class="muted">目录是 IndexedDB 里的一棵树；技能 zip 不解压，整个应用共用一份，只读挂在 <code>.agent/skills/&lt;name&gt;/</code>。独立模式下「历史」切换会话即切换目录；共用模式下所有会话读写同一份文件，删除会话不删文件。</div>
-      <div class="row"><button id="clear" class="danger">清空目录（保留技能）</button></div>
+      <div class="row"><button id="clear" class="danger">清空目录（保留技能）</button><button id="restore-skills" class="ghost">恢复自带技能</button></div>
     </div>
   </section>
 
@@ -187,6 +187,8 @@ async function refreshPanels() {
   $("ws").textContent = `${files.length} 个文件 · 技能 ${skills.length} 个（右上「技能」按钮管理）· 用「文件」按钮浏览、编辑、上传、下载`;
 }
 $("clear").onclick = async () => { await workspace().clearWork(); refreshPanels(); };
+// The built-in skills (./skills.zip) stay deleted once the user removes them; this brings them back.
+$("restore-skills").onclick = async () => { await workspace().refreshSkills(true); await chat.refresh(); refreshPanels(); chat.ui.notify("已恢复自带技能"); };
 $("remount").onclick = () => mount();
 // Debug mode (on by default here): the outline of the render target and the chat's Debug panel.
 function debugOn() { try { return localStorage.getItem("lab_debug") !== "0"; } catch { return true; } }

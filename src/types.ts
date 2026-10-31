@@ -225,6 +225,8 @@ export interface AgentEventMap {
   };
   turn_end: { runId: string; turn: number; usage?: Usage };
   /** The transcript was shortened: by a model-written summary (`summary: true`) or by eliding/dropping. */
+  /** A summary of older turns is being written (by the loop, or `compact()`; no runId then). A `compaction` event follows when it replaced them. */
+  compaction_start: { runId?: string };
   compaction: { runId?: string; summary: boolean; tokensBefore: number; tokensAfter: number; droppedTurns: number; elidedResults: number };
   /** The session was written to the workspace. */
   session_saved: { id: string };

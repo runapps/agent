@@ -168,7 +168,8 @@ const STRINGS = {
     skillsInstalled: "Installed: {names}", skillRemoved: "Removed {name}", notZip: "not a zip file",
     confirmDeleteZip: "Delete {zip}? All of its skills go: {names}. No conversation will have them any more.", confirmDeleteSkillZip: "Delete the skill {name}? No conversation will have it any more.", confirmDeleteSkill: "Delete the skill {name}? Its folder in this directory is deleted.",
     skillsHint: "Zips are read in place (nothing unpacked) and every conversation of the app has them, read-only. Folders the agent writes under {dir} belong to this directory. Drop a zip here to install it.",
-    waiting: "Thinking", today: "Today", yesterday: "Yesterday",
+    waiting: "Thinking", compactingNow: "Compacting the context", builtinSkill: "built-in", confirmDeleteBuiltin: "Delete the built-in skill {name}? The app ships it; it will not come back by itself.", builtinNoReturn: "They ship with the app and will not come back by themselves.",
+    today: "Today", yesterday: "Yesterday",
     worked: "Worked for {t}", workedNoTime: "Work", sec: "{s}s", minSec: "{m}m {s}s", hourMin: "{h}h {m}m",
     command: "Command", user: "User", compacting: "Compacting the context…", nothingToCompact: "Nothing to compact yet", busyCmd: "Wait for the current task to finish, or stop it, first", nothingToExport: "Nothing to export yet", nothingToContinue: "Nothing to continue",
     unknownModel: "No model named \"{name}\"", modelSet: "Model: {name}", effortSet: "Thinking: {name}", effortLevels: "Thinking levels of {model}: {levels}", unknownEffort: "\"{name}\" is not a thinking level of {model} ({levels})", debugOff: "Debug mode is off",
@@ -203,7 +204,8 @@ const STRINGS = {
     skillsInstalled: "已安装：{names}", skillRemoved: "已删除 {name}", notZip: "不是 zip 文件",
     confirmDeleteZip: "删除 {zip}？其中的技能都会删除：{names}。所有对话都不再能用。", confirmDeleteSkillZip: "删除技能 {name}？所有对话都不再能用。", confirmDeleteSkill: "删除技能 {name}？会删除当前目录里它的文件夹。",
     skillsHint: "zip 直接读取（不解压），应用里的所有对话共用，只读。智能体在 {dir} 下写的文件夹只属于当前目录。把 zip 拖到这里也能安装。",
-    waiting: "思考中", today: "今天", yesterday: "昨天",
+    waiting: "思考中", compactingNow: "正在压缩上下文", builtinSkill: "应用自带", confirmDeleteBuiltin: "删除应用自带的技能 {name}？删除后不会自动恢复。", builtinNoReturn: "这些是应用自带的，删除后不会自动恢复。",
+    today: "今天", yesterday: "昨天",
     worked: "已工作 {t}", workedNoTime: "工作过程", sec: "{s}秒", minSec: "{m}分{s}秒", hourMin: "{h}小时{m}分",
     command: "命令", user: "用户", compacting: "正在压缩上下文…", nothingToCompact: "暂时没有可压缩的内容", busyCmd: "请等当前任务结束（或先停止）", nothingToExport: "还没有可导出的内容", nothingToContinue: "没有可继续的内容",
     unknownModel: "没有名为“{name}”的模型", modelSet: "模型：{name}", effortSet: "思考强度：{name}", effortLevels: "{model} 的思考强度：{levels}", unknownEffort: "“{name}”不是 {model} 的思考强度（{levels}）", debugOff: "调试模式未开启",
@@ -1298,11 +1300,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return active;
   };
   /** Shows "Thinking" at the end of the reply until the model's first output arrives. */
-  const showPending = () => {
+  const showPending = (label = t.waiting) => {
     const act = ensureActive();
-    if (act.pending) return;
+    if (act.pending) { act.pending.firstElementChild!.textContent = label; return; }
     act.pending = h("div", "ra-pending");
-    act.pending.append(h("span", "", t.waiting));
+    act.pending.append(h("span", "", label));
     act.body.append(act.pending);
     list.schedule();
   };
@@ -1749,7 +1751,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const text = ta.value.trim();
     if ((!text && !pendingFiles.length) || !agent || sending) return;
     if (runBuiltin(text)) return;
-    if (compacting) { ui.notify(t.compacting); return; }
+    // While compacting, a message waits for it and then runs (Enter, Steer and Follow-up alike).
+    if (compacting) mode = "followUp";
     const a = agent;
     // The files are taken now, so a second Enter while they are being written cannot send them again.
     const taken = pendingFiles.splice(0);
@@ -2011,7 +2014,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const row = h("div", "ra-mi");
       const b = h("button"); b.type = "button"; b.title = t.useSkill;
       const name = h("span", "ra-mt");
-      name.append(h("span", "ra-mtt", s.name), h("span", "ra-skb", s.zip ? "zip" : t.skillFolder));
+      const zinfo = s.zip ? zips.find((x) => x.name === s.zip) : undefined;
+      name.append(h("span", "ra-mtt", s.name), h("span", "ra-skb", zinfo?.builtin ? t.builtinSkill : s.zip ? "zip" : t.skillFolder));
       if (s.disableModelInvocation) name.append(h("span", "ra-skb", t.manualOnly));
       b.append(name, h("small", "", s.description));
       // Using a skill: it goes into the composer as /skill:name.
@@ -2025,8 +2029,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const del = act(I.trash(), t.delete, async () => {
         closeMenu();
         const z = s.zip ? zips.find((x) => x.name === s.zip) : undefined;
-        const msg = z && z.folders.length > 1 ? t.confirmDeleteZip.replace("{zip}", `${z.name}.zip`).replace("{names}", z.folders.join("、"))
+        let msg = z && z.folders.length > 1 ? t.confirmDeleteZip.replace("{zip}", `${z.name}.zip`).replace("{names}", z.folders.join("、"))
           : s.zip ? t.confirmDeleteSkillZip.replace("{name}", s.name) : t.confirmDeleteSkill.replace("{name}", s.name);
+        if (z?.builtin) msg = z.folders.length > 1 ? `${msg} ${t.builtinNoReturn}` : t.confirmDeleteBuiltin.replace("{name}", s.name);
         if (!(await modalConfirm(root, t.delete, msg, { danger: true, ok: t.delete, cancel: t.cancel }))) return;
         try { await ws.removeSkill(s.name); await refreshCommands(); ui.notify(t.skillRemoved.replace("{name}", s.name)); } catch (err) { ui.notify((err as Error).message, "error"); }
       }, "ra-x");
@@ -2085,11 +2090,17 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const a = agent;
       if (a.busy) { ui.notify(t.busyCmd, "warning"); return; }
       compacting = true;
-      ui.notify(t.compacting);
       try {
-        // The compaction event draws the summary.
+        // The compaction events show it running and draw the summary; Stop aborts it.
         if (!(await a.compact(focus))) ui.notify(t.nothingToCompact);
-      } finally { compacting = false; if (agent === a) showUsage_(a); }
+      } catch (err) {
+        if (!/abort/i.test((err as Error).message ?? "") && (err as Error).name !== "AbortError") throw err;
+        ui.notify(t.stopped);
+      } finally {
+        compacting = false;
+        // The agent lets go of the compaction a tick after it resolves (and then starts any message queued meanwhile).
+        if (agent === a) { closeActive(); showUsage_(a); setTimeout(() => { if (agent === a && !a.busy) setBusy(false); }, 0); }
+      }
     } },
     { name: "continue", run: async () => {
       if (agent.busy) { ui.notify(t.busyCmd, "warning"); return; }
@@ -2291,7 +2302,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const path = c?.args && typeof c.args === "object" ? (c.args as { path?: unknown }).path : undefined;
       if (ev.status === "ok" && typeof path === "string" && /^(write_file|edit_file|delete_file)$/.test(ev.name)) panel.changed(path);
     });
-    on("compaction", (ev: { summary: boolean }) => {
+    // A summary being written: in a run the placeholder says so; compact() on its own also puts the chat in its busy state.
+    on("compaction_start", (ev: { runId?: string }) => {
+      if (!ev.runId) { setBusy(true); replyStart = Date.now(); }
+      showPending(t.compactingNow);
+    });
+    on("compaction", (ev: { runId?: string; summary: boolean }) => {
+      // In a run the model is asked next ("Thinking" again); compact() on its own is done.
+      if (ev.runId) { if (active?.pending) showPending(); } else closeActive();
       const first = a.messages[0];
       const s = first && typeof first.content === "string" ? summaryOf(first) : null;
       addNote(ev.summary ? t.compacted : t.trimmed, ev.summary && s ? s : undefined);

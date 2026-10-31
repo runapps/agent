@@ -579,6 +579,7 @@ export class Workspace {
       const prev = await this.lib.getMeta<SkillZipRecord>(`zip:${key}`);
       // A new version is a new `at`, even within the same millisecond.
       const rec: SkillZipRecord = { name: key, bytes, at: Math.max(Date.now(), (prev?.at ?? 0) + 1), source: typeof source === "string" ? source : "upload" };
+      if (typeof source === "string") await this.lib.deleteMeta(`removed:${source}`);
       const parsed = parseSkillZip(rec, this.dbName);
       if (!parsed.folders.size) throw new Error(`runapps agent: ${rec.name}.zip has no SKILL.md (at its root, or one per folder)`);
       await this.lib.putMeta(`zip:${rec.name}`, rec);
@@ -631,7 +632,7 @@ export class Workspace {
     await this.ready();
     const recs = await this.lib.listMeta<SkillZipRecord>("zip:");
     const out: SkillZipInfo[] = [];
-    for (const r of recs) { try { out.push(zipInfo(r, parseSkillZip(r, this.dbName))); } catch { /* damaged: listed nowhere */ } }
+    for (const r of recs) { try { out.push({ ...zipInfo(r, parseSkillZip(r, this.dbName)), builtin: this.sources.includes(r.source) }); } catch { /* damaged: listed nowhere */ } }
     return out.sort((a, b) => a.name.localeCompare(b.name));
   }
   /** A library zip's bytes (to download it again), or null. */
@@ -639,10 +640,16 @@ export class Workspace {
     await this.ready();
     return (await this.lib.getMeta<SkillZipRecord>(`zip:${name}`))?.bytes ?? null;
   }
-  /** Removes a zip from the app's skills library. */
+  /**
+   * Removes a zip from the app's skills library. One that came from the
+   * `skills` option stays removed (it is not fetched back on the next
+   * open) until `installSkill(thatSource)` or `refreshSkills(true)`.
+   */
   async removeSkillZip(name: string): Promise<boolean> {
     await this.ready();
-    if (!(await this.lib.getMeta<SkillZipRecord>(`zip:${name}`))) return false;
+    const rec = await this.lib.getMeta<SkillZipRecord>(`zip:${name}`);
+    if (!rec) return false;
+    if (rec.source !== "upload") await this.lib.putMeta(`removed:${rec.source}`, { at: Date.now() });
     await this.lib.deleteMeta(`zip:${name}`);
     await this.syncLibrary();
     this.announceLibrary();
@@ -713,6 +720,8 @@ export class Workspace {
   private async updateSource(source: string, force: boolean, throttle: boolean): Promise<boolean> {
     const name = zipBaseName(source);
     const key = `zip:${name}`;
+    // The user removed this one: it stays removed unless asked for explicitly.
+    if (await this.lib.getMeta(`removed:${source}`)) { if (!force) return false; await this.lib.deleteMeta(`removed:${source}`); }
     const prev = await this.lib.getMeta<SkillZipRecord>(key);
     const now = Date.now();
     const same = prev?.source === source;

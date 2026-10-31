@@ -352,6 +352,21 @@ test("workspace — installSkill puts a zip in the library for every directory; 
   assert.deepEqual(await a.skillZips(), []);
 });
 
+test("workspace — a built-in skills zip the user removed stays removed on the next open, until installed again or force-refreshed", async () => {
+  const idb = new IDBFactory();
+  const { fetch, hits } = zipFetch(makeZip({ "base/SKILL.md": "---\ndescription: Base\n---\n" }));
+  const a = await Workspace.open(null, { id: "t1", project: "tomb", skills: "/s.zip", fetch, inflate, indexedDB: idb });
+  assert.equal((await a.skillZips())[0].builtin, true);
+  assert.equal(await a.removeSkill("base"), true);
+  const b = await Workspace.open(null, { id: "t2", project: "tomb", skills: "/s.zip", fetch, inflate, indexedDB: idb });
+  assert.deepEqual(await b.skills(), [], "not fetched back");
+  await b.refreshSkills();
+  assert.deepEqual(await b.skills(), [], "a plain refresh keeps it removed");
+  await b.refreshSkills(true);
+  assert.deepEqual((await b.skills()).map((s) => s.name), ["base"]);
+  assert.equal(hits.get, 2);
+});
+
 test("workspace — ids are separate directories in one app database; sessions list across them; destroy drops one directory", async () => {
   const idb = new IDBFactory();
   const zip = makeZip({ "k/SKILL.md": "---\ndescription: K\n---\n" });

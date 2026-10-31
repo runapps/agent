@@ -520,7 +520,11 @@ test("agent — compact(focus): the plan and the summarisation prompt carry what
   const short = createAgent(scripted([reply({ text: "c1 " + "w".repeat(400) }), reply({ text: "c2 " + "w".repeat(400) })]).client, { model: "m", sandbox: false, askUser: false, compaction: async () => "SHORT" });
   await short.prompt("hi " + "w".repeat(400));
   await short.prompt("again " + "w".repeat(400));
+  const order = [];
+  short.on("compaction_start", (e) => order.push(["start", e.runId]));
+  short.on("compaction", (e) => order.push(["done", e.runId]));
   assert.equal(await short.compact(), true);
+  assert.deepEqual(order, [["start", undefined], ["done", undefined]], "compact() on its own reports start and end, with no run");
   assert.equal(short.messages.length, 3);
   assert.match(short.messages[1].content, /^again/);
   assert.match(short.messages[2].content, /^c2/);
