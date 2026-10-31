@@ -141,6 +141,16 @@ export interface ChatHandle {
   resume(id: string): Promise<Agent>;
   /** Deletes a saved session (and the directory made for it); the current one is replaced by a new chat. */
   deleteSession(id: string): Promise<void>;
+  /**
+   * Puts something of your app into the next message, shown as a chip in
+   * the composer like an attached file: what the user picked on your page,
+   * the selected text of a document, a record. `label` is what the chip and
+   * the sent message show; `text` is what the model reads with the message.
+   * An item with the same `id` replaces the one before. Returns a function
+   * that takes it out again (it also goes when the message is sent, or by
+   * its ×).
+   */
+  addContext(item: { id?: string; label: string; text: string; title?: string; icon?: string }): () => void;
   /** Starts the open conversation over (same id): stops it and drops its messages, queue and usage. Files stay. */
   clear(): Promise<void>;
   /** Re-reads the workspace's skills and templates for `/` completion (after installing a skill). */
@@ -573,6 +583,8 @@ const CSS = tokenCSS() + `
 .ra-chip button:hover{background:var(--ra-muted);color:var(--ra-fg)}
 .ra-user .ra-files{justify-content:flex-end;padding:0;margin-top:8px}
 .ra-chip-link{cursor:pointer}
+.ra-ctx{height:36px;gap:8px;padding:0 8px 0 10px;font-size:13px}
+.ra-ctxi{display:inline-flex;color:var(--ra-accent-fg);flex:none}
 .ra-chip-link:hover{border-color:color-mix(in srgb,var(--ra-fg) 25%,transparent);background:var(--ra-subtle)}
 .ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-accent) 8%,transparent);border:2px dashed var(--ra-accent);border-radius:8px;color:var(--ra-accent-fg);font-weight:600;pointer-events:none}
 .ra-chat[data-drop="1"] .ra-drop{display:flex}
@@ -776,6 +788,8 @@ const MAX_IMAGE_PART = 8 * 1024 * 1024;
 const MAX_INLINE_TEXT = 64 * 1024;
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|toml|xml|html?|css|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|h|cpp|hpp|cs|sh|bash|zsh|sql|ini|cfg|conf|log|env|svg|tex|rst)$/i;
 const ATTACH_MARK = "[attachments]";
+/** A text part of a message that came from the host (`addContext`): its first line names it, the rest is what the model reads. */
+const CONTEXT_MARK = "[context] ";
 /** One line of the attachment list: `- <path or name> (<type>, <size>)[ — note]`; the name may hold parentheses. */
 function parseAttachLine(line: string): { ref: string; type: string; size: string } | null {
   const m = /^- (.+) \(([^()]*)\)(?: — .*)?$/.exec(line);
@@ -1263,6 +1277,16 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (size) chip.append(h("small", "", size.replace(/\s+(?=[KMG]?B$)/, "")));
     return chip;
   };
+  const contextChip = (label: string, title?: string, icon?: string): HTMLElement => {
+    const chip = h("span", "ra-chip ra-ctx");
+    const ico = h("span", "ra-ctxi"); ico.innerHTML = icon ?? I.pointer(15);
+    const n = h("span", "ra-cn"); n.title = title ?? label; n.append(h("span", "st", label));
+    chip.append(ico, n);
+    return chip;
+  };
+  /** The context parts of a message: its label (first line) and what the model read. */
+  const contextsOf = (content: string | ContentPart[]): Array<{ label: string; text: string }> =>
+    Array.isArray(content) ? content.flatMap((p) => (p.type === "text" && p.text.startsWith(CONTEXT_MARK) ? [{ label: p.text.slice(CONTEXT_MARK.length).split("\n")[0]!, text: p.text.slice(p.text.indexOf("\n") + 1) }] : [])) : [];
   interface UserRow extends VRow { msg?: ChatMessage; text: string; update(): void }
   const userEl = (content: string | ContentPart[], row: UserRow): HTMLElement => {
     const el = h("div", "ra-user");
@@ -1284,6 +1308,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       }
       if (chips.childElementCount) b.append(chips);
     }
+    const ctx = contextsOf(content);
+    if (ctx.length) { const chips = h("div", "ra-files"); for (const c of ctx) chips.append(contextChip(c.label)); b.append(chips); }
     for (const url of imagesOf(content)) { const img = h("img"); img.src = url; img.alt = ""; b.append(img); }
     // Footer, shown on hover: sent + when, copy, rewind.
     const foot = h("div", "ra-uf");
@@ -1306,7 +1332,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const userRow = (content: string | ContentPart[], msg?: ChatMessage): UserRow => {
     const parts = typeof content === "string" ? [content] : content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text").map((p) => p.text);
     // Expanded slash commands show what was typed; the expansion is for the model.
-    const own = parts.filter((p) => !p.startsWith(ATTACH_MARK) && !p.startsWith("<file name="));
+    const own = parts.filter((p) => !p.startsWith(ATTACH_MARK) && !p.startsWith(CONTEXT_MARK) && !p.startsWith("<file name="));
     const typed = typedOf(msg);
     const row: UserRow = { msg, text: typed ?? own.join("\n"), update: () => undefined, render: () => userEl(content, row) };
     return row;
@@ -1357,10 +1383,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     ta.value = row.text; ta.focus(); renderCmds();
     await reattach(row.msg);
   };
-  /** Puts a rewound message's attachments back into the composer: from the directory, or from what the message carried inline. */
+  /** Puts a rewound message's context and attachments back into the composer: files from the directory, or from what the message carried inline. */
   const reattach = async (msg: ChatMessage) => {
     if (!Array.isArray(msg.content)) return;
     const parts = msg.content;
+    for (const c of contextsOf(parts).reverse()) addContext({ label: c.label, text: c.text });
     const block = parts.find((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text" && p.text.startsWith(ATTACH_MARK));
     if (!block) return;
     const ws = agent?.workspace;
@@ -1887,7 +1914,28 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   /* --- attachments --- */
   const pendingFiles: Attachment[] = [];
-  const renderFiles = () => { files.style.display = pendingFiles.length ? "" : "none"; };
+  /** What the host put into the next message (addContext). */
+  const pendingContext: Array<{ id: string; label: string; text: string; chip: HTMLElement }> = [];
+  const renderFiles = () => { files.style.display = pendingFiles.length || pendingContext.length ? "" : "none"; };
+  const removeContext = (id: string) => {
+    const i = pendingContext.findIndex((c) => c.id === id);
+    if (i < 0) return;
+    pendingContext[i]!.chip.remove(); pendingContext.splice(i, 1); renderFiles();
+  };
+  const addContext = (item: { id?: string; label: string; text: string; title?: string; icon?: string }) => {
+    const id = item.id ?? `ctx_${Math.random().toString(36).slice(2, 8)}`;
+    removeContext(id);
+    // One line: the sent message names the item by its first line.
+    item = { ...item, label: item.label.replace(/\s+/g, " ").trim() || "context" };
+    const chip = contextChip(item.label, item.title, item.icon);
+    const x = h("button"); x.type = "button"; x.innerHTML = I.x(); x.title = t.remove; x.setAttribute("aria-label", t.remove);
+    x.addEventListener("click", () => removeContext(id));
+    chip.append(x);
+    pendingContext.push({ id, label: item.label, text: item.text, chip });
+    files.prepend(chip);
+    renderFiles();
+    return () => removeContext(id);
+  };
   const removeFile = (a: Attachment) => { const i = pendingFiles.indexOf(a); if (i >= 0) pendingFiles.splice(i, 1); if (a.preview) URL.revokeObjectURL(a.preview); a.chip.remove(); renderFiles(); };
   // Files are read before they join the message: a send waits for the ones still being read (attach, then Enter at once).
   let reading: Promise<void> = Promise.resolve();
@@ -1976,7 +2024,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const send = async (mode: "prompt" | "steer" | "followUp") => {
     await reading;
     const text = ta.value.trim();
-    if ((!text && !pendingFiles.length) || !agent || sending) return;
+    if ((!text && !pendingFiles.length && !pendingContext.length) || !agent || sending) return;
     if (runBuiltin(text)) return;
     // While compacting, a message waits for it and then runs (Enter, Steer and Follow-up alike).
     if (compacting) mode = "followUp";
@@ -1984,17 +2032,28 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     // The files are taken now, so a second Enter while they are being written cannot send them again.
     const taken = pendingFiles.splice(0);
     for (const f of taken) f.chip.remove();
+    const takenCtx = pendingContext.splice(0);
+    for (const c of takenCtx) c.chip.remove();
     renderFiles();
     ta.value = ""; renderCmds(); setAlert();
     sending = true;
     let content: string | ContentPart[];
     try {
       content = await buildContent(text, taken, a);
+      // The host's context goes right after the typed text, one part each.
+      if (takenCtx.length) {
+        const parts: ContentPart[] = typeof content === "string" ? (content ? [{ type: "text", text: content }] : []) : content;
+        const at = parts.length && parts[0]!.type === "text" && !(parts[0] as { text: string }).text.startsWith(ATTACH_MARK) ? 1 : 0;
+        parts.splice(at, 0, ...takenCtx.map((c): ContentPart => ({ type: "text", text: `${CONTEXT_MARK}${c.label}\n${c.text}` })));
+        content = parts;
+      }
     } catch (err) {
-      // Nothing was sent: the text and the files go back where they were.
+      // Nothing was sent: the text, the files and the context go back where they were.
       ta.value = text;
       pendingFiles.unshift(...taken);
       for (const f of taken.slice().reverse()) files.prepend(f.chip);
+      pendingContext.unshift(...takenCtx);
+      for (const c of takenCtx.slice().reverse()) files.prepend(c.chip);
       renderFiles();
       setAlert((err as Error).message);
       return;
@@ -2715,6 +2774,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     resume,
     deleteSession: (id) => deleteSession(id),
     clear: clearConversation,
+    addContext,
     setDebug(on) { debugOn = on; applyDebug(); },
     setAppearance(o) {
       if (o.theme) themeNow = o.theme;
@@ -2742,7 +2802,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       for (const id of [...waiters.keys()]) wake(id, false);
       if (!givenAgent) for (const a of live.values()) { unwatchBackground(a); void a.abort().finally(() => release(a)); }
       // A host that keeps the handle does not keep the sessions, their messages or their dialogs.
-      live.clear(); parked.clear(); waiters.clear(); pendingFiles.length = 0;
+      live.clear(); parked.clear(); waiters.clear(); pendingFiles.length = 0; pendingContext.length = 0;
       root.remove();
     },
   };

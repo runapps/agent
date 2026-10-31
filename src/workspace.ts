@@ -1203,9 +1203,9 @@ export function titleOf(d: SessionData): string {
   }
   return UNTITLED;
 }
-/** A title that is not the user's words: a compaction summary, an expanded skill, an agent note, an attachment list. */
+/** A title that is not the user's words: a compaction summary, an expanded skill, an agent note, an attachment list, the host's context. */
 export function isMachineTitle(title: string): boolean {
-  return /^(The conversation history before this point|<skill[\s>]|\[environment\]|\[attachments\])|\[attachments\]/.test(title);
+  return /^(The conversation history before this point|<skill[\s>]|\[environment\]|\[attachments\]|\[context\] )|\[attachments\]/.test(title);
 }
 
 /** Runs fn holding the origin-wide Web Lock `name`; without Web Locks it just runs fn. */

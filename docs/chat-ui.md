@@ -132,6 +132,7 @@ await chat.ready;              // the first conversation is open
 chat.agent;                    // the open conversation's Agent (events, messages, usage…)
 chat.prompt("Hello");          // send as if typed
 chat.setInput("Draft: ");      // fill the composer
+chat.addContext({ id, label, text });  // a chip in the composer, sent with the next message (below)
 await chat.newSession();
 await chat.resume(id);
 await chat.deleteSession(id);
@@ -163,6 +164,23 @@ renderChat(el, {
   },
 });
 ```
+
+## Context from your page: `addContext`
+
+What the user picked or selected in your app — an element in a preview, a passage of a document, a row of a table — goes into the next message as a chip in the composer, beside the attached files:
+
+```js
+const remove = chat.addContext({
+  id: "selection",                 // a later item with the same id replaces this one
+  label: "button.primary",         // the chip, and the line that names it in the message
+  title: "<button class=…>",       // the chip's tooltip (default: the label)
+  icon: "<svg …>",                 // the chip's icon (default: a pointer)
+  text: JSON.stringify(selection), // what the model reads
+});
+remove();                          // take it out again
+```
+
+The user can remove it with its ×; sending takes it, and a message may be only context. The model gets one text part per item after the typed words, `[context] <label>` on the first line and `text` below; the user's bubble shows the chip, not the text. Rewinding to the message puts the items back into the composer. Mark page content as untrusted in `text` yourself when it is.
 
 ## One conversation: `sessions: false`
 
