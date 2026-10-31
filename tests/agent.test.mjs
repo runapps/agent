@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { RunApps, APIError } from "@runappsai/sdk";
-import { defineTool, fitBudget, groupTurns } from "../dist/index.js";
+import { createAgent, defineTool, fitBudget, groupTurns } from "../dist/index.js";
 
 /** SSE body from chunk objects (the gateway's framing). */
 function sse(chunks) {
@@ -65,7 +65,7 @@ test("agent — tool round trip: call, result, final answer; events in order", a
     reply({ text: "Let me check.", calls: [{ id: "call_a", name: "get_weather", args: { city: "Paris" } }] }),
     reply({ text: "It is 17°C in Paris." }),
   ]);
-  const agent = client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false });
+  const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false });
   const events = [];
   agent.on("*", (name) => events.push(name));
   const r = await agent.prompt("Weather in Paris?");
@@ -95,7 +95,7 @@ test("agent — a destructive tool is declined without a user, the model is told
   ]);
   let ran = false;
   const wipe = defineTool({ name: "wipe", description: "Delete everything", destructive: true, execute: () => { ran = true; return "gone"; } });
-  const agent = client.agent({ model: "m", tools: [wipe], sandbox: false, askUser: false });
+  const agent = createAgent(client, { model: "m", tools: [wipe], sandbox: false, askUser: false });
   const ends = [];
   agent.on("tool_end", (e) => ends.push(e.status));
   await agent.prompt("wipe");
@@ -108,18 +108,18 @@ test("agent — permissions auto runs destructive tools; a function decides per 
   const { client } = scripted([reply({ calls: [{ name: "wipe", args: {} }] }), reply({ text: "ok" })]);
   let ran = 0;
   const wipe = defineTool({ name: "wipe", description: "d", destructive: true, execute: () => { ran++; return "gone"; } });
-  await client.agent({ model: "m", tools: [wipe], sandbox: false, askUser: false, permissions: "auto" }).prompt("x");
+  await createAgent(client, { model: "m", tools: [wipe], sandbox: false, askUser: false, permissions: "auto" }).prompt("x");
   assert.equal(ran, 1);
   const { client: c2 } = scripted([reply({ calls: [{ name: "wipe", args: {} }] }), reply({ text: "ok" })]);
   const seen = [];
-  await c2.agent({ model: "m", tools: [wipe], sandbox: false, askUser: false, permissions: ({ name }) => { seen.push(name); return false; } }).prompt("x");
+  await createAgent(c2, { model: "m", tools: [wipe], sandbox: false, askUser: false, permissions: ({ name }) => { seen.push(name); return false; } }).prompt("x");
   assert.deepEqual(seen, ["wipe"]);
   assert.equal(ran, 1);
 });
 
 test("agent — onToolCall hook blocks with a reason", async () => {
   const { client, requests } = scripted([reply({ calls: [{ name: "get_weather", args: { city: "Paris" } }] }), reply({ text: "ok" })]);
-  const agent = client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false, onToolCall: () => ({ block: true, reason: "Weather is off today." }) });
+  const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false, onToolCall: () => ({ block: true, reason: "Weather is off today." }) });
   const ends = [];
   agent.on("tool_end", (e) => ends.push(e.status));
   await agent.prompt("x");
@@ -134,7 +134,7 @@ test("agent — bad arguments are reported to the model, the tool does not run",
   ]);
   let ran = false;
   const t = defineTool({ ...weather, execute: () => { ran = true; return "x"; } });
-  await client.agent({ model: "m", tools: [t], sandbox: false, askUser: false }).prompt("x");
+  await createAgent(client, { model: "m", tools: [t], sandbox: false, askUser: false }).prompt("x");
   assert.equal(ran, false);
   const msg = requests[1].messages.at(-1).content;
   assert.match(msg, /missing required "city"/);
@@ -144,7 +144,7 @@ test("agent — bad arguments are reported to the model, the tool does not run",
 test("agent — unknown tool and non-JSON arguments are errors to the model", async () => {
   const chunks = reply({ calls: [{ id: "k", name: "nope", args: {} }] });
   const { client, requests } = scripted([chunks, reply({ text: "ok" })]);
-  await client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false }).prompt("x");
+  await createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false }).prompt("x");
   assert.match(requests[1].messages.at(-1).content, /no tool named "nope"/);
 });
 
@@ -153,7 +153,7 @@ test("agent — a stream without finish_reason runs no tool and ends the run wit
   const { client } = scripted([cut(), cut(), cut()]); // a cut stream is retried, then given up
   let ran = false;
   const t = defineTool({ ...weather, execute: () => { ran = true; return "x"; } });
-  const r = await client.agent({ model: "m", tools: [t], sandbox: false, askUser: false }).prompt("x");
+  const r = await createAgent(client, { model: "m", tools: [t], sandbox: false, askUser: false }).prompt("x");
   assert.equal(r.reason, "error");
   assert.match(r.error.message, /before the reply was complete/);
   assert.equal(ran, false);
@@ -168,7 +168,7 @@ test("agent — abort mid-batch: pending calls get a skipped result, the transcr
     name: "slow", description: "waits",
     execute: (_a, ctx) => new Promise((_res, rej) => ctx.signal.addEventListener("abort", () => rej(new Error("aborted")))),
   });
-  const agent = client.agent({ model: "m", tools: [slow], sandbox: false, askUser: false });
+  const agent = createAgent(client, { model: "m", tools: [slow], sandbox: false, askUser: false });
   const started = new Promise((res) => agent.on("tool_start", res));
   const run = agent.prompt("go");
   await started;
@@ -193,7 +193,7 @@ test("agent — abort during the stream cancels the body", async () => {
     cancel() { cancelled = true; },
   }), { status: 200 });
   const { client } = scripted([slowStream]);
-  const agent = client.agent({ model: "m", sandbox: false, askUser: false });
+  const agent = createAgent(client, { model: "m", sandbox: false, askUser: false });
   const gotText = new Promise((res) => agent.on("text_delta", res));
   const run = agent.prompt("hi");
   await gotText;
@@ -206,13 +206,13 @@ test("agent — abort during the stream cancels the body", async () => {
 test("agent — 429 before any text is retried; 402 is not", async () => {
   const err429 = () => new Response(JSON.stringify({ error: { type: "rate_limited", message: "slow down" } }), { status: 429, headers: { "Retry-After": "0" } });
   const { client, requests } = scripted([err429, reply({ text: "fine" })]);
-  const r = await client.agent({ model: "m", sandbox: false, askUser: false }).prompt("x");
+  const r = await createAgent(client, { model: "m", sandbox: false, askUser: false }).prompt("x");
   assert.equal(r.text, "fine");
   assert.equal(requests.length, 2);
 
   const err402 = () => new Response(JSON.stringify({ error: { type: "insufficient_balance", message: "need $0.05" } }), { status: 402 });
   const { client: c2, requests: r2 } = scripted([err402, reply({ text: "never" })]);
-  const res = await c2.agent({ model: "m", sandbox: false, askUser: false }).prompt("x");
+  const res = await createAgent(c2, { model: "m", sandbox: false, askUser: false }).prompt("x");
   assert.equal(res.reason, "error");
   assert.ok(res.error instanceof APIError);
   assert.equal(res.error.statusCode, 402);
@@ -228,7 +228,7 @@ test("agent — a 5xx after text has streamed is retried with message_reset", as
     },
   }), { status: 200 });
   const { client } = scripted([half, reply({ text: "whole" })]);
-  const agent = client.agent({ model: "m", sandbox: false, askUser: false });
+  const agent = createAgent(client, { model: "m", sandbox: false, askUser: false });
   let resets = 0;
   agent.on("message_reset", () => resets++);
   const r = await agent.prompt("x");
@@ -242,7 +242,7 @@ test("agent — prompt while running queues a follow-up; steer lands before the 
     reply({ text: "first done" }),
     reply({ text: "second done" }),
   ]);
-  const agent = client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false });
+  const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false });
   const first = agent.prompt("one");
   await new Promise((res) => agent.on("tool_start", res));
   agent.steer("in Celsius please");
@@ -258,7 +258,7 @@ test("agent — prompt while running queues a follow-up; steer lands before the 
 test("agent — repeating the same tool batch warns the model, then stops", async () => {
   const same = () => reply({ calls: [{ id: "x", name: "get_weather", args: { city: "Paris" } }] });
   const { client, requests } = scripted([same(), same(), same(), same(), same(), same(), same(), reply({ text: "done" })]);
-  const r = await client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false }).prompt("loop");
+  const r = await createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false }).prompt("loop");
   assert.equal(r.reason, "error");
   assert.match(r.error.message, /without progress/);
   const warned = requests.some((q) => q.messages.some((m) => m.role === "user" && /repeated the same tool calls/.test(m.content)));
@@ -268,7 +268,7 @@ test("agent — repeating the same tool batch warns the model, then stops", asyn
 test("agent — max_turns ends the run", async () => {
   const same = () => reply({ calls: [{ name: "get_weather", args: { city: "Rome" } }] });
   const { client } = scripted([same(), same(), same()]);
-  const r = await client.agent({ model: "m", tools: [weather], sandbox: false, askUser: false, maxTurns: 2 }).prompt("x");
+  const r = await createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false, maxTurns: 2 }).prompt("x");
   assert.equal(r.reason, "max_turns");
 });
 
@@ -276,20 +276,20 @@ test("agent — finish_reason length with far fewer tokens than asked is reporte
   const chunks = reply({ text: "half an ans", finish: "length" });
   chunks.at(-1).usage = { ...usage, completion_tokens: 1024 };
   const { client } = scripted([chunks]);
-  const r = await client.agent({ model: "m", sandbox: false, askUser: false, maxTokens: 8192 }).prompt("x");
+  const r = await createAgent(client, { model: "m", sandbox: false, askUser: false, maxTokens: 8192 }).prompt("x");
   assert.equal(r.reason, "error");
   assert.equal(r.error.statusCode, 402);
 });
 
 test("agent — export at a turn boundary and restore continues the conversation", async () => {
   const { client, requests } = scripted([reply({ text: "hello" }), reply({ text: "again" })]);
-  const agent = client.agent({ model: "m", sandbox: false, askUser: false });
+  const agent = createAgent(client, { model: "m", sandbox: false, askUser: false });
   await agent.prompt("hi");
   const saved = agent.export();
   assert.equal(saved.v, 2);
   assert.equal(saved.title, "hi");
   assert.equal(saved.messages.length, 2);
-  const agent2 = client.agent({ model: "m", sandbox: false, askUser: false, restore: saved });
+  const agent2 = createAgent(client, { model: "m", sandbox: false, askUser: false, restore: saved });
   await agent2.prompt("more");
   assert.equal(requests[1].messages.length, 4); // system + 3
   assert.equal(agent2.usage.calls, 2);
@@ -298,7 +298,7 @@ test("agent — export at a turn boundary and restore continues the conversation
 test("agent — the system prompt lists tool guidelines and the app's instructions", async () => {
   const { client, requests } = scripted([reply({ text: "ok" })]);
   const t = defineTool({ ...weather, guidelines: "Use get_weather for any weather question." });
-  await client.agent({ model: "m", tools: [t], sandbox: false, askUser: false, appName: "Weatherly", instructions: "You are terse." }).prompt("x");
+  await createAgent(client, { model: "m", tools: [t], sandbox: false, askUser: false, appName: "Weatherly", instructions: "You are terse." }).prompt("x");
   const sys = requests[0].messages[0].content;
   assert.match(sys, /built into Weatherly/);
   assert.match(sys, /You are terse\./);
@@ -308,7 +308,7 @@ test("agent — the system prompt lists tool guidelines and the app's instructio
 
 test("agent — prompt and extra parameters are forwarded", async () => {
   const { client, requests } = scripted([reply({ text: "ok" })]);
-  await client.agent({ model: "m", sandbox: false, askUser: false, prompt: { id: "director", vars: { a: 1 } }, extra: { reasoning_effort: "low" }, temperature: 0.2 }).prompt("x");
+  await createAgent(client, { model: "m", sandbox: false, askUser: false, prompt: { id: "director", vars: { a: 1 } }, extra: { reasoning_effort: "low" }, temperature: 0.2 }).prompt("x");
   assert.deepEqual(requests[0].prompt, { id: "director", vars: { a: 1 } });
   assert.equal(requests[0].reasoning_effort, "low");
   assert.equal(requests[0].temperature, 0.2);
@@ -336,4 +336,24 @@ test("fitBudget — elides old tool results first, drops whole turns, never spli
   // The newest turn is intact.
   assert.equal(out.at(-1).content, "a5");
   assert.equal(out.at(-2).content, big);
+});
+
+test("agent — steering that arrives during the final reply gets its own turn; clearQueue resolves follow-ups", async () => {
+  const { client, requests } = scripted([reply({ text: "first" }), reply({ text: "after steer" })]);
+  const agent = createAgent(client, { model: "m", sandbox: false, askUser: false });
+  const off = agent.on("message_end", () => { off(); agent.steer("more please"); });
+  const r = await agent.prompt("hi");
+  assert.equal(r.text, "after steer");
+  assert.equal(requests.length, 2);
+  assert.ok(requests[1].messages.some((m) => m.role === "user" && m.content === "more please"));
+  assert.deepEqual(agent.queued, []);
+
+  const { client: c2 } = scripted([reply({ text: "slow" })]);
+  const a2 = createAgent(c2, { model: "m", sandbox: false, askUser: false });
+  const run = a2.prompt("x");
+  const queued = a2.followUp("later");
+  assert.equal(a2.queued.length, 1);
+  a2.clearQueue();
+  assert.equal((await queued).reason, "aborted");
+  assert.equal((await run).text, "slow");
 });

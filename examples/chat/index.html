@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Chat Lab</title>
+<script src="https://www.runapps.ai/sdk/latest.js"></script>
+<script src="../../dist/agent.umd.js"></script>
+<style>
+  body { margin: 0; height: 100vh; display: grid; grid-template-columns: 1fr 300px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111; background: #fff; }
+  @media (prefers-color-scheme: dark) { body { color: #e5e7eb; background: #0b0d11; } aside { background: #14171d !important; border-color: #2a2f3a !important; } }
+  #agent { min-height: 0; border-right: 1px solid #e5e7eb; }
+  @media (max-width: 720px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } #agent { border-right: 0; } aside { max-height: 35vh; border-top: 1px solid #e5e7eb; } }
+  aside { padding: 14px; font-size: 12px; background: #fafafa; overflow: auto; }
+  label { display: block; margin-bottom: 8px; }
+  input, select { font: inherit; width: 100%; box-sizing: border-box; }
+  button { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid #d1d5db; background: transparent; color: inherit; cursor: pointer; margin: 2px 0; }
+  pre { white-space: pre-wrap; word-break: break-all; font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="agent"></div>
+<aside>
+  <h3 style="margin:0 0 10px">Agent Chat Lab</h3>
+  <label>Model<br><select id="model"><option value="">(platform default)</option></select></label>
+  <label>Theme<br><select id="theme"><option>auto</option><option>light</option><option>dark</option></select></label>
+  <label>Locale<br><select id="locale"><option value="">(document)</option><option>zh</option><option>en</option></select></label>
+  <button id="remount">Re-mount with these options</button>
+  <button id="ask">Host prompt: 1+1=?</button>
+  <button id="confirm">Host ui.confirm()</button>
+  <button id="unmount">Unmount</button>
+  <h4>Workspace</h4>
+  <pre id="ws">…</pre>
+  <h4>Last run</h4>
+  <pre id="run"></pre>
+  <p style="opacity:.7">Signs in with RunApps through the SDK popup (project <code id="proj"></code>). The <b>run_js</b>, <b>ask_user</b> and file tools are on; skills come from <code>skills.zip</code>. A local backend can be used with <code>?local=1</code> and a <code>key.json</code> next to this page.</p>
+</aside>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const PROJECT = "proj-cb948f19"; // the draft app "Agent Chat Lab"
+$("proj").textContent = PROJECT;
+
+let client;
+if (params.get("local")) {
+  let key; try { key = (await (await fetch("./key.json")).json()).key; } catch {}
+  client = new RunApps({ apiKey: key, baseURL: "http://localhost:8080", project: PROJECT });
+} else {
+  client = new RunApps({ project: PROJECT, signInMode: "popup", sync: false });
+}
+
+try {
+  for (const m of await client.models.list({ capability: "text" })) {
+    const o = document.createElement("option"); o.value = m.id; o.textContent = m.id + (m.is_default ? " ★" : ""); $("model").append(o);
+  }
+} catch (e) { console.warn("models", e); }
+
+const workspace = await RunAppsAgent.openWorkspace(client, { id: "lab", skills: "./skills.zip" });
+workspace.mount("/doc", RunAppsAgent.memoryFS({ "/plan.md": "# Q3 plan\n- hire 2 engineers\n- ship v2\n- write the launch post\n" }, { description: "the open document" }));
+if (!(await workspace.exists("/prompts/haiku.md"))) await workspace.write("/prompts/haiku.md", "---\ndescription: a haiku about the arguments\nargument-hint: <topic>\n---\nWrite a haiku about $@. Only the haiku.\n");
+
+let chat;
+function mount() {
+  chat?.unmount();
+  chat = RunAppsAgent.renderChat($("agent"), {
+    client,
+    workspace,
+    model: $("model").value || undefined,
+    theme: $("theme").value,
+    locale: $("locale").value || undefined,
+    appName: "Agent Chat Lab",
+    instructions: "You are the assistant inside a small notes app. The user's open document is mounted at /doc.",
+    title: "Agent Chat Lab",
+    suggestions: ["17 * 23 等于多少？", "把 /doc/plan.md 的第二项改成 ship v3", "/skill:unit-convert 10 lb to kg", "/haiku autumn", "帮我选一个颜色：问我喜欢冷色还是暖色"],
+    onOpenFile: (path) => alert("open " + path),
+  });
+  chat.agent.on("run_end", (r) => { $("run").textContent = JSON.stringify({ reason: r.reason, error: r.error?.message, usage: r.usage }, null, 1); listFiles(); });
+  chat.agent.on("session_saved", listFiles);
+  window.chat = chat;
+}
+async function listFiles() { const files = await workspace.list("/"); $("ws").textContent = files.map((f) => `${f.path} (${f.size})`).join("\n"); }
+mount();
+listFiles();
+$("remount").onclick = mount;
+$("ask").onclick = () => chat.prompt("1+1=?");
+$("confirm").onclick = async () => { const ok = await chat.ui.confirm("Host question", "Delete everything?", { danger: true, ok: "Delete" }); chat.ui.notify("confirm → " + ok, ok ? "warning" : "info"); };
+$("unmount").onclick = () => chat.unmount();
+</script>
+</body>
+</html>

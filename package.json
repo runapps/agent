@@ -5,27 +5,43 @@
   "license": "MIT",
   "author": "RunApps",
   "homepage": "https://github.com/runapps/agent",
-  "repository": { "type": "git", "url": "git+https://github.com/runapps/agent.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/runapps/agent.git"
+  },
   "type": "module",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "unpkg": "./dist/agent.umd.js",
   "jsdelivr": "./dist/agent.umd.js",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" },
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
     "./browser": "./dist/agent.umd.js"
   },
-  "files": ["dist", "src", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsup",
     "test": "npm run build && node --test --test-timeout=20000 tests/*.test.mjs",
     "release:cdn": "bash scripts/publish-cdn.sh"
   },
-  "peerDependencies": { "@runappsai/sdk": ">=0.16.1" },
+  "peerDependencies": {
+    "@runappsai/sdk": ">=0.16.1"
+  },
   "devDependencies": {
-    "@runappsai/sdk": "^0.16.2",
+    "@runappsai/sdk": "^0.17.0",
     "fake-indexeddb": "^6.0.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.0"

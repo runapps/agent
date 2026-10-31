@@ -252,9 +252,19 @@ export class Agent {
     return this.enqueue("followUp", message);
   }
 
+  /** What waits for the current run: steering (joins the next turn) and follow-ups (run after it). */
+  get queued(): Array<{ kind: "steer" | "followUp"; message: ChatMessage }> {
+    return this.queue.map((q) => ({ kind: q.kind, message: q.message }));
+  }
+  /** Drops everything queued; a waiting `followUp()` resolves as aborted. */
+  clearQueue(): void {
+    const dropped = this.queue;
+    this.queue = [];
+    for (const q of dropped) q.resolve?.({ runId: "", reason: "aborted", text: "", usage: { total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 } });
+  }
   /** Stops the current run (pending tool calls get a "skipped" result) and drops the queue. */
   async abort(): Promise<void> {
-    this.queue = [];
+    this.clearQueue();
     const cur = this.current;
     if (!cur) return;
     cur.controller.abort();
@@ -377,7 +387,10 @@ export class Agent {
           if (truncated && this.balanceLimited(completion.usage, maxTokens)) {
             reason = "error";
             error = new APIError(402, "insufficient_balance", "runapps agent: the reply was cut short because the balance could not cover a full answer; top up to continue");
+            break;
           }
+          // pi: steering that arrived during the final reply still gets its turn.
+          if (!signal.aborted && this.queue.some((q) => q.kind === "steer")) continue;
           break;
         }
 

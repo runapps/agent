@@ -84,6 +84,30 @@ Three more files in the workspace have a meaning: `/AGENTS.md` is added to the s
 **Cost and extras.** `agent.usage.total_cost` sums the gateway's `total_cost` of every call, the summariser's included (before the platform's markup and your app's fee). A private prompt (`prompt: { id, vars }`) is forwarded on every request and `extra` carries any other chat parameter.
 
 
+## Chat UI
+
+`renderChat(target, options)` turns an element into a chat with an agent: Markdown replies with a streaming cursor, the model's thinking folded away, a card per tool call (arguments, result, duration), questions the agent asks (`ask_user`, confirmations) answered inline above the composer, a history menu and "new chat" when there is a workspace, and a cost line. Plain DOM, no framework; the styles are injected once and follow the system colour scheme. Give the element a height.
+
+```html
+<div id="assistant" style="height: 600px"></div>
+<script>
+  const client = new RunApps({ project: "my-app" });
+  const workspace = await RunAppsAgent.openWorkspace(client, { skills: "/skills.zip" });
+  const chat = RunAppsAgent.renderChat(document.getElementById("assistant"), {
+    client, workspace,
+    appName: "My app",
+    instructions: "You are the assistant inside My app.",
+    tools: [myTool],
+    suggestions: ["Summarise the open document", "/skill:review"],
+  });
+  chat.prompt("Hello");          // as if typed; chat.agent is the Agent underneath
+</script>
+```
+
+Every `AgentOptions` field is accepted (`model`, `tools`, `workspace`, `permissions`, `compaction`, …) plus: `title` (header; `false` hides it), `placeholder`, `emptyState`, `suggestions` (starter prompts), `sessions` (the history / new-chat menu; default on with a workspace), `locale` (`"zh"` / `"en"`, default the document's), `theme` (`"auto"` / `"light"` / `"dark"`), `showUsage`, `onOpenFile(path)` (a tool card's path becomes a link). The handle has `agent`, `element`, `ui` (the inline dialogs, usable by the host's own tools), `prompt(text)`, `setInput(text)`, `newSession()`, `resume(id)` and `unmount()`. Pass `agent` instead of `client` to show an agent the host built itself (its own `ui` then answers questions, and the session menu is off).
+
+In the composer, Enter sends and Shift+Enter breaks a line; while the agent runs, Enter steers (joins the next turn) and Alt+Enter queues a follow-up; `/` lists the workspace's prompt templates and skills. Colours come from `--ra-*` custom properties on `.ra-chat`, so a host can restyle without touching the markup. `examples/chat/index.html` is a complete page (serve the package root and open `/examples/chat/index.html`).
+
 ## Reference
 
 | | |

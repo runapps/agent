@@ -27,6 +27,8 @@ export { parseCommandArgs, substituteArgs, listTemplates, expandSlash, type Prom
 export { applyEdits, normalizeForFuzzyMatch, type TextEdit } from "./edit.js";
 export { defineTool, normalizeResult } from "./tool.js";
 export { domUI, nullUI, askUserTool } from "./ui.js";
+export { renderChat, type ChatOptions, type ChatHandle } from "./chat.js";
+export { renderMarkdown, renderInline, escapeHTML } from "./markdown.js";
 export { fileTools } from "./file-tools.js";
 export { sandboxTool, runInSandbox, type SandboxOptions, type SandboxResult } from "./sandbox.js";
 export { parseSkill, parseFrontmatter } from "./skills.js";

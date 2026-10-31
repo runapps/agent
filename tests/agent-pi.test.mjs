@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { RunApps } from "@runappsai/sdk";
-import { Workspace, memoryFS, applyEdits, planCut, parseCommandArgs, substituteArgs, summaryOf, serializeConversation } from "../dist/index.js";
+import { createAgent, Workspace, memoryFS, applyEdits, planCut, parseCommandArgs, substituteArgs, summaryOf, serializeConversation } from "../dist/index.js";
 
 function sse(chunks) {
   const lines = chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).concat("data: [DONE]\n\n");
@@ -41,7 +41,7 @@ const ws = (id, extra = {}) => Workspace.open(null, { id, project: "t", indexedD
 test("sessions — an agent with an id saves after every turn and a new agent with the same id resumes it", async () => {
   const { client, requests } = scripted([reply("first"), reply("second")]);
   const w = await ws("sess-" + Math.random());
-  const a = client.agent({ model: "m", id: "chat-1", workspace: w, sandbox: false, askUser: false });
+  const a = createAgent(client, { model: "m", id: "chat-1", workspace: w, sandbox: false, askUser: false });
   let saved = 0;
   a.on("session_saved", () => saved++);
   await a.prompt("hello there");
@@ -52,7 +52,7 @@ test("sessions — an agent with an id saves after every turn and a new agent wi
   assert.equal(list[0].title, "hello there");
   assert.equal(list[0].messages, 2);
 
-  const b = client.agent({ model: "m", id: "chat-1", workspace: w, sandbox: false, askUser: false });
+  const b = createAgent(client, { model: "m", id: "chat-1", workspace: w, sandbox: false, askUser: false });
   await b.ready();
   assert.equal(b.messages.length, 2);
   await b.prompt("more");
@@ -60,7 +60,7 @@ test("sessions — an agent with an id saves after every turn and a new agent wi
   assert.equal((await w.sessions.get("chat-1")).messages.length, 4);
 
   // A different id is a fresh conversation; persist:false saves nothing.
-  const c = client.agent({ model: "m", id: "chat-2", workspace: w, sandbox: false, askUser: false, persist: false });
+  const c = createAgent(client, { model: "m", id: "chat-2", workspace: w, sandbox: false, askUser: false, persist: false });
   await c.ready();
   assert.equal(c.messages.length, 0);
   await w.sessions.delete("chat-1");
@@ -101,7 +101,7 @@ test("compaction — near the window the agent summarises older turns with the m
   const { client, requests } = scripted(streams, [
     { id: "s", object: "chat.completion", created: 1, model: "m", choices: [{ index: 0, message: { role: "assistant", content: "## Goal\nhelp\n## Progress\n- [x] a0" }, finish_reason: "stop" }], usage: { total_cost: 0.002, prompt_tokens: 50, completion_tokens: 10 } },
   ], 4000);
-  const agent = client.agent({ model: "m", sandbox: false, askUser: false });
+  const agent = createAgent(client, { model: "m", sandbox: false, askUser: false });
   const events = [];
   agent.on("compaction", (e) => events.push(e));
   await agent.prompt("q0");
@@ -129,7 +129,7 @@ test("compaction — when the summary alone does not fit, trimming keeps the sum
   const big = () => reply("a " + "y".repeat(3000));
   const summary = "## Goal\nkeep facts\n" + "z".repeat(1800);
   const { client } = scripted([big(), big(), big(), reply("done")], Array(3).fill({ id: "s", object: "chat.completion", created: 1, model: "m", choices: [{ index: 0, message: { role: "assistant", content: summary }, finish_reason: "stop" }], usage: { total_cost: 0 } }), 2000);
-  const agent = client.agent({ model: "m", sandbox: false, askUser: false });
+  const agent = createAgent(client, { model: "m", sandbox: false, askUser: false });
   const events = [];
   agent.on("compaction", (e) => events.push(e));
   for (const q of ["q0", "q1", "q2", "q3"]) await agent.prompt(q);
@@ -143,14 +143,14 @@ test("compaction — when the summary alone does not fit, trimming keeps the sum
 test("compaction — a failing summariser falls back to trimming; compaction:false never summarises", async () => {
   const streams = [reply("a0 " + "y".repeat(3000)), reply("a1 " + "y".repeat(3000)), reply("a2 " + "y".repeat(3000)), reply("done")];
   const { client, requests } = scripted(streams, [], 4000); // no plain reply → summariser throws
-  const agent = client.agent({ model: "m", sandbox: false, askUser: false });
+  const agent = createAgent(client, { model: "m", sandbox: false, askUser: false });
   const events = [];
   agent.on("compaction", (e) => events.push(e));
   for (const q of ["q0", "q1", "q2", "q3"]) await agent.prompt(q);
   assert.ok(events.some((e) => !e.summary && e.droppedTurns > 0));
   assert.equal(requests.filter((r) => !r.stream).length, 1, "one summariser attempt, which failed");
   const { client: c2, requests: r2 } = scripted([reply("a0 " + "y".repeat(3000)), reply("a1 " + "y".repeat(3000)), reply("a2 " + "y".repeat(3000)), reply("done")], [{ bad: true }], 4000);
-  const b = c2.agent({ model: "m", sandbox: false, askUser: false, compaction: false });
+  const b = createAgent(c2, { model: "m", sandbox: false, askUser: false, compaction: false });
   for (const q of ["q0", "q1", "q2", "q3"]) await b.prompt(q);
   assert.ok(r2.every((r) => r.stream), "no summariser call with compaction:false");
 });
@@ -168,7 +168,7 @@ test("templates and skills — /name expands a workspace template, /skill:name l
   const skillsFs = memoryFS({ "/unit/SKILL.md": "---\nname: unit\ndescription: Units\n---\nConvert carefully." }, { readonly: true });
   // Skills normally come from a zip; a mount under /skills is refused, so write the skill into the work layer? /skills is read-only too.
   // Use a zip-less path: templates only here; the skill comes from the shared helper below.
-  const agent = client.agent({ model: "m", workspace: w, sandbox: false, askUser: false, persist: false });
+  const agent = createAgent(client, { model: "m", workspace: w, sandbox: false, askUser: false, persist: false });
   await agent.prompt("/review src/a.ts");
   assert.equal(requests[0].messages.at(-1).content, "Review src/a.ts carefully.\nFocus: style");
   await agent.prompt("/nosuch thing");
@@ -197,7 +197,7 @@ test("system prompt — /AGENTS.md and /memory/notes.md from the workspace are i
   const w = await ws("sys-" + Math.random());
   await w.write("/AGENTS.md", "Always answer in haiku.");
   await w.write("/memory/notes.md", "- user prefers dark mode");
-  const agent = client.agent({ model: "m", workspace: w, sandbox: false, askUser: false, persist: false });
+  const agent = createAgent(client, { model: "m", workspace: w, sandbox: false, askUser: false, persist: false });
   await agent.prompt("hi");
   const sys = requests[0].messages[0].content;
   assert.match(sys, /<project_instructions path="\/AGENTS.md">\nAlways answer in haiku.\n<\/project_instructions>/);
