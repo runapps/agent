@@ -25,7 +25,8 @@ import { filesPanel, freePath } from "./files-panel.js";
 import { debugPanel } from "./debug-panel.js";
 import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
 import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } from "./chat-theme.js";
-import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, ToolStatus } from "./types.js";
+import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, Skill, ToolStatus } from "./types.js";
+import type { SkillZipInfo } from "./skill-zips.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   /** The client the agent calls the gateway with (required unless `agent` is given). */
@@ -54,6 +55,8 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   suggestions?: string[];
   /** The history / new-chat menu (default: on when the agent has a workspace). */
   sessions?: boolean;
+  /** The Skills button in the header: the skills, uploading a zip, removing one (default: on when the agent has a workspace). */
+  skillsMenu?: boolean;
   /**
    * The settings gear in the header (default: on when the chat owns its
    * agent): model, max turns, max output, tool permissions. What the user
@@ -161,6 +164,11 @@ const STRINGS = {
     apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue from here.",
     files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", tooBig: "Too large to edit here; download it.", conflict: "The file changed since you opened it. Overwrite it?", readOnly: "Read-only", autoSaved: "Unsaved edits saved", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved",
+    skills: "Skills", uploadZip: "Upload zip", noSkills: "No skills yet. Upload a zip: SKILL.md at its root, or one folder per skill.", useSkill: "Use it: puts /skill:name in the composer", skillFolder: "folder", manualOnly: "manual only",
+    skillsInstalled: "Installed: {names}", skillRemoved: "Removed {name}", notZip: "not a zip file",
+    confirmDeleteZip: "Delete {zip}? All of its skills go: {names}. No conversation will have them any more.", confirmDeleteSkillZip: "Delete the skill {name}? No conversation will have it any more.", confirmDeleteSkill: "Delete the skill {name}? Its folder in this directory is deleted.",
+    skillsHint: "Zips are read in place (nothing unpacked) and every conversation of the app has them, read-only. Folders the agent writes under {dir} belong to this directory. Drop a zip here to install it.",
+    waiting: "Thinking", today: "Today", yesterday: "Yesterday",
     worked: "Worked for {t}", workedNoTime: "Work", sec: "{s}s", minSec: "{m}m {s}s", hourMin: "{h}h {m}m",
     command: "Command", user: "User", compacting: "Compacting the context…", nothingToCompact: "Nothing to compact yet", busyCmd: "Wait for the current task to finish, or stop it, first", nothingToExport: "Nothing to export yet", nothingToContinue: "Nothing to continue",
     unknownModel: "No model named \"{name}\"", modelSet: "Model: {name}", effortSet: "Thinking: {name}", effortLevels: "Thinking levels of {model}: {levels}", unknownEffort: "\"{name}\" is not a thinking level of {model} ({levels})", debugOff: "Debug mode is off",
@@ -191,6 +199,11 @@ const STRINGS = {
     apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续从这里接着跑",
     files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", tooBig: "文件太大，无法在这里编辑，可以下载。", conflict: "文件在你打开后被改过，要覆盖吗？", readOnly: "只读", autoSaved: "未保存的修改已自动保存", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存",
+    skills: "技能", uploadZip: "上传 zip", noSkills: "还没有技能。上传一个 zip：根目录有 SKILL.md，或每个技能一个文件夹。", useSkill: "使用：在输入框填入 /skill:名称", skillFolder: "文件夹", manualOnly: "仅手动",
+    skillsInstalled: "已安装：{names}", skillRemoved: "已删除 {name}", notZip: "不是 zip 文件",
+    confirmDeleteZip: "删除 {zip}？其中的技能都会删除：{names}。所有对话都不再能用。", confirmDeleteSkillZip: "删除技能 {name}？所有对话都不再能用。", confirmDeleteSkill: "删除技能 {name}？会删除当前目录里它的文件夹。",
+    skillsHint: "zip 直接读取（不解压），应用里的所有对话共用，只读。智能体在 {dir} 下写的文件夹只属于当前目录。把 zip 拖到这里也能安装。",
+    waiting: "思考中", today: "今天", yesterday: "昨天",
     worked: "已工作 {t}", workedNoTime: "工作过程", sec: "{s}秒", minSec: "{m}分{s}秒", hourMin: "{h}小时{m}分",
     command: "命令", user: "用户", compacting: "正在压缩上下文…", nothingToCompact: "暂时没有可压缩的内容", busyCmd: "请等当前任务结束（或先停止）", nothingToExport: "还没有可导出的内容", nothingToContinue: "没有可继续的内容",
     unknownModel: "没有名为“{name}”的模型", modelSet: "模型：{name}", effortSet: "思考强度：{name}", effortLevels: "{model} 的思考强度：{levels}", unknownEffort: "“{name}”不是 {model} 的思考强度（{levels}）", debugOff: "调试模式未开启",
@@ -252,6 +265,15 @@ const CSS = tokenCSS() + `
 .ra-menu .ra-mi:hover .ra-x{opacity:1}
 .ra-menu .ra-x:hover{background:var(--ra-red-subtle);color:var(--ra-red)}
 .ra-menu .ra-none{padding:8px 10px;color:var(--ra-fg-muted);font-size:13px}
+.ra-skm .ra-skh{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 8px;font-size:13px;font-weight:600}
+.ra-skm .ra-skh .ra-btn{gap:4px}
+.ra-skm .ra-skb{flex:none;font-size:10.5px;font-weight:500;line-height:16px;padding:0 6px;border-radius:999px;background:var(--ra-muted);color:var(--ra-fg-muted)}
+.ra-skm .ra-mi:hover .ra-skb{background:var(--ra-panel)}
+.ra-skm .ra-mi .ra-ia{margin-right:0}
+.ra-skm .ra-mi .ra-ia:hover{background:var(--ra-panel);color:var(--ra-fg)}
+.ra-skm .ra-mi small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;line-height:1.45;margin-top:1px}
+.ra-skm .ra-skf{padding:8px 8px 4px;margin-top:4px;border-top:1px solid var(--ra-border);font-size:11.5px;color:var(--ra-fg-muted);line-height:1.5}
+.ra-skm.drop{outline:2px dashed var(--ra-accent);outline-offset:-4px}
 .ra-set{padding:10px 12px;display:flex;flex-direction:column;gap:10px;width:min(360px,calc(100% - 24px))}
 .ra-set label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ra-fg-muted)}
 .ra-set select,.ra-set input[type=number]{font:inherit;font-size:13px;color:var(--ra-fg);background:var(--ra-bg);border:1px solid var(--ra-border);border-radius:6px;padding:5px 8px;outline:0;width:100%;margin:0}
@@ -372,6 +394,11 @@ const CSS = tokenCSS() + `
 .ra-modal .ra-dn{font-size:12px;color:var(--ra-fg-muted);margin:-4px 0 0 24px}
 .ra-asst{min-width:0}
 .ra-body{min-width:0;display:flex;flex-direction:column;gap:8px}
+.ra-pending{font-size:13px;padding:2px 0;color:var(--ra-fg-muted)}
+.ra-pending span{background:linear-gradient(90deg,var(--ra-fg-muted) 0%,var(--ra-fg-muted) 35%,var(--ra-fg) 50%,var(--ra-fg-muted) 65%,var(--ra-fg-muted) 100%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ra-shimmer 1.8s linear infinite}
+@keyframes ra-shimmer{from{background-position:100% 0}to{background-position:0 0}}
+@media (prefers-reduced-motion:reduce){.ra-pending span{animation:none;color:var(--ra-fg-muted);background:none}}
+.ra-time{text-align:center;font-size:12px;color:var(--ra-fg-muted);padding:14px 0 2px}
 .ra-work{border-bottom:1px solid var(--ra-border);padding-bottom:6px;margin-bottom:4px}
 .ra-work>summary{display:inline-flex;align-items:center;gap:4px;font-size:13px;color:var(--ra-fg-muted);cursor:pointer;list-style:none;user-select:none;padding:2px 0}
 .ra-work>summary::-webkit-details-marker{display:none}
@@ -831,6 +858,8 @@ interface AsstRow extends VRow {
   thinkBody: HTMLElement | null;
   md: string;
   reasoning: string;
+  /** "Thinking" shown while the model has not answered yet (removed by the first thinking, text or tool call). */
+  pending?: HTMLElement | null;
   /** The Markdown last drawn and whether it was drawn final, so repeated flushes do no work. */
   drawn?: string;
   drawnFinal?: boolean;
@@ -850,7 +879,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
+  const { client, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const project = (client as unknown as { projectName?: string } | undefined)?.projectName ?? agentOpts.appName ?? "app";
 
@@ -887,10 +916,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const modelEl = h("span", "ra-badge");
   const debugBtn = h("button", "ra-btn ghost"); debugBtn.type = "button"; debugBtn.innerHTML = I.bug() + `<span>${escapeHTML(t.debug)}</span>`;
   const filesBtn = h("button", "ra-btn ghost"); filesBtn.type = "button"; filesBtn.innerHTML = I.folder() + `<span>${escapeHTML(t.files)}</span>`;
+  const skillsBtn = h("button", "ra-btn ghost"); skillsBtn.type = "button"; skillsBtn.innerHTML = I.puzzle() + `<span>${escapeHTML(t.skills)}</span>`;
   const histBtn = h("button", "ra-btn ghost"); histBtn.type = "button"; histBtn.innerHTML = I.hist() + `<span>${escapeHTML(t.history)}</span>`;
   const newBtn = h("button", "ra-btn ghost"); newBtn.type = "button"; newBtn.innerHTML = I.plus() + `<span>${escapeHTML(t.newChat)}</span>`;
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
-  head.append(titleEl, modelEl, h("span", "ra-sp"), debugBtn, filesBtn, histBtn, newBtn, setBtn);
+  head.append(titleEl, modelEl, h("span", "ra-sp"), debugBtn, filesBtn, skillsBtn, histBtn, newBtn, setBtn);
   if (title === false) head.style.display = "none";
   const log = h("div", "ra-log");
   const inner = h("div", "ra-col");
@@ -1145,7 +1175,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
   /** The row drawn for a message this chat sent, until the agent's run_start hands over the message object. */
   let awaitingRow: UserRow | null = null;
-  const addUser = (content: string | ContentPart[], msg?: ChatMessage) => { const row = userRow(content, msg); addRow(row); list.scrollToBottom(); return row; };
+  const addUser = (content: string | ContentPart[], msg?: ChatMessage) => { stampBefore(tsOf(msg) ?? Date.now()); const row = userRow(content, msg); addRow(row); list.scrollToBottom(); return row; };
 
   /** A dialog for rewinding: drop what follows the message, optionally put the files back as they were. */
   /** Asks before rewinding; the file option shows only when there is a snapshot to restore (and says what it holds). */
@@ -1254,6 +1284,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   let replyStart = 0;
   const closeActive = () => {
     if (!active) return;
+    clearPending(active);
+    // A reply that never got any output (stopped at once) leaves no empty row behind.
+    if (!active.body.childElementCount) { list.remove(active); active = null; return; }
     flushActive(true);
     foldReply(active.body, replyStart ? Date.now() - replyStart : undefined);
     active = null;
@@ -1263,6 +1296,36 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const ensureActive = (): AsstRow => {
     if (!active) { active = asstRow(); addRow(active); }
     return active;
+  };
+  /** Shows "Thinking" at the end of the reply until the model's first output arrives. */
+  const showPending = () => {
+    const act = ensureActive();
+    if (act.pending) return;
+    act.pending = h("div", "ra-pending");
+    act.pending.append(h("span", "", t.waiting));
+    act.body.append(act.pending);
+    list.schedule();
+  };
+  const clearPending = (act: AsstRow | null = active) => { if (act?.pending) { act.pending.remove(); act.pending = null; } };
+
+  /* --- time dividers: "Today 22:15" above a message that starts a conversation or follows a long pause --- */
+  const GAP_MS = 15 * 60_000;
+  let lastStamp = 0;
+  const timeLabel = (ts: number): string => {
+    const d = new Date(ts), now = new Date();
+    const hm = d.toLocaleTimeString(lang === "zh" ? "zh-CN" : undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+    const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const diff = Math.round((day(now) - day(d)) / 86_400_000);
+    if (diff === 0) return `${t.today} ${hm}`;
+    if (diff === 1) return `${t.yesterday} ${hm}`;
+    const date = d.toLocaleDateString(lang === "zh" ? "zh-CN" : undefined, d.getFullYear() === now.getFullYear() ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" });
+    return `${date} ${hm}`;
+  };
+  /** A divider before a message sent at `ts`, when it opens the conversation or comes after a long pause. */
+  const stampBefore = (ts: number | undefined) => {
+    if (!ts) return;
+    if (!lastStamp || ts - lastStamp >= GAP_MS) { const el = h("div", "ra-time", timeLabel(ts)); addRow({ render: () => el, el }); }
+    lastStamp = ts;
   };
 
   const thinkEl = (reasoning: string, done: boolean): [HTMLDetailsElement, HTMLElement] => {
@@ -1464,6 +1527,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   /** Rows for a saved transcript; each reply is built only when scrolled into view. */
   const renderHistory = (messages: ChatMessage[]) => {
     list.clear();
+    lastStamp = 0;
     cards.clear();
     histCalls.clear();
     active = null;
@@ -1511,12 +1575,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         // The agent's own notes to the model (a loop warning) are not the user's messages.
         if (typeof m.content === "string" && m.content.startsWith("[environment]")) continue;
         lastUserTs = tsOf(m);
+        stampBefore(lastUserTs);
         addRow(userRow(m.content as string | ContentPart[], m));
       } else if (m.role === "assistant") {
         const text = textOfContent(m.content);
         const rs = (m as { reasoning_content?: unknown }).reasoning_content; const reasoning = typeof rs === "string" ? rs : "";
         if (!last) last = { items: [], calls: [], start: lastUserTs };
         last.end = tsOf(m) ?? last.end;
+        if (last.end) lastStamp = last.end;
         if (reasoning) last.items.push({ kind: "think", text: reasoning });
         if (text) last.items.push({ kind: "text", text });
         for (const c of m.tool_calls ?? []) {
@@ -1906,7 +1972,74 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   histBtn.addEventListener("click", () => void openMenu());
   newBtn.addEventListener("click", () => { closeMenu(); void newSession().catch((err) => ui.notify((err as Error).message, "error")); });
   document.addEventListener("click", onDocClick, true);
-  function onDocClick(e: Event) { if (menu && !menu.contains(e.target as Node) && !histBtn.contains(e.target as Node) && !setBtn.contains(e.target as Node)) closeMenu(); }
+  function onDocClick(e: Event) { if (menu && !menu.contains(e.target as Node) && !histBtn.contains(e.target as Node) && !setBtn.contains(e.target as Node) && !skillsBtn.contains(e.target as Node)) closeMenu(); }
+
+  /* --- skills menu --- */
+  const skillInput = h("input"); skillInput.type = "file"; skillInput.accept = ".zip,application/zip"; skillInput.multiple = true; skillInput.style.display = "none";
+  root.append(skillInput);
+  const installZips = async (files: ArrayLike<File> | null | undefined) => {
+    const ws = agent?.workspace;
+    if (!ws || !files?.length) return;
+    const names: string[] = [];
+    for (const f of Array.from(files)) {
+      if (!/\.zip$/i.test(f.name) && f.type !== "application/zip" && f.type !== "application/x-zip-compressed") { ui.notify(`${f.name}: ${t.notZip}`, "warning"); continue; }
+      try { names.push(...(await ws.installSkill(f)).map((s) => s.name)); } catch (err) { ui.notify(`${f.name}: ${(err as Error).message}`, "error"); }
+    }
+    if (names.length) ui.notify(t.skillsInstalled.replace("{names}", names.join(", ")));
+    await refreshCommands();
+    if (menu?.classList.contains("ra-skm")) { closeMenu(); void openSkills(); }
+  };
+  skillInput.addEventListener("change", () => { void installZips(skillInput.files); skillInput.value = ""; });
+  const openSkills = async () => {
+    if (menu) { const was = menu.classList.contains("ra-skm"); closeMenu(); if (was) return; }
+    const ws = agent?.workspace;
+    if (!ws) return;
+    const mine = h("div", "ra-menu ra-skm");
+    menu = mine;
+    root.append(mine);
+    let skills: Skill[] = [];
+    let zips: SkillZipInfo[] = [];
+    try { [skills, zips] = await Promise.all([ws.skills(), ws.skillZips()]); } catch (err) { ui.notify((err as Error).message, "error"); }
+    if (menu !== mine) return;
+    const head = h("div", "ra-skh");
+    const up = h("button", "ra-btn xs solid"); up.type = "button"; up.innerHTML = I.upload(13) + `<span>${escapeHTML(t.uploadZip)}</span>`;
+    up.addEventListener("click", () => skillInput.click());
+    head.append(h("span", "", skills.length ? `${t.skills} · ${skills.length}` : t.skills), up);
+    mine.append(head);
+    if (!skills.length) mine.append(h("div", "ra-none", t.noSkills));
+    for (const s of skills) {
+      const row = h("div", "ra-mi");
+      const b = h("button"); b.type = "button"; b.title = t.useSkill;
+      const name = h("span", "ra-mt");
+      name.append(h("span", "ra-mtt", s.name), h("span", "ra-skb", s.zip ? "zip" : t.skillFolder));
+      if (s.disableModelInvocation) name.append(h("span", "ra-skb", t.manualOnly));
+      b.append(name, h("small", "", s.description));
+      // Using a skill: it goes into the composer as /skill:name.
+      b.addEventListener("click", () => { closeMenu(); ta.value = `/skill:${s.name} `; ta.focus(); renderCmds(); });
+      const act = (icon: string, title: string, fn: () => void, cls = "ra-x ra-ia") => { const x = h("button", cls); x.type = "button"; x.innerHTML = icon; x.title = title; x.setAttribute("aria-label", title); x.addEventListener("click", (e) => { e.stopPropagation(); fn(); }); return x; };
+      const view = act(I.eye(), t.open, () => { closeMenu(); openPath(s.path); });
+      const dl = act(I.download(), t.download, () => {
+        if (s.zip) void ws.skillZip(s.zip).then((z) => { if (z) downloadBlob(`${s.zip}.zip`, z, "application/zip"); });
+        else void panel.downloadFolder(s.dir);
+      });
+      const del = act(I.trash(), t.delete, async () => {
+        closeMenu();
+        const z = s.zip ? zips.find((x) => x.name === s.zip) : undefined;
+        const msg = z && z.folders.length > 1 ? t.confirmDeleteZip.replace("{zip}", `${z.name}.zip`).replace("{names}", z.folders.join("、"))
+          : s.zip ? t.confirmDeleteSkillZip.replace("{name}", s.name) : t.confirmDeleteSkill.replace("{name}", s.name);
+        if (!(await modalConfirm(root, t.delete, msg, { danger: true, ok: t.delete, cancel: t.cancel }))) return;
+        try { await ws.removeSkill(s.name); await refreshCommands(); ui.notify(t.skillRemoved.replace("{name}", s.name)); } catch (err) { ui.notify((err as Error).message, "error"); }
+      }, "ra-x");
+      row.append(b, view, dl, del);
+      mine.append(row);
+    }
+    mine.append(h("div", "ra-skf", t.skillsHint.replace("{dir}", ws.skillsDir)));
+    // A zip dropped on the menu installs like the upload button.
+    mine.addEventListener("dragover", (e) => { if (e.dataTransfer?.types.includes("Files")) { e.preventDefault(); e.stopPropagation(); mine.classList.add("drop"); } });
+    mine.addEventListener("dragleave", () => mine.classList.remove("drop"));
+    mine.addEventListener("drop", (e) => { e.preventDefault(); e.stopPropagation(); mine.classList.remove("drop"); void installZips(e.dataTransfer?.files); });
+  };
+  skillsBtn.addEventListener("click", () => void openSkills());
 
   /* --- built-in commands --- */
   type Builtin = { name: string; aliases?: string[]; args?: string; run: (arg: string) => void | Promise<void> };
@@ -2076,6 +2209,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const hasSessions = !givenAgent && (sessions ?? !!a.workspace);
     histBtn.style.display = newBtn.style.display = hasSessions && a.workspace ? "" : "none";
     filesBtn.style.display = a.workspace ? "" : "none";
+    skillsBtn.style.display = a.workspace && skillsMenu !== false ? "" : "none";
     panel.setWorkspace(a.workspace);
     dpanel.setAgent(a);
     list.clear();
@@ -2097,12 +2231,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       active = null;
       replyStart = Date.now();
       setBusy(true);
+      showPending();
     });
     on("turn_start", () => {
       flushActive(true);
       // A run's turns share one row (folded into "Worked for …" at the end); a turn starts its own text and thinking,
       // and consecutive text-less turns (thinking and tool calls) share one group, so a chain of calls reads as one step.
       if (active) { active.text = null; active.md = ""; active.drawn = undefined; active.drawnFinal = undefined; active.think = null; active.thinkBody = null; active.reasoning = ""; }
+      // Waiting for the model again (after tool results, or after a steer): say so until it answers.
+      showPending();
       queueMicrotask(renderQueue);
     });
     // Steering is drawn when it lands in the history (at a turn, or before the next prompt), once.
@@ -2118,12 +2255,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     on("rewind", () => { if (agent === a) { renderHistory(a.messages); showUsage_(a); } });
     on("text_delta", (ev: { text: string }) => {
       const act = ensureActive();
+      clearPending(act);
       if (!act.text) { act.text = h("div", "ra-md"); act.body.append(act.text); }
       act.md = ev.text;
       scheduleRender();
     });
     on("reasoning_delta", (ev: { text: string }) => {
       const act = ensureActive();
+      clearPending(act);
       if (!act.think) {
         [act.think, act.thinkBody] = thinkEl("", false);
         // Inside the running group when the chain has started; otherwise before this turn's text.
@@ -2135,9 +2274,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       act.reasoning = ev.text;
       scheduleRender();
     });
-    on("message_reset", () => { if (active) { active.md = ""; active.reasoning = ""; active.text?.remove(); active.text = null; active.think?.remove(); active.think = null; active.thinkBody = null; } });
-    on("message_end", () => flushActive(true));
-    on("tool_start", (ev: { id: string; name: string; args: unknown }) => { flushActive(true); addCard(ev.id, ev.name, ev.args, ensureActive().body); });
+    on("message_reset", () => { if (active) { active.md = ""; active.reasoning = ""; active.text?.remove(); active.text = null; active.think?.remove(); active.think = null; active.thinkBody = null; showPending(); } });
+    on("message_end", () => { clearPending(); flushActive(true); lastStamp = Date.now(); });
+    on("tool_start", (ev: { id: string; name: string; args: unknown }) => { flushActive(true); clearPending(); addCard(ev.id, ev.name, ev.args, ensureActive().body); });
     on("tool_update", (ev: { id: string; content: string }) => {
       const c = cards.get(ev.id); if (!c) return;
       if (!c.update) { c.update = h("div", "ra-tupd"); c.el.append(c.update); }

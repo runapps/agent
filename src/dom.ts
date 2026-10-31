@@ -14,6 +14,7 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, t
 export const svg = (size: number, body: string, stroke = 2) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 export const I = {
+  puzzle: (s = 14) => svg(s, '<path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>'),
   spark: (s = 14) => svg(s, '<path d="M9.9 2.1a1 1 0 0 1 1.9 0l1.3 4.1a4 4 0 0 0 2.6 2.6l4.1 1.3a1 1 0 0 1 0 1.9l-4.1 1.3a4 4 0 0 0-2.6 2.6l-1.3 4.1a1 1 0 0 1-1.9 0l-1.3-4.1a4 4 0 0 0-2.6-2.6L2.1 12a1 1 0 0 1 0-1.9l4.1-1.3a4 4 0 0 0 2.6-2.6z"/><path d="M20 3v4M22 5h-4"/>'),
   send: (s = 16) => svg(s, '<path d="M14.5 9.5 22 2M22 2l-7 20-4-9-9-4z"/>'),
   hist: (s = 14) => svg(s, '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 3"/>'),

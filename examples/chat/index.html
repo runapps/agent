@@ -51,13 +51,6 @@
   .filebtn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
   .fname { font-size: 12px; color: var(--fg2); min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  .skills { display: flex; flex-direction: column; gap: 2px; }
-  .skill { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 6px; }
-  .skill:hover { background: var(--muted); }
-  .skill b { font: 600 12px var(--mono); color: var(--p-fg); background: var(--p-subtle); padding: 1px 6px; border-radius: 4px; }
-  .skill span { flex: 1; min-width: 0; color: var(--fg2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .skill button { opacity: 0; }
-  .skill:hover button { opacity: 1; }
   .empty { color: var(--fg2); font-size: 12px; padding: 4px 8px; }
 
   pre#run { margin: 0; white-space: pre-wrap; word-break: break-all; font: 11px/1.5 var(--mono); color: var(--fg2); background: var(--muted); border-radius: 6px; padding: 8px 10px; max-height: 160px; overflow: auto; }
@@ -86,22 +79,8 @@
       <div class="kv">会话 <code id="sid">…</code></div>
       <div class="kv">目录 <code id="wsid">…</code></div>
       <div id="ws" class="muted">…</div>
-      <div class="muted">目录是 IndexedDB 里的一棵树；技能在 <code>.agent/skills/&lt;name&gt;/SKILL.md</code>。独立模式下「历史」切换会话即切换目录；共用模式下所有会话读写同一份文件，删除会话不删文件。</div>
+      <div class="muted">目录是 IndexedDB 里的一棵树；技能 zip 不解压，整个应用共用一份，只读挂在 <code>.agent/skills/&lt;name&gt;/</code>。独立模式下「历史」切换会话即切换目录；共用模式下所有会话读写同一份文件，删除会话不删文件。</div>
       <div class="row"><button id="clear" class="danger">清空目录（保留技能）</button></div>
-    </div>
-  </section>
-
-  <section>
-    <h4>技能</h4>
-    <div class="card">
-      <div id="skills" class="skills">…</div>
-      <div class="row">
-        <label class="filebtn"><button type="button" tabindex="-1">选择 zip…</button><input type="file" id="skillfile" accept=".zip"></label>
-        <span id="skillname" class="fname">未选择文件</span>
-        <button id="skill-upload">安装</button>
-      </div>
-      <div class="row"><input type="url" id="skillurl" placeholder="zip 地址，如 ./extra-skill.zip" style="flex:1"><button id="skill-url">从地址安装</button></div>
-      <div class="row"><button id="skills-refresh" class="ghost">重新拉取 skills.zip</button></div>
     </div>
   </section>
 
@@ -204,30 +183,10 @@ async function refreshPanels() {
   $("sid").textContent = chat.agent.id;
   $("wsid").textContent = ws.id;
   const files = await ws.list("/");
-  const skillFiles = files.filter((f) => f.path.startsWith(ws.skillsDir + "/")).length;
-  $("ws").textContent = `${files.length} 个文件（其中技能 ${skillFiles} 个）· 用左上「文件」按钮浏览、编辑、上传、下载`;
   const skills = await ws.skills();
-  const box = $("skills"); box.replaceChildren();
-  for (const s of skills) {
-    const row = document.createElement("div"); row.className = "skill";
-    const b = document.createElement("b"); b.textContent = s.name;
-    const d = document.createElement("span"); d.textContent = s.description; d.title = s.description;
-    const x = document.createElement("button"); x.className = "xs danger"; x.textContent = "删除"; x.onclick = async () => { await ws.removeSkill(s.name); await chat.refresh(); refreshPanels(); };
-    row.append(b, d, x); box.append(row);
-  }
-  if (!skills.length) { const e = document.createElement("div"); e.className = "empty"; e.textContent = "没有技能 — 装一个 zip 试试"; box.append(e); }
+  $("ws").textContent = `${files.length} 个文件 · 技能 ${skills.length} 个（右上「技能」按钮管理）· 用「文件」按钮浏览、编辑、上传、下载`;
 }
 $("clear").onclick = async () => { await workspace().clearWork(); refreshPanels(); };
-$("skillfile").onchange = () => { $("skillname").textContent = $("skillfile").files[0]?.name || "未选择文件"; };
-$("skill-upload").onclick = async () => {
-  const f = $("skillfile").files[0]; if (!f) return alert("先选一个 zip");
-  try { const got = await workspace().installSkill(f); await chat.refresh(); refreshPanels(); chat.ui.notify("已安装：" + got.map((s) => s.name).join(", ")); } catch (e) { alert(e.message); }
-};
-$("skill-url").onclick = async () => {
-  const u = $("skillurl").value.trim(); if (!u) return;
-  try { const got = await workspace().installSkill(u); await chat.refresh(); refreshPanels(); chat.ui.notify("已安装：" + got.map((s) => s.name).join(", ")); } catch (e) { alert(e.message); }
-};
-$("skills-refresh").onclick = async () => { await workspace().refreshSkills(true); await chat.refresh(); refreshPanels(); };
 $("remount").onclick = () => mount();
 // Debug mode (on by default here): the outline of the render target and the chat's Debug panel.
 function debugOn() { try { return localStorage.getItem("lab_debug") !== "0"; } catch { return true; } }

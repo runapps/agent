@@ -40,6 +40,7 @@ export { collectCompletion, type CollectedCompletion } from "./completion.js";
 export { buildSystemPrompt, estimateTokens, fitBudget, groupTurns } from "./context.js";
 export { validateSchema } from "./json-schema.js";
 export { listZip, readZipEntry, buildZip, type ZipEntry, type Inflate } from "./zip.js";
+export { skillZipFS, skillFoldersOf, type SkillZipInfo, type SkillZipFS } from "./skill-zips.js";
 export type {
   AgentEventMap,
   AgentEventName,

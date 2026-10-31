@@ -39,6 +39,8 @@ export interface FilesPanel {
   /** The agent wrote or deleted a path: marks it and reloads it if open. */
   changed(path: string): void;
   download(path: string): Promise<void>;
+  /** A folder as a zip, built in the browser. */
+  downloadFolder(path: string): Promise<void>;
   dispose(): void;
 }
 
@@ -428,6 +430,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
       draw();
     },
     download,
+    downloadFolder,
     dispose() {
       disposed = true;
       offChange?.();

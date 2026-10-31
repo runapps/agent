@@ -169,6 +169,8 @@ export interface Skill {
   dir: string;
   /** Only loaded when the app or user asks for it, never picked by the model. */
   disableModelInvocation?: boolean;
+  /** The library zip it is read from (read-only); absent for a folder of the directory. */
+  zip?: string;
   license?: string;
   compatibility?: string;
   allowedTools?: string[];

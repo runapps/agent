@@ -3,16 +3,20 @@
 // chat can give every session its own), or a directory the app
 // provides (`dir`: a local folder through the File System Access API,
 // any `AgentFS`), plus mount points an app fills with its own files (its
-// document, a cloud folder). Skills are ordinary folders with a SKILL.md
-// under `<skillsDir>` (default `/.agent/skills`, as pi keeps them in the
-// project): hand-written, unpacked there from skills zips (`skills`
-// option, ETag-cached), or installed with `installSkill`. The file tools
-// in file-tools.ts and the sandbox's `fs` work on it.
+// document, a cloud folder). Skills are folders with a SKILL.md under
+// `<skillsDir>` (default `/.agent/skills`, as pi keeps them in the
+// project): hand-written ones are files of the directory; skills zips
+// (the `skills` option, ETag-cached, or `installSkill`) are kept whole in
+// the app's library — one copy for every directory — and read in place,
+// each skill folder in them mounted read-only at `<skillsDir>/<name>/`
+// (skill-zips.ts). The file tools in file-tools.ts and the sandbox's
+// `fs` work on it.
 
 import type { RunApps } from "@runappsai/sdk";
 import type { AgentFS, FileStat, SessionData, SessionSummary, Skill } from "./types.js";
 import { listZip, readZipEntry, type Inflate, MAX_ZIP_BYTES } from "./zip.js";
 import { parseSkill } from "./skills.js";
+import { parseSkillZip, skillZipFS, zipInfo, type SkillZipFS, type SkillZipInfo, type SkillZipRecord } from "./skill-zips.js";
 import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
 
 /** Where a workspace keeps its skills unless `skillsDir` says otherwise. */
@@ -20,6 +24,10 @@ export const DEFAULT_SKILLS_DIR = "/.agent/skills";
 /** @deprecated use DEFAULT_SKILLS_DIR / `workspace.skillsDir` */
 export const SKILLS_ROOT = DEFAULT_SKILLS_DIR;
 const DB_PREFIX = "__runapps_agent_ws";
+/** The app's skills library: a space no directory id can be. */
+const LIB_SPACE = "\u0000skills";
+/** A skills source is asked whether it changed at most this often (every directory of the app shares its zip). */
+const SOURCE_CHECK_MS = 60_000;
 
 type Layer = "skills" | "work";
 
@@ -43,6 +51,8 @@ interface Store {
   getMeta<T>(key: string): Promise<T | undefined>;
   putMeta(key: string, value: unknown): Promise<void>;
   deleteMeta(key: string): Promise<void>;
+  /** Meta values whose key starts with `prefix`. */
+  listMeta<T>(prefix: string): Promise<T[]>;
   getSession(space: string, id: string): Promise<SessionData | undefined>;
   /** Saved under `data.space`. */
   putSession(data: SessionData): Promise<void>;
@@ -90,8 +100,10 @@ export interface WorkspaceOptions {
   /**
    * Skills zip(s): a path or URL fetched as is (`/skills.zip` in the
    * bundle, a public link), or `files:<path>` for a file in the user's
-   * RunApps storage (fetched with the SDK's token). Unpacked under
-   * `skillsDir`, re-fetched only when the server's ETag changes.
+   * RunApps storage (fetched with the SDK's token). Kept whole in the
+   * app's skills library and read in place (each skill folder appears
+   * read-only under `skillsDir`); fetched again only when the server's
+   * ETag changes, checked at most once a minute.
    */
   skills?: string | string[];
   /** The folder skills live in, `<skillsDir>/<name>/SKILL.md` (default `/.agent/skills`). */
@@ -128,7 +140,11 @@ export class Workspace {
   /** The folder the directory lives in when opened with `dir` (null: IndexedDB). */
   readonly root: AgentFS | null;
   private store!: Store;
+  /** The app's skills library (zips shared by every directory). */
+  private lib!: Store;
   private readonly mounts = new Map<string, AgentFS>();
+  /** Mount points this workspace made for library zips. */
+  private readonly zipMounts = new Set<string>();
   private readonly changeListeners = new Set<(c: WorkspaceChange) => void>();
   private channel: BroadcastChannel | null | undefined;
   private readonly sources: string[];
@@ -204,7 +220,9 @@ export class Workspace {
     if (!this.opened) {
       const opening = (async () => {
         this.store = this.idb ? await openIDBStore(this.idb, this.dbName, this.id) : memoryStore(this.dbName, this.id);
-        await withLock(`${this.dbName}:${this.id}:skills`, () => this.refreshSkills());
+        this.lib = this.idb ? await openIDBStore(this.idb, this.dbName, LIB_SPACE) : memoryStore(this.dbName, LIB_SPACE);
+        this.openChannel();
+        await this.refreshSources(true);
       })();
       this.opened = opening;
       // A failed open (blocked, quota, a skills fetch) is tried again next time instead of failing for good.
@@ -221,7 +239,7 @@ export class Workspace {
   close(): void {
     try { this.channel?.close(); } catch { /* closed */ }
     this.channel = undefined;
-    if (this.opened) { const o = this.opened; this.opened = null; void o.then(() => this.store.close(), () => undefined); }
+    if (this.opened) { const o = this.opened; this.opened = null; void o.then(() => { this.store.close(); this.lib.close(); }, () => undefined); }
   }
 
   /* ---------------- mounts ---------------- */
@@ -254,8 +272,10 @@ export class Workspace {
     if (typeof BroadcastChannel === "undefined") { this.channel = null; return; }
     try {
       const ch = new BroadcastChannel(`${this.dbName}:changes`);
-      ch.onmessage = (ev: MessageEvent<{ space?: string; path?: string; kind?: "write" | "delete" }>) => {
+      ch.onmessage = (ev: MessageEvent<{ space?: string; path?: string; kind?: "write" | "delete"; lib?: boolean }>) => {
         const m = ev.data;
+        // A skills zip was added or removed (any tab, any directory): mount what the library holds now.
+        if (m?.lib) { if (this.lib) void this.syncLibrary().then(() => this.emitChange(this.skillsDir, "write", true)).catch(() => undefined); return; }
         if (m && m.space === this.id && typeof m.path === "string" && (m.kind === "write" || m.kind === "delete")) this.emitChange(m.path, m.kind, true);
       };
       (ch as unknown as { unref?: () => void }).unref?.();
@@ -279,7 +299,8 @@ export class Workspace {
         : "/ — the working directory; it persists between conversations.",
       `${this.skillsDir}/ — skills, one folder per skill with a SKILL.md.`,
     ];
-    for (const [p, fs] of this.mounts) lines.push(`${p}/ — ${fs.description || "app files"}${fs.write ? "" : " (read-only)"}.`);
+    if (this.zipMounts.size) lines[1] = `${this.skillsDir}/ — skills, one folder per skill with a SKILL.md; those installed from zips are read-only.`;
+    for (const [p, fs] of this.mounts) if (!this.zipMounts.has(p)) lines.push(`${p}/ — ${fs.description || "app files"}${fs.write ? "" : " (read-only)"}.`);
     return lines.join("\n");
   }
 
@@ -520,6 +541,8 @@ export class Workspace {
       const parsed = parseSkill(text, f.path);
       if (!parsed || seen.has(parsed.skill.name)) continue;
       seen.add(parsed.skill.name);
+      const zfs = this.mounts.get(parsed.skill.dir) as SkillZipFS | undefined;
+      if (zfs && this.zipMounts.has(parsed.skill.dir)) parsed.skill.zip = zfs.zip;
       out.push(parsed.skill);
     }
     this.skillCache = out.sort((a, b) => a.name.localeCompare(b.name));
@@ -531,10 +554,39 @@ export class Workspace {
    * `files:<path>` string, or the bytes themselves (a `File` from an
    * `<input type=file>`, a Blob, a Uint8Array). A zip with SKILL.md at its
    * root is one skill, named `name` (else after the file); a zip of
-   * folders is one skill per folder. Returns what was installed.
+   * folders is one skill per folder. The zip goes into the app's library
+   * (every directory of the app gets it, read in place, read-only; the
+   * same name replaces it); `unpack: true` writes its files into this
+   * directory instead, as files the agent may edit. Returns what was
+   * installed.
    */
-  async installSkill(source: string | Blob | Uint8Array, opts: { name?: string } = {}): Promise<Skill[]> {
+  async installSkill(source: string | Blob | Uint8Array, opts: { name?: string; unpack?: boolean } = {}): Promise<Skill[]> {
     await this.ready();
+    if (!opts.unpack) {
+      let bytes: Uint8Array;
+      let name: string;
+      if (typeof source === "string") {
+        const fetched = await this.fetchSource(source);
+        if (!fetched) throw new Error("runapps agent: nothing fetched");
+        bytes = fetched.bytes;
+        name = opts.name ?? zipBaseName(source);
+      } else {
+        bytes = source instanceof Uint8Array ? source : new Uint8Array(await source.arrayBuffer());
+        name = opts.name ?? zipBaseName((source as File).name || "skill");
+      }
+      if (bytes.byteLength > MAX_ZIP_BYTES) throw new Error("skills zip too large");
+      const key = zipBaseName(name);
+      const prev = await this.lib.getMeta<SkillZipRecord>(`zip:${key}`);
+      // A new version is a new `at`, even within the same millisecond.
+      const rec: SkillZipRecord = { name: key, bytes, at: Math.max(Date.now(), (prev?.at ?? 0) + 1), source: typeof source === "string" ? source : "upload" };
+      const parsed = parseSkillZip(rec, this.dbName);
+      if (!parsed.folders.size) throw new Error(`runapps agent: ${rec.name}.zip has no SKILL.md (at its root, or one per folder)`);
+      await this.lib.putMeta(`zip:${rec.name}`, rec);
+      await this.syncLibrary();
+      this.announceLibrary();
+      const folders = new Set([...parsed.folders.keys()].map((f) => `${this.skillsDir}/${f}`));
+      return (await this.skills()).filter((s) => folders.has(s.dir));
+    }
     let bytes: Uint8Array;
     let key: string;
     let base: string;
@@ -560,13 +612,64 @@ export class Workspace {
     return after.filter((s) => written.includes(s.path) || !before.has(s.name));
   }
 
-  /** Deletes the skill's folder. Returns false when there is no such skill. */
+  /**
+   * Deletes a skill: its folder, or — for a skill from a zip in the
+   * library — that zip (with every skill it holds, for every directory of
+   * the app). Returns false when there is no such skill.
+   */
   async removeSkill(name: string): Promise<boolean> {
     const skill = (await this.skills()).find((s) => s.name === name);
     if (!skill) return false;
+    if (skill.zip) return this.removeSkillZip(skill.zip);
     for (const f of await this.list(skill.dir)) await this.rmFile(f.path);
     this.skillCache = null;
     return true;
+  }
+
+  /** The zips in the app's skills library. */
+  async skillZips(): Promise<SkillZipInfo[]> {
+    await this.ready();
+    const recs = await this.lib.listMeta<SkillZipRecord>("zip:");
+    const out: SkillZipInfo[] = [];
+    for (const r of recs) { try { out.push(zipInfo(r, parseSkillZip(r, this.dbName))); } catch { /* damaged: listed nowhere */ } }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  /** A library zip's bytes (to download it again), or null. */
+  async skillZip(name: string): Promise<Uint8Array | null> {
+    await this.ready();
+    return (await this.lib.getMeta<SkillZipRecord>(`zip:${name}`))?.bytes ?? null;
+  }
+  /** Removes a zip from the app's skills library. */
+  async removeSkillZip(name: string): Promise<boolean> {
+    await this.ready();
+    if (!(await this.lib.getMeta<SkillZipRecord>(`zip:${name}`))) return false;
+    await this.lib.deleteMeta(`zip:${name}`);
+    await this.syncLibrary();
+    this.announceLibrary();
+    return true;
+  }
+
+  /** Mounts every skill folder of the library's zips under skillsDir (a name taken by an earlier zip stays with it). */
+  private async syncLibrary(): Promise<void> {
+    const recs = (await this.lib.listMeta<SkillZipRecord>("zip:")).sort((a, b) => a.name.localeCompare(b.name));
+    const next = new Map<string, AgentFS>();
+    for (const r of recs) {
+      let parsed;
+      try { parsed = parseSkillZip(r, this.dbName); } catch (err) { console.warn(`[runapps agent] skills zip "${r.name}":`, err); continue; }
+      for (const [folder, prefix] of parsed.folders) {
+        const at = normalizePath(`${this.skillsDir}/${folder}`);
+        if (!next.has(at)) next.set(at, skillZipFS(parsed, r.name, prefix, r.at, this.inflate));
+      }
+    }
+    for (const p of this.zipMounts) if (!next.has(p)) { this.mounts.delete(p); this.zipMounts.delete(p); }
+    for (const [p, fs] of next) { this.mounts.set(p, fs); this.zipMounts.add(p); }
+    this.skillCache = null;
+  }
+  /** Tells the app's other workspaces (this page's and other tabs') that the library changed. */
+  private announceLibrary(): void {
+    this.openChannel();
+    try { this.channel?.postMessage({ lib: true }); } catch { /* closed */ }
+    this.emitChange(this.skillsDir, "write");
   }
 
   /** The body (instructions) of a skill, by name. */
@@ -578,33 +681,54 @@ export class Workspace {
   }
 
   /**
-   * Fetches the skills zips again. Each is skipped when the server says
-   * it is unchanged (ETag / Last-Modified); `force` unpacks regardless.
+   * Brings the `skills` zips in the library up to date: each is fetched
+   * again unless the server says it is unchanged (ETag / Last-Modified);
+   * `force` fetches regardless. (Opening a workspace does this too, at
+   * most once a minute per source for the whole app.)
    */
   async refreshSkills(force = false): Promise<void> {
     if (this.opened && !this.store) await this.opened;
+    await this.refreshSources(false, force);
+  }
+
+  private async refreshSources(throttle: boolean, force = false): Promise<void> {
+    let changed = false;
     for (const source of this.sources) {
       try {
-        await this.unpackSource(source, force);
+        if (await withLock(`${this.dbName}:skills-lib`, () => this.updateSource(source, force, throttle))) changed = true;
       } catch (err) {
         // A skills pack that cannot be fetched (offline, 404) leaves the
         // cached copy in place; surface it for developers.
         // eslint-disable-next-line no-console
         console.warn(`[runapps agent] skills "${source}":`, err);
       }
+      // Before the library, a source's files were unpacked into each directory: drop that copy.
+      await this.dropUnpacked(`skills:${source}`).catch(() => undefined);
     }
-    this.skillCache = null;
+    await this.syncLibrary();
+    if (changed) this.announceLibrary();
   }
 
-  private async unpackSource(source: string, force: boolean): Promise<void> {
-    const metaKey = `skills:${source}`;
+  /** Fetches a `skills` source into the library when it changed; true when it did. */
+  private async updateSource(source: string, force: boolean, throttle: boolean): Promise<boolean> {
+    const name = zipBaseName(source);
+    const key = `zip:${name}`;
+    const prev = await this.lib.getMeta<SkillZipRecord>(key);
+    const now = Date.now();
+    const same = prev?.source === source;
+    if (throttle && !force && same && prev.checkedAt && now - prev.checkedAt < SOURCE_CHECK_MS) return false;
+    const fetched = await this.fetchSource(source, force || !same ? undefined : prev);
+    if (!fetched) { await this.lib.putMeta(key, { ...prev!, checkedAt: now }); return false; }
+    await this.lib.putMeta(key, { name, bytes: fetched.bytes, at: Math.max(now, (prev?.at ?? 0) + 1), source, etag: fetched.etag, lastModified: fetched.lastModified, checkedAt: now } satisfies SkillZipRecord);
+    return true;
+  }
+
+  /** Deletes the files an unpack recorded under `metaKey` in this directory, and the record. */
+  private async dropUnpacked(metaKey: string): Promise<void> {
     const prev = await this.store.getMeta<SkillsMeta>(metaKey);
-    // Files recorded outside the current skills folder (a workspace from
-    // before skillsDir, or a changed skillsDir) are unpacked afresh.
-    const moved = !!prev?.files.some((f) => !this.inSkills(f));
-    const fetched = await this.fetchSource(source, force || moved ? undefined : prev);
-    if (!fetched) return; // unchanged
-    await this.unpackZip(fetched.bytes, metaKey, zipBaseName(source), prev, fetched);
+    if (!prev) return;
+    for (const f of prev.files) await this.rmFile(f).catch(() => undefined);
+    await this.store.deleteMeta(metaKey);
   }
 
   /** Writes a zip's files under `skillsDir` and records them under `metaKey`, dropping files an earlier unpack of it wrote that are gone now. */
@@ -790,6 +914,7 @@ function openIDBStore(idb: IDBFactory, name: string, space: string): Promise<Sto
         getMeta: async <T,>(key: string) => (await run<{ space: string; key: string; value: T } | undefined>("meta", "readonly", (s) => s.get([space, key])))?.value,
         putMeta: async (key, value) => { await run("meta", "readwrite", (s) => s.put({ space, key, value })); },
         deleteMeta: async (key) => { await run("meta", "readwrite", (s) => s.delete([space, key])); },
+        listMeta: async <T,>(prefix: string) => (await run<Array<{ value: T }>>("meta", "readonly", (s) => s.getAll(range(space, prefix)))).map((r) => r.value),
         getSession: (which, id) => run<SessionData | undefined>("sessions", "readonly", (s) => s.get([which, id])),
         putSession: async (data) => { await run("sessions", "readwrite", (s) => s.put(data)); },
         deleteSession: async (which, id) => { await run("sessions", "readwrite", (s) => s.delete([which, id])); },
@@ -829,6 +954,7 @@ function memoryStore(name: string, space: string): Store {
     getMeta: async <T,>(key: string) => meta().get(key) as T | undefined,
     putMeta: async (key, value) => { meta().set(key, value); },
     deleteMeta: async (key) => { meta().delete(key); },
+    listMeta: async <T,>(prefix: string) => [...meta()].filter(([k]) => k.startsWith(prefix)).map(([, v]) => v as T),
     getSession: async (which, id) => mem.sessions.get(`${which}\u0000${id}`),
     putSession: async (data) => { mem.sessions.set(`${data.space ?? space}\u0000${data.id}`, data); },
     deleteSession: async (which, id) => { mem.sessions.delete(`${which}\u0000${id}`); },
