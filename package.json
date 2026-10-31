@@ -53,6 +53,7 @@
     "@runappsai/sdk": "^0.17.0",
     "@types/node": "^22.20.5",
     "fake-indexeddb": "^6.0.0",
+    "pdfjs-dist": "^5.7.284",
     "tsup": "^8.5.1",
     "typescript": "^5.9.0"
   },

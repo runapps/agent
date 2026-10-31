@@ -7,6 +7,7 @@ The core (`@runappsai/agent`) runs in Node as it is. What a browser gives it for
 | `nodeFS(folder, options)` | A folder on disk as the workspace's directory. |
 | `nodeStore(folder)` | The workspace's storage on disk: sessions, the user's skills, meta data (and the files, when there is no `dir`). |
 | `terminalUI(options)` | Confirmations, choices and questions in the terminal. |
+| `lineReader(options)` | One queued reader of the terminal's lines, shared by your prompt loop and `terminalUI`. |
 | `nodePdf()` | PDFs read with the `pdfjs-dist` package. |
 
 ## A command-line agent
@@ -58,7 +59,7 @@ nodeFS("/path/to/project", {
 })
 ```
 
-Paths cannot leave the folder (`/../x` is refused). A file reads as text when it is UTF-8 without control characters, as bytes otherwise.
+Paths cannot leave the folder: `/../x` is refused, and so is a path that goes through a symbolic link pointing outside it (links are not listed either). `nodeFS("/")` makes the whole disk the folder. A file reads as text when it is UTF-8 without control characters, as bytes otherwise.
 
 ## `nodeStore(folder)`
 
@@ -78,15 +79,16 @@ Without a store, a workspace in Node keeps everything in memory, and it is gone 
 
 Files are written to a temporary name and renamed, so a crash never leaves half a file. It is meant for one process at a time per folder.
 
-Any storage works the same way: implement `WorkspaceStoreFactory` (`open(dbName, space)` → a `WorkspaceStore`) and pass it as `store` — a database, a cloud bucket. `nodeStore` in `src/node.ts` is a complete example.
+Any storage works the same way: implement `WorkspaceStoreFactory` (`open(dbName, space)` → a `WorkspaceStore`) and pass it as `store` — a database, a cloud bucket. `nodeStore` in `src/node.ts` is a complete example; its optional `stat` and `listStats` let the workspace list and check files without reading their contents. Ids are percent-encoded into names (dots too), so no id can point outside its folder.
 
 ## `terminalUI(options)`
 
 ```js
-terminalUI()                                    // process.stdin / process.stdout
+terminalUI()                                    // process.stdin / process.stdout (through lineReader)
 terminalUI({ input, output })                   // other streams
-terminalUI({ rl })                              // a readline interface you already have
-terminalUI({ ask: (prompt, signal) => … })      // your own input loop: write prompt, resolve the line (null: dismissed)
+terminalUI({ ask: reader.ask })                 // the reader your own prompt loop uses
+terminalUI({ ask: (prompt, signal) => … })      // any input of yours: write prompt, resolve the line (null: dismissed)
+terminalUI({ rl })                              // a readline interface (its question(); lines typed ahead are lost)
 ```
 
 - `confirm` — `Delete /notes.md? … [y/N]`; only y / yes counts.
@@ -94,7 +96,26 @@ terminalUI({ ask: (prompt, signal) => … })      // your own input loop: write 
 - `input` — a line; multi-line answers end with a blank line.
 - `notify` — a line with `i`, `!` or `✗`.
 
-A question whose run is stopped is dismissed. If your program reads input itself, give `terminalUI` the same reader through `ask` — readline drops lines that arrive while nobody is waiting, so one queue for both (as in `examples/cli.mjs`) keeps typed-ahead or piped input.
+A question whose run is stopped is dismissed.
+
+### Reading lines: `lineReader`
+
+readline's own `question()` loses a line that arrives while nobody is asking — typed ahead while the agent works, or piped in. `lineReader()` queues them: each `ask(prompt)` gets the next line, whenever it came. There is one reader per input stream, so your prompt loop and `terminalUI` take turns on the same queue, and the input is paused between questions (it does not keep the process alive).
+
+```js
+import { lineReader, terminalUI } from "@runappsai/agent/node";
+
+const reader = lineReader();                   // process.stdin / stdout
+const ui = terminalUI({ ask: reader.ask });    // the agent's questions read from the same queue
+reader.rl.on("SIGINT", () => agent.busy ? agent.abort() : process.exit(0));   // Ctrl+C
+
+for (;;) {
+  const line = await reader.ask("› ");
+  if (line === null) break;                    // the input ended
+  await agent.prompt(line);
+}
+reader.close();
+```
 
 ## PDFs
 

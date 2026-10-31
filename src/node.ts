@@ -13,7 +13,7 @@ import { configurePdf, decodeText, guessType, normalizePath } from "./index.js";
 import type { AgentFS, AgentUI, FileRecord, FileStat, PdfLib, SelectOption, SessionData, WorkspaceStore, WorkspaceStoreFactory } from "./index.js";
 
 /* ------------------------------------------------------------------ */
-/* A folder as the directory                                           */
+/* Shared helpers                                                      */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -27,6 +27,27 @@ function contentOf(buf: Buffer): string | Uint8Array {
   return decodeText(bytes) ?? bytes;
 }
 
+/** Every regular file under `dir` (symbolic links are not followed), skipping folders named in `skip` and files `keep` refuses. */
+async function walkFiles(dir: string, skip: ReadonlySet<string> = new Set(), keep: (name: string) => boolean = () => true): Promise<string[]> {
+  const out: string[] = [];
+  const walk = async (d: string) => {
+    for (const e of await fsp.readdir(d, { withFileTypes: true }).catch(() => [])) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) { if (!skip.has(e.name)) await walk(full); }
+      else if (e.isFile() && keep(e.name)) out.push(full);
+    }
+  };
+  await walk(dir);
+  return out;
+}
+
+/** Whether `full` is `base` or inside it. */
+const within = (base: string, full: string): boolean => full === base || full.startsWith(base.endsWith(path.sep) ? base : base + path.sep);
+
+/* ------------------------------------------------------------------ */
+/* A folder as the directory                                           */
+/* ------------------------------------------------------------------ */
+
 export interface NodeFSOptions {
   /** Shown to the model (default "the folder <root>"). */
   description?: string;
@@ -39,14 +60,26 @@ export interface NodeFSOptions {
 /**
  * A folder on disk as an `AgentFS`: give it to a workspace as `dir` and the
  * agent works in that folder (`openWorkspace(provider, { dir: nodeFS(process.cwd()) })`).
- * Paths cannot leave the folder.
+ * Paths cannot leave the folder — neither by `..` nor through a symbolic
+ * link pointing outside it.
  */
 export function nodeFS(root: string, opts: NodeFSOptions = {}): AgentFS {
   const base = path.resolve(root);
   const ignore = new Set(opts.ignore ?? [".git", "node_modules"]);
-  const abs = (p: string): string => {
+  let realBase: Promise<string> | null = null;
+  const abs = async (p: string): Promise<string> => {
     const full = path.join(base, normalizePath(p));
-    if (full !== base && !full.startsWith(base + path.sep)) throw new Error(`${p} is outside the folder`);
+    if (!within(base, full)) throw new Error(`${p} is outside the folder`);
+    // Where it really is: the nearest part of it that exists, with links resolved, must still be inside.
+    realBase ??= fsp.realpath(base).catch(() => base);
+    let probe = full;
+    for (;;) {
+      const real = await fsp.realpath(probe).catch(() => null);
+      if (real) { if (!within(await realBase, real)) throw new Error(`${p} leads outside the folder`); break; }
+      const up = path.dirname(probe);
+      if (up === probe) break;
+      probe = up;
+    }
     return full;
   };
   const rel = (full: string): string => "/" + path.relative(base, full).split(path.sep).join("/");
@@ -54,28 +87,20 @@ export function nodeFS(root: string, opts: NodeFSOptions = {}): AgentFS {
     const st = await fsp.stat(full).catch(() => null);
     return st && st.isFile() ? { path: rel(full), size: st.size, mtime: st.mtimeMs, contentType: guessType(full, new Uint8Array()) } : null;
   };
-  const walk = async (dir: string, out: FileStat[]): Promise<void> => {
-    const entries = await fsp.readdir(dir, { withFileTypes: true }).catch(() => []);
-    for (const e of entries) {
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) { if (!ignore.has(e.name)) await walk(full, out); }
-      else if (e.isFile()) { const s = await statOf(full); if (s) out.push(s); }
-    }
-  };
   const fs: AgentFS = {
     description: opts.description ?? `the folder ${base}`,
     async list(prefix) {
-      const full = abs(prefix);
+      const full = await abs(prefix);
       const st = await fsp.stat(full).catch(() => null);
       if (!st) return [];
       if (st.isFile()) return [(await statOf(full))!];
       const out: FileStat[] = [];
-      await walk(full, out);
+      for (const f of await walkFiles(full, ignore)) { const s = await statOf(f); if (s) out.push(s); }
       return out;
     },
-    async stat(p) { return statOf(abs(p)); },
+    async stat(p) { return statOf(await abs(p)); },
     async read(p) {
-      const buf = await fsp.readFile(abs(p)).catch((err: NodeJS.ErrnoException) => {
+      const buf = await fsp.readFile(await abs(p)).catch((err: NodeJS.ErrnoException) => {
         throw new Error(err.code === "ENOENT" ? `No such file: ${normalizePath(p)}` : err.message);
       });
       return contentOf(buf);
@@ -83,11 +108,15 @@ export function nodeFS(root: string, opts: NodeFSOptions = {}): AgentFS {
   };
   if (!opts.readonly) {
     fs.write = async (p, content) => {
-      const full = abs(p);
+      const full = await abs(p);
       await fsp.mkdir(path.dirname(full), { recursive: true });
       await fsp.writeFile(full, content);
     };
-    fs.delete = async (p) => { await fsp.rm(abs(p), { force: false }); };
+    fs.delete = async (p) => {
+      await fsp.rm(await abs(p)).catch((err: NodeJS.ErrnoException) => {
+        throw new Error(err.code === "ENOENT" ? `No such file: ${normalizePath(p)}` : err.message);
+      });
+    };
   }
   return fs;
 }
@@ -96,7 +125,8 @@ export function nodeFS(root: string, opts: NodeFSOptions = {}): AgentFS {
 /* The workspace's storage on disk                                     */
 /* ------------------------------------------------------------------ */
 
-const enc = (s: string): string => encodeURIComponent(s).replace(/\*/g, "%2A");
+/** A name safe as one path segment: nothing is left that a filesystem reads specially (`/`, `\`, `.` and `..`, `*`). */
+const enc = (s: string): string => encodeURIComponent(s).replace(/[.*!'()~]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 const dec = (s: string): string => decodeURIComponent(s);
 /** JSON that keeps Uint8Arrays (meta values, session attachments). */
 const toJSON = (v: unknown): string => JSON.stringify(v, (_k, x) => (x instanceof Uint8Array ? { __u8: Buffer.from(x).toString("base64") } : x));
@@ -105,34 +135,32 @@ const fromJSON = <T,>(s: string): T => JSON.parse(s, (_k, x) => (x && typeof x =
 async function readJSON<T>(file: string): Promise<T | undefined> {
   try { return fromJSON<T>(await fsp.readFile(file, "utf8")); } catch { return undefined; }
 }
-/** Written to a temporary file and renamed, so a crash never leaves half a file. */
+let tmpSeq = 0;
+/** Written to a temporary file of its own and renamed, so a crash never leaves half a file and two writes never share one. */
 async function writeAtomic(file: string, data: string | Uint8Array): Promise<void> {
   await fsp.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await fsp.writeFile(tmp, data);
-  await fsp.rename(tmp, file);
+  const tmp = `${file}.${process.pid}.${Date.now().toString(36)}.${(tmpSeq++).toString(36)}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  try {
+    await fsp.writeFile(tmp, data);
+    await fsp.rename(tmp, file);
+  } catch (err) {
+    await fsp.rm(tmp, { force: true });
+    throw err;
+  }
 }
-async function filesUnder(dir: string): Promise<string[]> {
-  const out: string[] = [];
-  const walk = async (d: string) => {
-    for (const e of await fsp.readdir(d, { withFileTypes: true }).catch(() => [])) {
-      const full = path.join(d, e.name);
-      if (e.isDirectory()) await walk(full);
-      else if (e.isFile() && !e.name.endsWith(".tmp")) out.push(full);
-    }
-  };
-  await walk(dir);
-  return out;
-}
+const notTmp = (name: string) => !name.endsWith(".tmp");
 
 /**
  * The workspace's storage in a folder (default `~/.runapps-agent`): give it
  * to a workspace as `store` and its sessions, meta data and the user's
  * skills — and its files, when it has no `dir` — survive the process.
+ * Meant for one process at a time per folder.
  *
  *     <root>/<app>/spaces/<directory id>/files/…   the directory's files
  *     <root>/<app>/spaces/<directory id>/meta/…    its meta data (JSON)
  *     <root>/<app>/sessions/<directory id>/<session id>.json
+ *
+ * (Names are percent-encoded, dots included.)
  */
 export function nodeStore(root: string = path.join(os.homedir(), ".runapps-agent")): WorkspaceStoreFactory {
   const base = path.resolve(root);
@@ -143,28 +171,41 @@ export function nodeStore(root: string = path.join(os.homedir(), ".runapps-agent
       const filesDir = path.join(spaceDir(space), "files");
       const metaDir = path.join(spaceDir(space), "meta");
       const sessionsDir = path.join(app, "sessions");
-      const fileOf = (p: string) => path.join(filesDir, ...normalizePath(p).split("/").filter(Boolean));
-      const recordOf = async (full: string): Promise<FileRecord | undefined> => {
-        const [buf, st] = await Promise.all([fsp.readFile(full).catch(() => null), fsp.stat(full).catch(() => null)]);
-        if (!buf || !st) return undefined;
-        const p = "/" + path.relative(filesDir, full).split(path.sep).join("/");
-        const data = contentOf(buf);
-        return { space, path: p, data, contentType: guessType(p, data), mtime: st.mtimeMs, layer: "work" };
+      // Each segment encoded: a file named ".." or "a.b" is just a name here.
+      const fileOf = (p: string) => path.join(filesDir, ...normalizePath(p).split("/").filter(Boolean).map(enc));
+      const pathOf = (full: string) => "/" + path.relative(filesDir, full).split(path.sep).map(dec).join("/");
+      const statOf = async (full: string): Promise<FileStat | null> => {
+        const st = await fsp.stat(full).catch(() => null);
+        if (!st || !st.isFile()) return null;
+        const p = pathOf(full);
+        return { path: p, size: st.size, mtime: st.mtimeMs, contentType: guessType(p, new Uint8Array()) };
       };
+      const recordOf = async (full: string): Promise<FileRecord | undefined> => {
+        const [buf, st] = await Promise.all([fsp.readFile(full).catch(() => null), statOf(full)]);
+        if (!buf || !st) return undefined;
+        const data = contentOf(buf);
+        return { space, path: st.path, data, contentType: guessType(st.path, data), mtime: st.mtime ?? Date.now(), layer: "work" };
+      };
+      // Only the folder asked for is walked ("/a/" → files/a).
+      const under = (prefix: string) => (prefix === "/" ? filesDir : fileOf(prefix));
+      const filesUnder = async (prefix: string) => walkFiles(under(prefix), undefined, notTmp);
       const metaFile = (key: string) => path.join(metaDir, `${enc(key)}.json`);
       const metaKeys = async (): Promise<string[]> =>
         (await fsp.readdir(metaDir).catch(() => [] as string[])).filter((n) => n.endsWith(".json")).map((n) => dec(n.slice(0, -5)));
       const sessionFile = (s: string, id: string) => path.join(sessionsDir, enc(s), `${enc(id)}.json`);
       return {
         get: async (p) => recordOf(fileOf(p)),
+        stat: async (p) => statOf(fileOf(p)),
         put: async (rec) => { await writeAtomic(fileOf(rec.path), rec.data); },
         delete: async (p) => { await fsp.rm(fileOf(p), { force: true }); },
         list: async (prefix) => {
           const out: FileRecord[] = [];
-          for (const full of await filesUnder(filesDir)) {
-            const r = await recordOf(full);
-            if (r && (prefix === "/" || r.path.startsWith(prefix))) out.push(r);
-          }
+          for (const full of await filesUnder(prefix)) { const r = await recordOf(full); if (r) out.push(r); }
+          return out;
+        },
+        listStats: async (prefix) => {
+          const out: FileStat[] = [];
+          for (const full of await filesUnder(prefix)) { const s = await statOf(full); if (s) out.push(s); }
           return out;
         },
         getMeta: async <T,>(key: string) => readJSON<T>(metaFile(key)),
@@ -181,7 +222,7 @@ export function nodeStore(root: string = path.join(os.homedir(), ".runapps-agent
         deleteSession: async (s, id) => { await fsp.rm(sessionFile(s, id), { force: true }); },
         listSessions: async () => {
           const out: SessionData[] = [];
-          for (const full of await filesUnder(sessionsDir)) if (full.endsWith(".json")) { const d = await readJSON<SessionData>(full); if (d) out.push(d); }
+          for (const full of await walkFiles(sessionsDir, undefined, (n) => n.endsWith(".json"))) { const d = await readJSON<SessionData>(full); if (d) out.push(d); }
           return out;
         },
         clear: async (s = space) => {
@@ -195,17 +236,75 @@ export function nodeStore(root: string = path.join(os.homedir(), ".runapps-agent
 }
 
 /* ------------------------------------------------------------------ */
+/* Reading lines                                                        */
+/* ------------------------------------------------------------------ */
+
+/** One reader of an input's lines: `ask` writes a prompt and resolves the next line (null once the input ends or `signal` aborts). */
+export interface LineReader {
+  ask(prompt: string, signal?: AbortSignal): Promise<string | null>;
+  /** The readline interface underneath (its "SIGINT" event, its history). */
+  readonly rl: Interface;
+  close(): void;
+}
+
+const readers = new WeakMap<object, LineReader>();
+
+/**
+ * Lines of `input`, queued: a line that arrives while nobody asks (typed
+ * ahead, or piped in) waits for the next question instead of being lost,
+ * as it is with readline's own `question()`. One reader per input stream —
+ * a program's prompt loop and `terminalUI` share it. The input is paused
+ * between questions, so it does not keep the process alive.
+ */
+export function lineReader(opts: { input?: Readable; output?: Writable & { isTTY?: boolean } } = {}): LineReader {
+  const input = opts.input ?? process.stdin;
+  const output = opts.output ?? process.stdout;
+  const known = readers.get(input);
+  if (known) return known;
+  const rl = createInterface({ input, output, terminal: !!(input as { isTTY?: boolean }).isTTY });
+  const queue: string[] = [];
+  let waiting: ((line: string | null) => void) | null = null;
+  let closed = false;
+  rl.on("line", (line) => {
+    if (waiting) { const w = waiting; waiting = null; w(line); } else queue.push(line);
+    if (!waiting) rl.pause();
+  });
+  rl.on("close", () => {
+    closed = true;
+    readers.delete(input);
+    if (waiting) { const w = waiting; waiting = null; w(null); }
+  });
+  rl.pause();
+  const reader: LineReader = {
+    rl,
+    ask(prompt, signal) {
+      return new Promise((done) => {
+        output.write(prompt);
+        if (queue.length) return done(queue.shift()!);
+        if (closed || signal?.aborted) return done(null);
+        waiting = done;
+        rl.resume();
+        signal?.addEventListener("abort", () => { if (waiting === done) { waiting = null; rl.pause(); done(null); } }, { once: true });
+      });
+    },
+    close() { rl.close(); },
+  };
+  readers.set(input, reader);
+  return reader;
+}
+
+/* ------------------------------------------------------------------ */
 /* Dialogs in the terminal                                             */
 /* ------------------------------------------------------------------ */
 
 export interface TerminalUIOptions {
   input?: Readable;
   output?: Writable & { isTTY?: boolean };
-  /** A readline interface the app already has (questions go through it instead of a new one each time). */
+  /** A readline interface the app already has: questions go through its question(). Prefer `ask` with a `lineReader`. */
   rl?: Interface;
   /**
    * How a line is read, for an app with its own input loop: write `prompt`, resolve the line the
-   * user typed, or null when `signal` aborts or the input ends. Takes over from `input`/`rl`.
+   * user typed, or null when `signal` aborts or the input ends. Default: `lineReader({ input, output }).ask`.
    */
   ask?: (prompt: string, signal?: AbortSignal) => Promise<string | null>;
 }
@@ -221,17 +320,11 @@ export function terminalUI(opts: TerminalUIOptions = {}): AgentUI {
   const color = !!(output as { isTTY?: boolean }).isTTY;
   const paint = (code: string, s: string) => (color ? `\x1b[${code}m${s}\x1b[0m` : s);
   const write = (s: string) => { output.write(s); };
-  const ask = async (q: string, signal?: AbortSignal): Promise<string | null> => {
-    if (opts.ask) return opts.ask(q, signal);
-    const rl = opts.rl ?? createInterface({ input, output, terminal: color });
-    try {
-      return await rl.question(q, signal ? { signal } : {});
-    } catch {
-      return null;   // aborted (the run was stopped) or the input closed
-    } finally {
-      if (!opts.rl) rl.close();
-    }
-  };
+  const viaRl = opts.rl;
+  const ask = opts.ask
+    ?? (viaRl
+      ? async (q: string, signal?: AbortSignal) => { try { return await viaRl.question(q, signal ? { signal } : {}); } catch { return null; } }
+      : (q: string, signal?: AbortSignal) => lineReader({ input, output }).ask(q, signal));
   const head = (title: string, message?: string) => {
     write(`\n${paint("1", title)}\n`);
     if (message) write(`${paint("2", message)}\n`);

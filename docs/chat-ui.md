@@ -86,6 +86,32 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `onOpenFile(path)` | | Open file links yourself instead of in the files panel. |
 | `onSession(agent)` | | Called with each conversation's agent as it opens. |
 
+## The empty conversation: a greeting and starter prompts
+
+While a conversation is empty the chat shows a line of text and, under it, buttons of starter prompts. Both are yours:
+
+```js
+renderChat(el, {
+  provider,
+  emptyState: "What can I help you with?",          // the text (default "Start a conversation")
+  suggestions: [                                    // the buttons; a click puts the text in the composer
+    "Summarise the open document",
+    "List what changed this week",
+    "/skill:review",                                // a skill or a template works too
+  ],
+});
+```
+
+`emptyState` can also be an element of your own — a logo, a paragraph, links — or `null` for nothing:
+
+```js
+const welcome = document.createElement("div");
+welcome.innerHTML = `<img src="/logo.svg" width="40" alt=""><p>Ask about your orders, invoices or shipping.</p>`;
+renderChat(el, { provider, emptyState: welcome, suggestions: ["Where is my last order?"] });
+```
+
+Leave `suggestions` out for no buttons. The text of a button goes into the composer rather than being sent, so the user can change it first; to send one at once from your own UI, call `chat.prompt(text)`.
+
 ## The handle
 
 ```js

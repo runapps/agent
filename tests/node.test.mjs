@@ -96,3 +96,83 @@ test("terminalUI — y/N, numbered choices (with retries and free text), single 
   const stopped = run([], (ui) => { setTimeout(() => ctl.abort(), 20); return ui.confirm("Wait?", "", { signal: ctl.signal }); });
   assert.equal((await stopped).v, false);
 });
+
+test("terminalUI reads input typed ahead or piped in all at once (a queued reader shared with the app), and lineReader resumes the input only while asking", async () => {
+  const { lineReader } = await import("../dist/node.js");
+  const input = new PassThrough();
+  const output = new PassThrough();
+  output.resume();
+  input.write("y\n2\nhello\n");                 // everything arrives before the first question
+  const ui = terminalUI({ input, output });
+  assert.equal(await ui.confirm("Go?"), true);
+  assert.deepEqual(await ui.select("Pick", [{ value: "a" }, { value: "b" }]), ["b"]);
+  // The app's own prompt loop shares the reader and gets the next line.
+  assert.equal(await lineReader({ input, output }).ask("> "), "hello");
+  assert.ok(input.isPaused(), "paused between questions");
+  input.end();
+  assert.equal(await ui.input("More?"), null, "the input ended");
+});
+
+test("nodeStore — ids '.' and '..' stay inside their own folder; many writes to one key at once all land", async () => {
+  const root = await tmp();
+  const keep = await Workspace.open(null, { id: "keep", project: "dots", store: nodeStore(root) });
+  await keep.write("/a.md", "safe");
+  for (const id of [".", ".."]) {
+    const w = await Workspace.open(null, { id, project: "dots", store: nodeStore(root) });
+    await w.write("/x.md", id);
+    assert.equal(await w.readText("/x.md"), id);
+    await w.destroy();
+  }
+  assert.equal(await (await Workspace.open(null, { id: "keep", project: "dots", store: nodeStore(root) })).readText("/a.md"), "safe");
+  // Concurrent writes of one meta key (and one file) in the same millisecond.
+  await Promise.all(Array.from({ length: 30 }, (_, i) => keep.putData("same", { i })));
+  await Promise.all(Array.from({ length: 30 }, (_, i) => keep.write("/same.md", String(i))));
+  assert.equal(typeof (await keep.getData("same")).i, "number");
+  const leftovers = (await readdir(join(root, encodeURIComponent("__runapps_agent_ws:dots"), "spaces", "keep", "meta"))).filter((n) => n.endsWith(".tmp"));
+  assert.deepEqual(leftovers, []);
+  // A store lists only the folder asked for, and stats without reading.
+  await keep.write("/sub/one.md", "1");
+  assert.deepEqual((await keep.list("/sub")).map((f) => f.path), ["/sub/one.md"]);
+  assert.equal((await keep.stat("/sub/one.md")).size, 1);
+});
+
+test("nodeFS — a symbolic link out of the folder is refused; the root folder itself works", async () => {
+  const { symlink } = await import("node:fs/promises");
+  const dir = await tmp();
+  const outside = await tmp();
+  await writeFile(join(outside, "secret.txt"), "top secret");
+  await symlink(outside, join(dir, "link"));
+  const fs = nodeFS(dir);
+  await assert.rejects(fs.read("/link/secret.txt"), /leads outside the folder/);
+  await assert.rejects(fs.write("/link/new.txt", "x"), /leads outside the folder/);
+  assert.deepEqual(await fs.list("/"), [], "links are not listed");
+  // nodeFS("/") — every absolute path is inside.
+  const st = await nodeFS("/").stat(join(outside, "secret.txt"));
+  assert.equal(st?.size, 10);
+});
+
+test("nodePdf — read_file reads a PDF with the pdfjs-dist package in Node", async () => {
+  const { nodePdf } = await import("../dist/node.js");
+  const { fileTools } = await import("../dist/index.js");
+  nodePdf();
+  // A one-page PDF with "Hello PDF", offsets computed.
+  const objs = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    null,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  const stream = "BT /F1 24 Tf 40 70 Td (Hello PDF) Tj ET";
+  objs[3] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+  let pdf = "%PDF-1.4\n";
+  const offsets = [];
+  objs.forEach((o, i) => { offsets.push(pdf.length); pdf += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  const ws = await Workspace.open(null, { id: "pdf", project: "nodepdf", indexedDB: null, userSkills: false });
+  await ws.write("/doc.pdf", new TextEncoder().encode(pdf), "application/pdf");
+  const read = fileTools(ws).find((t) => t.name === "read_file");
+  const out = await read.execute({ path: "/doc.pdf" }, { signal: new AbortController().signal });
+  assert.match(typeof out === "string" ? out : out.content, /--- page 1 ---\nHello PDF/);
+});

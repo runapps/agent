@@ -132,5 +132,6 @@ From `@runappsai/agent/node` (Node 18+).
 | `nodeFS(folder, { description?, readonly?, ignore? })` | A folder on disk as an `AgentFS` (`dir`). |
 | `nodeStore(folder?)` → `WorkspaceStoreFactory` | The workspace's storage on disk (`store`); default `~/.runapps-agent`. |
 | `terminalUI({ input?, output?, rl?, ask? })` → `AgentUI` | Dialogs in the terminal. |
+| `lineReader({ input?, output? })` → `{ ask(prompt, signal?), rl, close() }` | Queued terminal lines, one reader per input. |
 | `nodePdf()` | Read PDFs with the `pdfjs-dist` package. |
-| types | `NodeFSOptions`, `TerminalUIOptions` |
+| types | `NodeFSOptions`, `TerminalUIOptions`, `LineReader` |

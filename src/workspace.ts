@@ -81,9 +81,13 @@ export interface FileRecord {
  */
 export interface WorkspaceStore {
   get(path: string): Promise<FileRecord | undefined>;
+  /** A file's size and time without its content (optional; else `get`). */
+  stat?(path: string): Promise<FileStat | null>;
   put(rec: FileRecord): Promise<void>;
   delete(path: string): Promise<void>;
   list(prefix: string): Promise<FileRecord[]>;
+  /** The files under `prefix` without their content (optional; else `list`). */
+  listStats?(prefix: string): Promise<FileStat[]>;
   getMeta<T>(key: string): Promise<T | undefined>;
   putMeta(key: string, value: unknown): Promise<void>;
   deleteMeta(key: string): Promise<void>;
@@ -106,6 +110,13 @@ export interface WorkspaceStoreFactory {
   open(dbName: string, space: string): Promise<WorkspaceStore>;
 }
 type Store = WorkspaceStore;
+/** A store's files or one file, without their content when the store can. */
+const statsOf = async (store: Store, prefix: string): Promise<FileStat[]> => (store.listStats ? store.listStats(prefix) : (await store.list(prefix)).map(statOf));
+const statIn = async (store: Store, p: string): Promise<FileStat | null> => {
+  if (store.stat) return store.stat(p);
+  const rec = await store.get(p);
+  return rec ? statOf(rec) : null;
+};
 
 interface SkillsMeta {
   etag?: string;
@@ -447,7 +458,7 @@ export class Workspace {
     }
     const own: FileStat[] = this.root
       ? (await this.root.list(p)).map((f) => ({ ...f, path: normalizePath(f.path) }))
-      : (await this.store.list(p === "/" ? "/" : p + "/")).map(statOf);
+      : await statsOf(this.store, p === "/" ? "/" : p + "/");
     for (const f of own) {
       if (this.route(f.path)?.prefix) continue; // shadowed by a mount
       out.push(f);
@@ -472,8 +483,7 @@ export class Workspace {
       const f = (await r.fs.list(r.rel)).find((x) => normalizePath(x.path) === normalizePath(r.rel));
       return f ? { ...f, path: p } : null;
     }
-    const rec = await this.store.get(p);
-    return rec ? statOf(rec) : null;
+    return statIn(this.store, p);
   }
 
   async exists(path: string): Promise<boolean> {
@@ -692,7 +702,7 @@ export class Workspace {
     const now = Date.now();
     if (opts.unpack) {
       for (const [folder, prefix] of folders) {
-        for (const old of await this.lib.list(`/${folder}/`)) await this.lib.delete(old.path);
+        for (const old of await statsOf(this.lib, `/${folder}/`)) await this.lib.delete(old.path);
         for (const [p, e] of files) {
           if (!p.startsWith(prefix)) continue;
           const data = await readZipEntry(bytes, e, this.inflate);
@@ -722,7 +732,7 @@ export class Workspace {
     if (!skill.from || !this.userSkillsDir || !skill.from.startsWith(this.userSkillsDir + "/")) return false;
     const rel = skill.from.slice(this.userSkillsDir.length);
     if (/\.zip$/i.test(rel)) await this.lib.delete(rel);
-    else for (const f of await this.lib.list(rel + "/")) await this.lib.delete(f.path);
+    else for (const f of await statsOf(this.lib, rel + "/")) await this.lib.delete(f.path);
     await this.userSkillsChanged(rel, "delete");
     return true;
   }
@@ -808,14 +818,18 @@ export class Workspace {
       }
     }
     if (this.userSkillsDir) {
-      const files = await this.lib.list("/");
+      const files = await statsOf(this.lib, "/");
       for (const f of files) {
         const m = /^\/([^/]+)\.zip$/i.exec(f.path);
-        if (!m || !(f.data instanceof Uint8Array)) continue;
+        if (!m) continue;
         try {
+          // Only the zips are read (names are enough for the folders); a parsed zip of this version is reused.
+          const key = `user:${this.dbName}|${f.path}@${f.mtime}`;
+          const rec = await this.lib.get(f.path);
+          if (!rec || !(rec.data instanceof Uint8Array)) continue;
           const name = zipBaseName(m[1]!);
-          const parsed = parseSkillZip(name, f.data, `user:${this.dbName}|${f.path}@${f.mtime}`);
-          for (const [folder, prefix] of parsed.folders) views.set(folder, { fs: skillZipFS(parsed, prefix, f.mtime, this.inflate), builtin: false, from: this.userSkillsDir + f.path });
+          const parsed = parseSkillZip(name, rec.data, key);
+          for (const [folder, prefix] of parsed.folders) views.set(folder, { fs: skillZipFS(parsed, prefix, f.mtime ?? rec.mtime, this.inflate), builtin: false, from: this.userSkillsDir + f.path });
         } catch (err) { console.warn(`[runapps agent] skills zip "${f.path}":`, err); }
       }
       const user = this.userFS();
@@ -903,8 +917,8 @@ export class Workspace {
   private userFS(): AgentFS {
     return {
       description: "the user's skills, shared by every conversation",
-      list: async (prefix) => (await this.lib.list(prefix === "/" ? "/" : prefix.replace(/\/+$/, "") + "/")).map(statOf),
-      stat: async (p) => { const r = await this.lib.get(p); return r ? statOf(r) : null; },
+      list: async (prefix) => statsOf(this.lib, prefix === "/" ? "/" : prefix.replace(/\/+$/, "") + "/"),
+      stat: async (p) => statIn(this.lib, p),
       read: async (p) => { const r = await this.lib.get(p); if (!r) throw new Error(`No such file: ${p}`); return r.data; },
       write: async (p, data, type) => {
         await this.lib.put({ path: p, data, contentType: type ?? guessType(p, data), mtime: Date.now(), layer: "work" });
