@@ -476,3 +476,12 @@ test("workspace — skills zip entries are normalised and stay under skillsDir",
   assert.equal(await ws.exists("/.agent/skills/e/a/b.md"), true);
   assert.equal((await ws.list("/")).some((f) => f.path.includes("//")), false);
 });
+
+test("zip — buildZip refuses more entries than a plain zip can count; a stored entry with a wrong size is refused", async () => {
+  const { buildZip } = await import("../dist/index.js");
+  await assert.rejects(buildZip(Array.from({ length: 0xffff }, (_, i) => ({ path: `f${i}`, data: "" }))), /too many files/);
+  const zip = makeZip({ "a.txt": "hello" }, { stored: true });
+  const [e] = listZip(zip);
+  await assert.rejects(readZipEntry(zip, { ...e, compressedSize: e.compressedSize + 40, size: e.size + 40 }, inflate), /damaged/);
+  await assert.rejects(readZipEntry(zip, { ...e, size: e.size + 1 }, inflate), /damaged/);
+});

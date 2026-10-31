@@ -438,6 +438,12 @@ export class Workspace {
   mountOf(path: string): string | null {
     return this.route(normalizePath(path))?.prefix || null;
   }
+  /** Whether writes to a path are refused (a read-only mount, or a `dir` root without write). */
+  isReadOnly(path: string): boolean {
+    const r = this.route(normalizePath(path));
+    if (r) return !r.fs.write;
+    return false;
+  }
   /** Whether a path is under the skills folder. */
   isSkillPath(path: string): boolean {
     return this.inSkills(normalizePath(path));

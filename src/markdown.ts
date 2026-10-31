@@ -17,47 +17,71 @@ function safeHref(url: string): string | null {
   return null;
 }
 
+const WORD = /[\p{L}\p{N}]/u;
+const TICKS = /`+/y;
+const LINK = /\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"]*")?\)/y;
+const BARE = /https?:\/\/(?:[^\s<>()]|\([^\s<>()]*\))+/y;
+
 /** Inline markup within one block (text already raw; escapes here). */
 export function renderInline(text: string): string {
   let out = "";
   let i = 0;
   const n = text.length;
+  // Searches that already failed from an earlier position fail from any later one: remember them, so
+  // pathological input (many "*" or "[" with nothing to close them) stays linear.
+  const noClose = new Map<string, number>();
+  let nextLink = -2;
   while (i < n) {
     const c = text[i]!;
     // Inline code: `…` (any run of backticks, matched by the same run).
     if (c === "`") {
-      const m = /^`+/.exec(text.slice(i))!;
-      const close = text.indexOf(m[0], i + m[0].length);
+      TICKS.lastIndex = i;
+      const run = TICKS.exec(text)![0];
+      const close = text.indexOf(run, i + run.length);
       if (close > 0) {
-        out += `<code>${escapeHTML(text.slice(i + m[0].length, close).trim())}</code>`;
-        i = close + m[0].length;
+        out += `<code>${escapeHTML(text.slice(i + run.length, close).trim())}</code>`;
+        i = close + run.length;
         continue;
       }
+      out += escapeHTML(run);
+      i += run.length;
+      continue;
     }
-    // Links: [label](url) — the label may hold inline markup.
+    // Links: [label](url) — the label may hold inline markup; the url may hold balanced parentheses.
     if (c === "[") {
-      const m = /^\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/.exec(text.slice(i));
-      if (m) {
-        const href = safeHref(m[2]!);
-        const label = renderInline(m[1]!);
-        out += href ? `<a href="${escapeHTML(href)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
-        i += m[0].length;
-        continue;
+      if (nextLink !== -1 && nextLink < i) nextLink = text.indexOf("](", i);
+      if (nextLink !== -1) {
+        LINK.lastIndex = i;
+        const m = LINK.exec(text);
+        if (m) {
+          const href = safeHref(m[2]!);
+          const label = renderInline(m[1]!);
+          out += href ? `<a href="${escapeHTML(href)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
+          i += m[0].length;
+          continue;
+        }
       }
     }
-    // Bare URLs.
-    if ((c === "h" && /^https?:\/\//.test(text.slice(i, i + 8))) ) {
-      const m = /^https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]/.exec(text.slice(i));
+    // Bare URLs (balanced parentheses kept, trailing punctuation left out).
+    if (c === "h" && text.startsWith("http", i) && (i === 0 || !WORD.test(text[i - 1]!))) {
+      BARE.lastIndex = i;
+      const m = BARE.exec(text);
       if (m) {
-        out += `<a href="${escapeHTML(m[0])}" target="_blank" rel="noopener noreferrer">${escapeHTML(m[0])}</a>`;
-        i += m[0].length;
-        continue;
+        const url = m[0].replace(/[.,;:!?'"]+$/, "");
+        if (url.length > 8) {
+          out += `<a href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(url)}</a>`;
+          i += url.length;
+          continue;
+        }
       }
     }
-    // Strong / emphasis / strikethrough.
+    // Strong / emphasis / strikethrough. "_" never opens or closes inside a word (my_file_name).
     if (c === "*" || c === "_" || c === "~") {
       const run = text[i + 1] === c ? c + c : c;
-      if (run.length === 2 || c !== "~") {
+      const opens = (run.length === 2 || c !== "~")
+        && i + run.length < n && !/\s/.test(text[i + run.length]!)
+        && !(c === "_" && i > 0 && WORD.test(text[i - 1]!));
+      if (opens && (noClose.get(run) ?? Infinity) > i) {
         const close = findClose(text, i + run.length, run);
         if (close > 0) {
           const inner = renderInline(text.slice(i + run.length, close));
@@ -65,7 +89,11 @@ export function renderInline(text: string): string {
           i = close + run.length;
           continue;
         }
+        noClose.set(run, Math.min(noClose.get(run) ?? Infinity, i));
       }
+      out += escapeHTML(run);
+      i += run.length;
+      continue;
     }
     if (c === "\\" && i + 1 < n && /[\\`*_{}\[\]()#+\-.!~|>]/.test(text[i + 1]!)) {
       out += escapeHTML(text[i + 1]!);
@@ -83,11 +111,13 @@ export function renderInline(text: string): string {
   return out;
 }
 
-/** The closing delimiter of an emphasis run: not preceded by a space, not an empty span. */
+/** The closing delimiter of an emphasis run: not preceded by a space, not an empty span; "_" not followed by a letter. */
 function findClose(text: string, from: number, run: string): number {
   let j = from;
   while ((j = text.indexOf(run, j)) > 0) {
-    if (j > from && text[j - 1] !== " " && text[j - 1] !== "\n") return j;
+    const ok = j > from && text[j - 1] !== " " && text[j - 1] !== "\n"
+      && !(run[0] === "_" && j + run.length < text.length && WORD.test(text[j + run.length]!));
+    if (ok) return j;
     j += run.length;
   }
   return -1;
@@ -111,7 +141,7 @@ export function renderMarkdown(src: string): string {
     const line = lines[i]!;
     // Fenced code (an unclosed fence runs to the end).
     const fence = FENCE.exec(line);
-    if (fence) {
+    if (fence && !(fence[2]![0] === "`" && line.slice(fence[0].length).includes("`"))) {
       flush();
       const marker = fence[2]!;
       const lang = fence[3] ?? "";
@@ -132,7 +162,7 @@ export function renderMarkdown(src: string): string {
       i++;
       continue;
     }
-    const heading = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+    const heading = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/.exec(line);
     if (heading) {
       flush();
       html.push(`<h${heading[1]!.length}>${renderInline(heading[2]!)}</h${heading[1]!.length}>`);
@@ -156,9 +186,9 @@ export function renderMarkdown(src: string): string {
       continue;
     }
     // Table: a header row, a delimiter row, then rows.
-    if (line.includes("|") && i + 1 < lines.length && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[i + 1]!)) {
+    if (line.includes("|") && i + 1 < lines.length && lines[i + 1]!.includes("|") && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[i + 1]!)) {
       flush();
-      const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+      const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
       const aligns = cells(lines[i + 1]!).map((d) => (d.startsWith(":") && d.endsWith(":") ? "center" : d.endsWith(":") ? "right" : d.startsWith(":") ? "left" : ""));
       const row = (l: string, tag: string) => `<tr>${cells(l).map((c, k) => `<${tag}${aligns[k] ? ` style="text-align:${aligns[k]}"` : ""}>${renderInline(c)}</${tag}>`).join("")}</tr>`;
       let t = `<table><thead>${row(line, "th")}</thead><tbody>`;

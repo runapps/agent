@@ -11,7 +11,7 @@ import { buildZip } from "./zip.js";
 
 export interface FilesStrings {
   files: string; upload: string; newFile: string; refresh: string; close: string; save: string; download: string; delete: string; cancel: string; ok: string;
-  confirmDeleteFile: string; newFilePath: string; noPreview: string; changedByAgent: string; noFiles: string; discard: string; saved: string; pickFile: string; folder: string; downloadZip: string; zipping: string; wrap: string; preview: string; edit: string;
+  confirmDeleteFile: string; newFilePath: string; noPreview: string; changedByAgent: string; noFiles: string; discard: string; saved: string; pickFile: string; folder: string; downloadZip: string; zipping: string; wrap: string; preview: string; edit: string; tooBig: string; conflict: string; readOnly: string; autoSaved: string;
 }
 
 export interface FilesPanelOptions {
@@ -87,6 +87,9 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   let selectedDir = "/";
   const collapsed = new Set<string>(["/.agent"]);
   let offChange: (() => void) | null = null;
+  let gen = 0;
+  let lastFiles: FileStat[] | null = null;
+  const MAX_EDIT = 2 * 1024 * 1024;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   /** Many writes in a burst (a skills zip unpacking, a folder delete) redraw once. */
   const scheduleRefresh = () => { if (refreshTimer) return; refreshTimer = setTimeout(() => { refreshTimer = null; void refresh(); }, 150); };
@@ -118,6 +121,14 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   const wrapBtn = ibtn(I.wrap(), t.wrap, () => { wrap = !wrap; try { localStorage.setItem(WRAP_KEY, wrap ? "1" : "0"); } catch { /* private mode */ } applyWrap(); });
   const mdBtn = ibtn(I.eye(), t.preview, () => { previewing = !previewing; applyView(); });
   const md = h("div", "ra-md ra-edmd"); md.style.display = "none";
+  md.addEventListener("click", (e) => {
+    const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("a[href]");
+    const href = a?.getAttribute("href") ?? "";
+    if (!a || !href.startsWith("/") || href.startsWith("//") || !ws) return;
+    e.preventDefault();
+    const target = ws;
+    void target.exists(href).then((ok) => { if (ok && target === ws) void openFile(href); });
+  });
   const applyWrap = () => { ta.classList.toggle("ra-wrap", wrap); wrapBtn.classList.toggle("on", wrap); };
   const isMarkdown = (path: string | null) => !!path && /\.(md|markdown|mdx)$/i.test(path);
   const applyView = () => {
@@ -172,7 +183,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
       row.append(acts);
       row.addEventListener("click", (e) => {
         if ((e.target as HTMLElement).closest(".ra-fra")) return;
-        if (c.folder) { selectedDir = c.path; if (!collapsed.delete(c.path)) collapsed.add(c.path); void refresh(); }
+        if (c.folder) { selectedDir = c.path; if (!collapsed.delete(c.path)) collapsed.add(c.path); draw(); }
         else { selectedDir = dirname(c.path); void openFile(c.path); }
       });
       frag.append(row);
@@ -180,16 +191,27 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     }
   };
 
+  /** Draws the tree from the last listing (folding and highlighting need no new listing). */
+  const draw = () => {
+    if (!lastFiles) return;
+    const frag = document.createDocumentFragment();
+    if (!lastFiles.length) frag.append(h("div", "ra-fpe", t.noFiles));
+    else render(buildTree(lastFiles), 0, frag);
+    tree.replaceChildren(frag);
+  };
+  /** Lists the directory again; an answer that arrives after a newer request (or another workspace) is dropped. */
   const refresh = async () => {
     if (!ws || !visible || disposed) return;
-    const frag = document.createDocumentFragment();
+    const mine = ++gen, target = ws;
     try {
-      const files = await ws.list("/");
-      if (!files.length) frag.append(h("div", "ra-fpe", t.noFiles));
-      else render(buildTree(files), 0, frag);
-    } catch (err) { frag.append(h("div", "ra-fpe", (err as Error).message)); }
-    if (disposed) return;
-    tree.replaceChildren(frag);
+      const files = await target.list("/");
+      if (mine !== gen || target !== ws || disposed) return;
+      lastFiles = files;
+      draw();
+    } catch (err) {
+      if (mine !== gen || disposed) return;
+      tree.replaceChildren(h("div", "ra-fpe", (err as Error).message));
+    }
   };
 
   const showEditor = (on: boolean) => { editor.style.display = on ? "" : "none"; root.classList.toggle("ra-editing", on); };
@@ -213,8 +235,12 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
         if (typeof r.data === "string") text = r.data;
         else { try { text = new TextDecoder("utf-8", { fatal: true }).decode(r.data); } catch { text = null; } }
       }
+      if (text !== null && r.size > MAX_EDIT) text = null;
+      const readOnly = ws.isReadOnly(path);
+      delBtn.style.display = readOnly ? "none" : "";
       if (text !== null) {
-        loaded = text; ta.value = text; preview.style.display = "none"; ta.readOnly = false;
+        loaded = text; ta.value = text; preview.style.display = "none"; ta.readOnly = readOnly;
+        ta.title = readOnly ? t.readOnly : "";
         applyView();
       } else {
         loaded = null; ta.style.display = "none"; md.style.display = "none"; mdBtn.style.display = "none"; preview.style.display = "";
@@ -223,14 +249,14 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
           previewURL = URL.createObjectURL(blob);
           const img = h("img"); img.src = previewURL; img.alt = basename(path);
           preview.append(img);
-        } else preview.append(h("div", "ra-fpe", t.noPreview));
+        } else preview.append(h("div", "ra-fpe", r.size > MAX_EDIT && !image ? t.tooBig : t.noPreview));
         preview.append(h("div", "ra-fpe", `${r.size} B`));
       }
     } catch (err) {
       loaded = null; ta.style.display = "none"; md.style.display = "none"; mdBtn.style.display = "none"; preview.style.display = "";
       preview.replaceChildren(h("div", "ra-fpe", (err as Error).message));
     }
-    await refresh();
+    draw();
   };
 
   const closeFile = async (): Promise<boolean> => {
@@ -245,10 +271,16 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
 
   const save = async () => {
     if (!ws || !active || draft === null) return;
-    const path = active, text = draft;
+    const path = active, text = draft, target = ws;
     try {
-      await ws.write(path, text);
-      loaded = text; setDraft(null);
+      // Changed under the editor since it was opened (the agent, another tab): ask before overwriting.
+      const now = await target.readText(path).catch(() => null);
+      if (now !== null && loaded !== null && now !== loaded && !(await modalConfirm(root, t.conflict, path, { ok: t.save, cancel: t.cancel, danger: true }))) return;
+      await target.write(path, text);
+      if (active !== path || target !== ws) return;
+      loaded = text;
+      // Typing that went on while saving is still unsaved.
+      setDraft(ta.value === text ? null : ta.value);
       notify(`${t.saved}: ${path}`);
       opts.onChange?.();
     } catch (err) { notify((err as Error).message, "error"); }
@@ -280,13 +312,18 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   const remove = async (path: string) => {
     if (!ws) return;
     if (!(await modalConfirm(root, t.delete, t.confirmDeleteFile.replace("{path}", path), { ok: t.delete, cancel: t.cancel, danger: true }))) return;
+    const failed: string[] = [];
     try {
-      if (await ws.isFolder(path)) { for (const f of await ws.list(path)) if (f.path !== path) await ws.delete(f.path); }
-      else await ws.delete(path);
-      if (active === path || (active && active.startsWith(path + "/"))) { active = null; loaded = null; setDraft(null); showEditor(false); }
-      opts.onChange?.();
-      await refresh();
+      const targets = (await ws.isFolder(path)) ? (await ws.list(path)).map((f) => f.path).filter((p) => p !== path) : [path];
+      for (const p of targets) {
+        if (ws.isReadOnly(p)) { failed.push(p); continue; }
+        try { await ws.delete(p); } catch { failed.push(p); }
+      }
     } catch (err) { notify((err as Error).message, "error"); }
+    if (active && (active === path || active.startsWith(path + "/")) && !(await ws.exists(active))) { active = null; loaded = null; setDraft(null); showEditor(false); }
+    if (failed.length) notify(`${t.readOnly}: ${failed.slice(0, 3).join(", ")}${failed.length > 3 ? ` +${failed.length - 3}` : ""}`, "warning");
+    opts.onChange?.();
+    await refresh();
   };
 
   const newFile = async () => {
@@ -318,7 +355,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     await refresh();
     if (last && list.length === 1) await openFile(last);
   };
-  fileInput.addEventListener("change", () => { void upload(fileInput.files); fileInput.value = ""; });
+  fileInput.addEventListener("change", () => { const picked = Array.from(fileInput.files ?? []); fileInput.value = ""; void upload(picked); });
   let dragDepth = 0;
   el.addEventListener("dragenter", (e) => { if (!e.dataTransfer?.types.includes("Files")) return; e.preventDefault(); e.stopPropagation(); dragDepth++; el.dataset.drop = "1"; });
   el.addEventListener("dragover", (e) => { if (el.dataset.drop) { e.preventDefault(); e.stopPropagation(); e.dataTransfer!.dropEffect = "copy"; } });
@@ -347,22 +384,32 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     close,
     toggle: () => (visible ? close() : open()),
     setWorkspace(next) {
+      if (next === ws) return;
+      // An unsaved edit is written to the file it belongs to before the panel moves on, not dropped.
+      if (ws && active && draft !== null) {
+        const [old, path, text] = [ws, active, draft];
+        void old.write(path, text).then(() => notify(`${t.autoSaved}: ${path}`), (err) => notify((err as Error).message, "error"));
+      }
       offChange?.(); offChange = null;
       ws = next;
       if (next) offChange = next.onChange((c) => {
         if (!visible) return;
         scheduleRefresh();
-        // The open file changed under the editor: reload it unless the user has unsaved edits.
-        if (c.kind === "write" && c.path === active && draft === null) void openFile(c.path);
+        if (c.path !== active || draft !== null) return;
+        // The open file changed under the editor: reload it, or close it when it is gone (unless the user has unsaved edits).
+        if (c.kind === "write") void openFile(c.path);
+        else { active = null; loaded = null; showEditor(false); }
       });
+      if (previewURL) { URL.revokeObjectURL(previewURL); previewURL = null; }
+      lastFiles = null;
       active = null; loaded = null; setDraft(null); showEditor(false); changedPaths.clear(); selectedDir = "/";
       if (!next) { visible = false; el.style.display = "none"; root.classList.remove("ra-files-open"); } else void refresh();
     },
     refresh,
+    // The agent touched a path: mark it (onChange already redraws and reloads the open file).
     changed(path) {
       changedPaths.add(path);
-      if (path === active && draft === null) void openFile(path);
-      else void refresh();
+      draw();
     },
     download,
     dispose() {

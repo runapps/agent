@@ -120,6 +120,9 @@ export function renderMD(el: HTMLElement, md: string, streaming: boolean): void 
     const head = h("div", "ra-cbh");
     head.append(h("span", "", lang));
     const copy = h("button", "ra-copy"); copy.type = "button"; copy.innerHTML = I.copy(); copy.title = "copy";
+    copy.addEventListener("click", () => {
+      void navigator.clipboard?.writeText((code?.textContent ?? "").replace(/\n$/, "")).then(() => { copy.innerHTML = I.check(14); setTimeout(() => { copy.innerHTML = I.copy(); }, 1200); });
+    });
     head.append(copy);
     pre.replaceWith(box);
     box.append(head, pre);

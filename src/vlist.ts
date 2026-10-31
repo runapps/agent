@@ -70,21 +70,25 @@ export class VirtualList {
     const ours = this.expectedTop >= 0 && Math.abs(top - this.expectedTop) <= 1;
     this.expectedTop = -1;
     if (!ours) {
+      // At the bottom first: content that shrinks (a sent composer, an answered card) pulls scrollTop down
+      // to the new end, which is not the user leaving it. Leaving is a move up that ends above the end.
       const atBottom = s.scrollHeight - top - s.clientHeight <= this.followWithin;
-      if (top < this.lastTop - 0.5) this.follow = false;  // moved up
-      else if (atBottom) this.follow = true;
+      if (atBottom) this.follow = true;
+      else if (top < this.lastTop - 0.5) this.follow = false;
     }
     this.lastTop = top;
     this.schedule();
   };
-  private onWheel = (e: WheelEvent) => { if (e.deltaY < 0) this.follow = false; };
+  // A wheel up only leaves the bottom when there is somewhere to go.
+  private onWheel = (e: WheelEvent) => { if (e.deltaY < 0 && this.scroller.scrollTop > 0) this.follow = false; };
   private touchY = 0;
   private onTouch = (e: TouchEvent) => {
     this.touchY = e.touches[0]?.clientY ?? 0;
-    const move = (ev: TouchEvent) => { const y = ev.touches[0]?.clientY ?? 0; if (y > this.touchY + 2) this.follow = false; };
-    const end = () => { this.scroller.removeEventListener("touchmove", move); this.scroller.removeEventListener("touchend", end); };
+    const move = (ev: TouchEvent) => { const y = ev.touches[0]?.clientY ?? 0; if (y > this.touchY + 2 && this.scroller.scrollTop > 0) this.follow = false; };
+    const end = () => { this.scroller.removeEventListener("touchmove", move); this.scroller.removeEventListener("touchend", end); this.scroller.removeEventListener("touchcancel", end); };
     this.scroller.addEventListener("touchmove", move, { passive: true });
     this.scroller.addEventListener("touchend", end, { passive: true });
+    this.scroller.addEventListener("touchcancel", end, { passive: true });
   };
   private setTop(v: number): void {
     const s = this.scroller;
@@ -108,6 +112,8 @@ export class VirtualList {
     if (i < 0) return;
     this.rows.splice(i, 1);
     this.detach(row);
+    // Indices after it moved: rebuild the window instead of trusting first/last.
+    this.first = 0; this.last = -1;
     this.schedule();
   }
 
@@ -195,7 +201,8 @@ export class VirtualList {
       const last = Math.min(n - 1, this.indexAt(Math.min(total - 1, scrollTop + view + this.overscan)));
       // Reconcile the window.
       if (first !== this.first || last !== this.last || this.win.childElementCount !== last - first + 1) {
-        for (const [row, w] of this.wrappers) { const i = this.rows.indexOf(row); if (i < first || i > last) { this.ro?.unobserve(w); w.remove(); this.wrappers.delete(row); } }
+        const keep = new Set(this.rows.slice(first, last + 1));
+        for (const [row, w] of this.wrappers) if (!keep.has(row)) { this.ro?.unobserve(w); w.remove(); this.wrappers.delete(row); }
         const kids: HTMLElement[] = [];
         for (let i = first; i <= last; i++) kids.push(this.wrapper(this.rows[i]!));
         this.win.replaceChildren(...kids);

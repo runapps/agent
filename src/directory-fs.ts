@@ -81,7 +81,7 @@ export function directoryFS(handle: FileSystemDirectoryHandle, opts: { descripti
       const f = await h.getFile();
       const bytes = new Uint8Array(await f.arrayBuffer());
       const type = f.type || guessType(path, bytes);
-      if (TEXT_TYPES.test(type) || type === "text/plain") {
+      if (TEXT_TYPES.test(type)) {
         const text = decodeText(bytes);
         if (text !== null) return text;
       }
@@ -105,8 +105,10 @@ export function directoryFS(handle: FileSystemDirectoryHandle, opts: { descripti
       const parent = await dir(segs.slice(0, -1));
       try {
         await parent.removeEntry(segs[segs.length - 1]!, { recursive: true });
-      } catch {
-        throw notFound(path);
+      } catch (err) {
+        // Only a missing entry is "no such file"; a permission or lock error says what it is.
+        if ((err as DOMException)?.name === "NotFoundError") throw notFound(path);
+        throw new Error(`${path}: ${(err as Error)?.message ?? String(err)}`);
       }
     };
   }

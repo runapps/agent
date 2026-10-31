@@ -13,6 +13,8 @@ export interface ZipEntry {
   isDir: boolean;
   /** Offset of the local header. */
   offset: number;
+  /** CRC-32 of the uncompressed bytes, from the central directory. */
+  crc?: number;
 }
 
 export type Inflate = (compressed: Uint8Array) => Promise<Uint8Array> | Uint8Array;
@@ -63,7 +65,7 @@ export function listZip(bytes: Uint8Array): ZipEntry[] {
     }
     const nameBytes = bytes.subarray(p + 46, p + 46 + nameLen);
     const name = ((flags & 0x800) ? utf8 : cp437).decode(nameBytes).replace(/\\/g, "/");
-    entries.push({ name, size, compressedSize, method, isDir: name.endsWith("/"), offset });
+    entries.push({ name, size, compressedSize, method, isDir: name.endsWith("/"), offset, crc: view.getUint32(p + 16, true) });
     p += 46 + nameLen + extraLen + commentLen;
   }
   return entries;
@@ -80,8 +82,12 @@ export async function readZipEntry(bytes: Uint8Array, entry: ZipEntry, inflate?:
   const start = p + 30 + nameLen + extraLen;
   // Sizes come from the central directory: with a data descriptor
   // (flag bit 3) the local header's are zero.
+  if (start + entry.compressedSize > bytes.byteLength) throw new Error(`runapps agent: zip entry "${entry.name}" is damaged`);
   const data = bytes.subarray(start, start + entry.compressedSize);
-  if (entry.method === 0) return data;
+  if (entry.method === 0) {
+    if (data.byteLength !== entry.size || (entry.crc !== undefined && crc32(data) !== entry.crc)) throw new Error(`runapps agent: zip entry "${entry.name}" is damaged`);
+    return data;
+  }
   if (entry.method !== 8) throw new Error(`runapps agent: zip entry "${entry.name}" uses an unsupported compression method (${entry.method})`);
   const out = await (inflate ? inflate(data) : inflateRaw(data));
   if (out.byteLength !== entry.size) throw new Error(`runapps agent: zip entry "${entry.name}" inflated to the wrong size`);
@@ -138,6 +144,8 @@ function dosDateTime(ms: number): { date: number; time: number } {
  * directory from the browser; no external dependency.
  */
 export async function buildZip(entries: Array<{ path: string; data: Uint8Array | string; mtime?: number }>): Promise<Uint8Array> {
+  // Without zip64 the end record counts entries in 16 bits (0xffff itself means zip64).
+  if (entries.length > 0xfffe) throw new Error(`runapps agent: too many files for one zip (${entries.length}; at most ${0xfffe})`);
   const enc = new TextEncoder();
   const locals: Uint8Array[] = [];
   const centrals: Uint8Array[] = [];

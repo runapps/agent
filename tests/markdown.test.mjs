@@ -34,3 +34,19 @@ test("task lists and ordered start", () => {
   assert.equal(renderMarkdown("- [x] done\n- [ ] todo"), '<ul><li><input type="checkbox" disabled checked> done</li><li><input type="checkbox" disabled> todo</li></ul>');
   assert.equal(renderMarkdown("3. c\n4. d"), '<ol start="3"><li>c</li><li>d</li></ol>');
 });
+
+test("review fixes — intraword underscores, URLs with parentheses, closing hashes, inline triple backticks, table edge cases, linear time", () => {
+  assert.equal(renderMarkdown("my_file_name.py and _em_"), "<p>my_file_name.py and <em>em</em></p>");
+  assert.match(renderMarkdown("[Foo](https://e.org/Foo_(bar))"), /href="https:\/\/e\.org\/Foo_\(bar\)"/);
+  assert.match(renderMarkdown("see https://e.org/Foo_(bar)."), /href="https:\/\/e\.org\/Foo_\(bar\)"[^]*<\/a>\.<\/p>/);
+  assert.equal(renderMarkdown("## Using C#"), "<h2>Using C#</h2>");
+  assert.equal(renderMarkdown("## Title ##"), "<h2>Title</h2>");
+  assert.equal(renderMarkdown("```foo``` text\nmore"), "<p><code>foo</code> text<br>more</p>");
+  assert.doesNotMatch(renderMarkdown("a | b\n---\nafter"), /<table>/, "a delimiter row without a pipe is not a table");
+  assert.match(renderMarkdown("| a | b |\n|---|---|\n| x \\| y | z |"), /<td>x \| y<\/td><td>z<\/td>/);
+  assert.doesNotMatch(renderMarkdown("[x](javascript:alert(1))"), /href/);
+  const t0 = Date.now();
+  renderMarkdown(" *a".repeat(20000));
+  renderMarkdown("[a ".repeat(20000));
+  assert.ok(Date.now() - t0 < 500, `pathological input renders fast (${Date.now() - t0} ms)`);
+});
