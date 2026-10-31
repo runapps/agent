@@ -345,3 +345,36 @@ test("workspace — ids are separate directories in one app database; sessions l
   assert.equal(await b.readText("/notes.md"), "B's notes");
   assert.deepEqual((await b.sessions.list()).map((s) => s.id), ["sess-b"]);
 });
+
+test("workspace — deleting a session from another directory drops the directory made for it; a shared directory's sessions leave its files alone; clear() empties the app", async () => {
+  const idb = new IDBFactory();
+  const usage = { total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 };
+  // The chat's model: a directory per session, named after it.
+  const a = await Workspace.open(null, { id: "sess-a", project: "app", indexedDB: idb });
+  const b = await Workspace.open(null, { id: "sess-b", project: "app", indexedDB: idb });
+  await a.write("/notes.md", "A");
+  await b.write("/notes.md", "B");
+  await a.sessions.save({ v: 2, id: "sess-a", messages: [{ role: "user", content: "a" }], usage, droppedTurns: 0, savedAt: 1 });
+  await b.sessions.save({ v: 2, id: "sess-b", messages: [{ role: "user", content: "b" }], usage, droppedTurns: 0, savedAt: 2 });
+  // One shared directory saving several sessions.
+  const shared = await Workspace.open(null, { id: "default", project: "app", indexedDB: idb });
+  await shared.write("/shared.md", "keep me");
+  await shared.sessions.save({ v: 2, id: "x1", messages: [], usage, droppedTurns: 0, savedAt: 3 });
+  await shared.sessions.save({ v: 2, id: "x2", messages: [], usage, droppedTurns: 0, savedAt: 4 });
+
+  await b.sessions.delete("sess-a");
+  assert.deepEqual((await b.sessions.list()).map((s) => s.id), ["x2", "x1", "sess-b"]);
+  const a2 = await Workspace.open(null, { id: "sess-a", project: "app", indexedDB: idb });
+  assert.equal(await a2.exists("/notes.md"), false, "the session's own directory went with it");
+  assert.equal(await b.readText("/notes.md"), "B");
+
+  await b.sessions.delete("x1");
+  assert.equal(await shared.readText("/shared.md"), "keep me", "a session of a shared directory leaves the files");
+  assert.deepEqual((await shared.sessions.list()).map((s) => s.id), ["x2", "sess-b"]);
+
+  await shared.sessions.clear();
+  assert.deepEqual(await shared.sessions.list(), []);
+  const b2 = await Workspace.open(null, { id: "sess-b", project: "app", indexedDB: idb });
+  assert.equal(await b2.exists("/notes.md"), false);
+  assert.equal(await shared.readText("/shared.md"), "keep me");
+});

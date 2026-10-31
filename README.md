@@ -86,34 +86,39 @@ Three more files in the workspace have a meaning: `/AGENTS.md` is added to the s
 
 ## Chat UI
 
-`renderChat(target, options)` turns an element into a chat with an agent: Markdown replies with a streaming cursor, the model's thinking folded away, a card per tool call (arguments, result, duration), questions the agent asks (`ask_user`, confirmations) answered inline above the composer, a history menu and "new chat" when there is a workspace, and a cost line. Plain DOM, no framework; the styles are injected once and follow the system colour scheme. Give the element a height.
+`renderChat(target, options)` turns an element into a chat with an agent: Markdown replies with a streaming cursor, the model's thinking folded away, a card per tool call (icon, arguments, result, duration, status), questions the agent asks (`ask_user`, confirmations) answered inline above the composer, a history menu (resume, delete, delete all) and "new chat" when there is a workspace, attachments, and a cost line. Plain DOM, no framework; the styles are injected once (Chakra's purple palette and gray scale, light and dark) and the markup follows the harness app's chat. Give the element a height.
 
 ```html
 <div id="assistant" style="height: 600px"></div>
 <script>
   const client = new RunApps({ project: "my-app" });
-  const workspace = await RunAppsAgent.openWorkspace(client, { skills: "/skills.zip" });
   const chat = RunAppsAgent.renderChat(document.getElementById("assistant"), {
-    client, workspace,
+    client,
+    workspace: (sessionId) => RunAppsAgent.openWorkspace(client, { id: sessionId, skills: "/skills.zip" }),
     appName: "My app",
     instructions: "You are the assistant inside My app.",
     tools: [myTool],
     suggestions: ["Summarise the open document", "/skill:review"],
   });
+  await chat.ready;
   chat.prompt("Hello");          // as if typed; chat.agent is the Agent underneath
 </script>
 ```
 
-Every `AgentOptions` field is accepted (`model`, `tools`, `permissions`, `compaction`, …); `workspace` is a `Workspace` shared by all sessions or a function `(sessionId) => Workspace` for a directory per session (see Workspace below). Plus: `title` (header; `false` hides it), `placeholder`, `emptyState`, `suggestions` (starter prompts), `sessions` (the history / new-chat menu; default on with a workspace), `locale` (`"zh"` / `"en"`, default the document's), `theme` (`"auto"` / `"light"` / `"dark"`), `showUsage`, `onOpenFile(path)` (a tool card's path becomes a link). The handle has `agent`, `element`, `ui` (the inline dialogs, usable by the host's own tools), `prompt(text)`, `setInput(text)`, `newSession()`, `resume(id)` and `unmount()`. Pass `agent` instead of `client` to show an agent the host built itself (its own `ui` then answers questions, and the session menu is off).
+Every `AgentOptions` field is accepted (`model`, `tools`, `permissions`, `compaction`, …); `workspace` is a `Workspace` shared by all sessions or a function `(sessionId) => Workspace` for a directory per session (see Workspace below). Plus: `resume` (`true`, the default, reopens the session this app last had open in this browser — so a page reload or a re-render continues the conversation; a string names one; `false` starts fresh), `title` (header; `false` hides it), `placeholder`, `emptyState`, `suggestions` (starter prompts), `sessions` (the history / new-chat menu; default on with a workspace), `attachments` (default on) and `uploadsDir` (default `/uploads`), `locale` (`"zh"` / `"en"`, default the document's), `theme` (`"auto"` / `"light"` / `"dark"`), `showUsage`, `onOpenFile(path)` (a tool card's path becomes a link), `onSession(agent)` (each session's agent as it opens). The handle has `agent`, `ready`, `element`, `ui` (the inline dialogs, usable by the host's own tools), `prompt(text)`, `setInput(text)`, `newSession()`, `resume(id)`, `deleteSession(id)`, `refresh()` and `unmount()` (which stops an agent the chat made). Pass `agent` instead of `client` to show an agent the host built itself (its own `ui` then answers questions, and the session menu is off).
 
-In the composer, Enter sends and Shift+Enter breaks a line; while the agent runs, Enter steers (joins the next turn) and Alt+Enter queues a follow-up; `/` lists the workspace's prompt templates and skills. Colours come from `--ra-*` custom properties on `.ra-chat`, so a host can restyle without touching the markup. `examples/chat/index.html` is a complete page (serve the package root and open `/examples/chat/index.html`).
+In the composer, Enter sends and Shift+Enter breaks a line; while the agent runs, Enter steers (joins the next turn) and Alt+Enter queues a follow-up; `/` lists the workspace's prompt templates and skills. The box is a fixed height and typing touches nothing but the `/` popover, so nothing jumps while you type. Files come in through the paperclip, drag and drop onto the chat, or paste: each is saved in the session's directory under `uploadsDir` and listed in the message (`[attachments]` block with path, type and size), so the agent reads it with `read_file`; a PNG/JPEG/GIF/WebP is also sent to the model as a picture; without a workspace, text files up to 64 KB go inline. Limit 20 MB per file.
+
+The transcript is a virtual list (`VirtualList`, also exported): a row is built the first time it scrolls into view and only the rows around the viewport are in the DOM, so a session with thousands of messages opens at once; rows keep their element, so an opened tool card stays open when it scrolls back in. Streaming text is re-rendered at most every 100 ms and the list follows the end until you scroll up.
+
+Colours come from `--ra-*` custom properties on `.ra-chat`, so a host can restyle without touching the markup. `examples/chat/index.html` is a complete page (serve the package root and open `/examples/chat/index.html`).
 
 ## Reference
 
 | | |
 |---|---|
 | `createAgent(client, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `abort`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id` |
-| `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `skills`, `skillBody`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete` |
+| `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `skills`, `skillBody`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` (deleting a session saved from a directory of its own id drops that directory too) |
 | Tools | `defineTool`, `fileTools`, `sandboxTool`, `runInSandbox`, `askUserTool` |
 | UI | `domUI`, `nullUI`; implement `AgentUI` for your own |
 | Files | `memoryFS`; implement `AgentFS` to mount your document |

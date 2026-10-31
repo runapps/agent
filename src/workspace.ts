@@ -46,8 +46,8 @@ interface Store {
   deleteSession(id: string): Promise<void>;
   /** Every session in the app's database, whichever directory saved it. */
   listSessions(): Promise<SessionData[]>;
-  /** Drops this directory's files, meta and sessions. */
-  clear(): Promise<void>;
+  /** Drops a directory's files, meta and sessions (this one by default). */
+  clear(space?: string): Promise<void>;
   close(): void;
 }
 
@@ -64,7 +64,10 @@ export interface SessionStore {
   list(): Promise<SessionSummary[]>;
   get(id: string): Promise<SessionData | null>;
   save(data: SessionData): Promise<void>;
+  /** Deletes a session; one saved from a directory of its own id (as the chat makes) takes that directory with it. */
   delete(id: string): Promise<void>;
+  /** Deletes every session of the app (and the directories made for them). */
+  clear(): Promise<void>;
 }
 
 export interface WorkspaceOptions {
@@ -146,7 +149,14 @@ export class Workspace {
     },
     delete: async (id) => {
       await this.ready();
+      const d = await this.store.getSession(id);
       await this.store.deleteSession(id);
+      // A session saved from a directory of its own id (the chat gives each session one) takes the directory with it.
+      if (d?.space === id && id !== this.id) await this.store.clear(id);
+    },
+    clear: async () => {
+      await this.ready();
+      for (const d of await this.store.listSessions()) if (d.id) await this.sessions.delete(d.id);
     },
   };
 
@@ -630,10 +640,10 @@ function openIDBStore(idb: IDBFactory, name: string, space: string): Promise<Sto
         putSession: async (data) => { await run("sessions", "readwrite", (s) => s.put(data)); },
         deleteSession: async (id) => { await run("sessions", "readwrite", (s) => s.delete(id)); },
         listSessions: () => run<SessionData[]>("sessions", "readonly", (s) => s.getAll()),
-        clear: async () => {
-          await run("files", "readwrite", (s) => s.delete(range("/")));
-          await run("meta", "readwrite", (s) => s.delete(IDBKeyRange.bound([space, ""], [space, "\uffff"], false, false)));
-          const mine = await run<SessionData[]>("sessions", "readonly", (s) => s.index("space").getAll(space));
+        clear: async (which = space) => {
+          await run("files", "readwrite", (s) => s.delete(IDBKeyRange.bound([which, "/"], [which, "/\uffff"], false, false)));
+          await run("meta", "readwrite", (s) => s.delete(IDBKeyRange.bound([which, ""], [which, "\uffff"], false, false)));
+          const mine = await run<SessionData[]>("sessions", "readonly", (s) => s.index("space").getAll(which));
           for (const d of mine) await run("sessions", "readwrite", (s) => s.delete(d.id!));
         },
         close: () => db.close(),
@@ -669,10 +679,10 @@ function memoryStore(name: string, space: string): Store {
     putSession: async (data) => { mem.sessions.set(data.id!, data); },
     deleteSession: async (id) => { mem.sessions.delete(id); },
     listSessions: async () => [...mem.sessions.values()],
-    clear: async () => {
-      mem.files.delete(space);
-      mem.meta.delete(space);
-      for (const [id, d] of mem.sessions) if (d.space === space) mem.sessions.delete(id);
+    clear: async (which = space) => {
+      mem.files.delete(which);
+      mem.meta.delete(which);
+      for (const [id, d] of mem.sessions) if (d.space === which) mem.sessions.delete(id);
     },
     close: () => {},
   };
