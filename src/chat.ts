@@ -102,7 +102,7 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
    * default; `setDebug()` switches it while mounted.
    */
   debug?: boolean;
-  /** Show the run's cost and tokens under the composer (default on). */
+  /** Show the context ring in the composer's toolbar, with the cost and tokens in its tooltip (default on). */
   showUsage?: boolean;
   /**
    * Files attached to a message (paperclip, drag and drop, paste; default
@@ -560,8 +560,9 @@ const CSS = tokenCSS() + `
 .ra-bar .ra-hint{font-size:12px;color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.01em}
 .ra-kbd{display:inline-block;font:11px/1.4 var(--ra-mono);border:1px solid var(--ra-border);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--ra-muted);color:var(--ra-fg)}
 .ra-bar .ra-acts{display:flex;gap:6px;align-items:center}
-.ra-chat .ra-send{width:32px;height:32px;border-radius:50%;background:var(--ra-accent);color:#fff;display:inline-flex;align-items:center;justify-content:center}
-.ra-chat .ra-send:hover{filter:brightness(1.08)}
+/* Send: a quiet ↵ in the toolbar, there only while something can be sent. */
+.ra-chat .ra-send{width:30px;height:30px;border-radius:8px;color:var(--ra-fg);display:inline-flex;align-items:center;justify-content:center}
+.ra-chat .ra-send:hover{background:var(--ra-muted)}
 .ra-cmds{position:absolute;left:0;right:0;bottom:calc(100% + 6px);z-index:5;background:var(--ra-panel);border:1px solid var(--ra-border);border-radius:6px;box-shadow:var(--ra-shadow-md);padding:4px;max-height:260px;overflow:auto}
 .ra-cmds button{display:flex;gap:8px;align-items:center;width:100%;text-align:left;padding:6px 8px;border-radius:4px;font-size:13px}
 .ra-cmds button:hover,.ra-cmds button.ra-cur{background:var(--ra-muted)}
@@ -588,11 +589,11 @@ const CSS = tokenCSS() + `
 .ra-chip-link:hover{border-color:color-mix(in srgb,var(--ra-fg) 25%,transparent);background:var(--ra-subtle)}
 .ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-accent) 8%,transparent);border:2px dashed var(--ra-accent);border-radius:8px;color:var(--ra-accent-fg);font-weight:600;pointer-events:none}
 .ra-chat[data-drop="1"] .ra-drop{display:flex}
-.ra-sendwrap{position:relative;display:inline-flex;align-items:center;justify-content:center}
-.ra-sendwrap .ra-ring{position:absolute;inset:-4px;pointer-events:none;display:block}
-.ra-sendwrap .ra-ring svg{width:100%;height:100%;display:block}
-.ra-chat[data-busy="1"] .ra-sendwrap .ra-ring{position:static;width:20px;height:20px;inset:auto}
-.ra-ring circle{fill:none;stroke-width:2.5}
+/* How full the context is: a small ring in the toolbar; its tooltip has the numbers and the spending. */
+.ra-ring{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;cursor:default}
+.ra-ring:hover{background:var(--ra-muted)}
+.ra-ring svg{width:18px;height:18px;display:block}
+.ra-ring circle{fill:none;stroke-width:4}
 .ra-ring .tr{stroke:var(--ra-border)}
 .ra-ring .pr{stroke:var(--ra-accent);stroke-linecap:round;transition:stroke-dashoffset .3s}
 .ra-ring.mid .pr{stroke:var(--ra-warn-fg)}
@@ -1065,19 +1066,17 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const fill = (x: string) => x.replace("{mod}", MOD).replace("{enter}", t.enter).replace("{newline}", t.newline);
   hint.textContent = fill(t.hintIdle);
   const acts = h("div", "ra-acts");
-  const sendBtn = h("button", "ra-send"); sendBtn.type = "button"; sendBtn.innerHTML = I.send(); sendBtn.setAttribute("aria-label", t.send);
+  const sendBtn = h("button", "ra-send"); sendBtn.type = "button"; sendBtn.innerHTML = I.corner(18); sendBtn.title = t.send; sendBtn.setAttribute("aria-label", t.send);
   const steerBtn = h("button", "ra-btn xs subtle"); steerBtn.type = "button"; steerBtn.innerHTML = I.corner() + escapeHTML(t.steer); steerBtn.title = t.steerTip;
   const fuBtn = h("button", "ra-btn xs subtle", t.followUp); fuBtn.type = "button"; fuBtn.title = t.followUpTip;
   const stopBtn = h("button", "ra-btn xs red"); stopBtn.type = "button"; stopBtn.innerHTML = I.square() + escapeHTML(t.stop);
-  // The send button carries the usage: a ring around it shows how full the context is; its tooltip has the spending.
-  const sendWrap = h("span", "ra-sendwrap");
-  acts.append(steerBtn, fuBtn, stopBtn, sendWrap);
+  // The usage: a ring for how full the context is, its tooltip with the spending.
+  const ring = h("span", "ra-ring"); ring.style.display = "none"; ring.tabIndex = 0;
+  acts.append(ring, steerBtn, fuBtn, stopBtn, sendBtn);
   left.append(attachBtn, hint);
   bar.append(left, acts);
   box.append(cmds, files, ta, bar, fileInput);
   const drop = h("div", "ra-drop", t.drop);
-  const ring = h("span", "ra-ring"); ring.style.display = "none";
-  sendWrap.append(sendBtn, ring);
   compCol.append(alertEl, queueEl, box);
   comp.append(compCol);
   const toasts = h("div", "ra-toasts");
@@ -1815,11 +1814,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
 
   /* --- composer --- */
+  /** The send button is there only while idle with something to send (text, a file, context). */
+  const syncSend = () => {
+    sendBtn.style.display = root.dataset.busy !== "1" && (ta.value.trim() || pendingFiles.length || pendingContext.length) ? "" : "none";
+  };
   const setBusy = (busy: boolean) => {
     root.dataset.busy = busy ? "1" : "";
     ta.placeholder = busy ? fill(t.placeholderBusy) : (placeholder ?? t.placeholder);
     hint.textContent = fill(busy ? t.hintBusy : t.hintIdle);
-    sendBtn.style.display = busy ? "none" : "";
+    syncSend();
     steerBtn.style.display = fuBtn.style.display = stopBtn.style.display = busy ? "" : "none";
     renderQueue();
   };
@@ -1895,6 +1898,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return [...builtinCommands(), ...commands].filter((c) => `/${c.name}`.startsWith(v)).slice(0, 40);
   };
   const renderCmds = () => {
+    syncSend();
     const found = currentSuggestions();
     cmds.style.display = found.length ? "" : "none";
     cmds.replaceChildren();
@@ -1916,7 +1920,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const pendingFiles: Attachment[] = [];
   /** What the host put into the next message (addContext). */
   const pendingContext: Array<{ id: string; label: string; text: string; chip: HTMLElement }> = [];
-  const renderFiles = () => { files.style.display = pendingFiles.length || pendingContext.length ? "" : "none"; };
+  const renderFiles = () => { files.style.display = pendingFiles.length || pendingContext.length ? "" : "none"; syncSend(); };
   const removeContext = (id: string) => {
     const i = pendingContext.findIndex((c) => c.id === id);
     if (i < 0) return;
@@ -2075,7 +2079,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     } catch (err) { awaitingRow = null; setAlert((err as Error).message); }
   };
 
-  ta.addEventListener("input", () => { cmdsDismissed = false; scheduleCmds(); });
+  ta.addEventListener("input", () => { cmdsDismissed = false; syncSend(); scheduleCmds(); });
   ta.addEventListener("keydown", (e) => {
     // Confirming a word in an input method is not sending (Safari reports it with keyCode 229).
     if (e.isComposing || e.keyCode === 229) return;
@@ -2492,11 +2496,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (showUsage === false) return;
     const u = a.usage;
     const spent = u.calls ? t.usageLine.replace("{cost}", fmtCost(u.total_cost)).replace("{tokens}", fmtTokens(u.prompt_tokens + u.completion_tokens)).replace("{calls}", String(u.calls)) : "";
-    const label = (context: string) => { const text = [spent, context].filter(Boolean).join("\n"); sendWrap.title = text; ring.setAttribute("aria-label", text); };
+    const label = (context: string) => { const text = [spent, context].filter(Boolean).join("\n"); ring.title = text; ring.setAttribute("aria-label", text); };
     if (!a.messages.length) { ring.style.display = "none"; label(""); return; }
     void a.context().then((c) => {
       if (agent !== a) return;
-      // How full the context is, as a ring around the send button; the numbers (and the spending) are in its tooltip.
+      // How full the context is, as a ring in the toolbar; the numbers (and the spending) are in its tooltip.
       const ratio = Math.min(1, c.used / c.window);
       const pct = ratio < 0.01 ? "<1%" : `${Math.round(ratio * 100)}%`;
       const r = 18, len = 2 * Math.PI * r;

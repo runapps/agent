@@ -26,7 +26,7 @@
 - **Replies** — streaming Markdown (code blocks with copy, tables, links). While the agent works, the end of the reply shows what it is doing — *Thinking*, *Running code*, *Reading plan.md* — over a few lines that scroll as it goes: its latest thinking, the code being run, a tool's progress. When the run ends, its thinking and tool calls fold into one line, *Worked for 1m 12s ›*, above the answer.
 - **Tool calls** — one quiet line per chain of calls, worded from the tools ("read 2 files, edited 1 file"), opening to a card per call with arguments, result (pictures a tool returned shown under it), duration and status.
 - **Questions** — `ask_user` and confirmations appear inline above the composer; while one waits the composer folds to a line, and answering brings the view back to the latest output. A short chat (under 420 px) keeps its composer compact.
-- **The composer** — Enter sends, Shift+Enter breaks a line. While the agent runs, Enter **steers** (inserts into the current task) and ⌘↵ / Ctrl+↵ **queues** a follow-up; queued messages sit in a card above the box with *send now*, *edit* and *remove*.
+- **The composer** — Enter sends (the ↵ button appears once there is something to send), Shift+Enter breaks a line. While the agent runs, Enter **steers** (inserts into the current task) and ⌘↵ / Ctrl+↵ **queues** a follow-up; queued messages sit in a card above the box with *send now*, *edit* and *remove*.
 - **Attachments** — paperclip, drag and drop, or paste. Files are saved under `/uploads/` in the conversation's directory and named in the message; pictures also go to the model as images — unless the model is known to be text-only: then they stay files and the user is told the model cannot see them. 20 MB per file.
 - **Files** — the header's *Files* button opens the directory: a tree, an editor (⌘S, word wrap, Markdown preview), picture and PDF previews, upload, new file, download (folders as zip). File paths in replies open there. Live: changes by the agent show at once.
 - **Skills** — the *Skills* button lists the skills (with a count), uploads zips, removes the user's own.
@@ -34,7 +34,7 @@
 - **Settings** — the gear: model (with context and output limits, and which models see pictures), thinking level when the model has one, max turns, max output, tool permissions. Kept per app in the browser and applied to every conversation.
 - **Rewind** — hover a user message: when it was sent, copy, *rewind to here* (the conversation after it is dropped, the message goes back into the composer, and the directory's files can be restored to that moment).
 - **How a run ended** — *Stopped.*, the turn limit with *Continue*, an error with *Retry*; kept across reloads until the next run.
-- **Context and spending** — a ring around the send button shows how full the model's window is; its tooltip has the spending (cost, tokens, calls) and the context figures. Older turns are summarised automatically.
+- **Context and spending** — a small ring in the composer's toolbar shows how full the model's window is; its tooltip has the spending (cost, tokens, calls) and the context figures. Older turns are summarised automatically.
 - **Time** — "Today 22:15" above messages that start a conversation or follow a pause.
 
 ## Slash commands
@@ -76,7 +76,7 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `settings` | on | The settings gear. |
 | `attachments` | on | Paperclip, drop and paste. |
 | `uploadsDir` | `/uploads` | Where attachments are saved. |
-| `showUsage` | on | The context ring on the send button and the spending in its tooltip. |
+| `showUsage` | on | A small ring in the composer's toolbar for how full the context is, with the spending in its tooltip. |
 | `locale` | the document's | `"en"` or `"zh"`. |
 | `theme` | `"auto"` | `"auto"`, `"light"`, `"dark"`. |
 | `palette` | `"claude"` | `"claude"`, `"violet"`, `"slate"`, `"forest"`, or your own. |
