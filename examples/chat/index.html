@@ -7,72 +7,122 @@
 <script src="https://www.runapps.ai/sdk/latest.js"></script>
 <script src="../../dist/agent.umd.js"></script>
 <style>
-  body { margin: 0; height: 100vh; display: grid; grid-template-columns: 1fr 320px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111; background: #fff; }
-  @media (prefers-color-scheme: dark) { body { color: #e5e7eb; background: #0b0d11; } aside { background: #14171d !important; border-color: #2a2f3a !important; } .box { border-color: #2a2f3a !important; } }
+  :root { --bg: #fff; --panel: #fafafa; --muted: #f4f4f5; --fg: #09090b; --fg2: #52525b; --border: #e4e4e7; --p-subtle: #f3e8ff; --p-fg: #7e22ce; --p: #9333ea; --red: #dc2626; --red-subtle: #fef2f2; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #09090b; --panel: #0f0f12; --muted: #18181b; --fg: #fafafa; --fg2: #a1a1aa; --border: #27272a; --p-subtle: #3b0764; --p-fg: #d8b4fe; --red: #f87171; --red-subtle: #2a1215; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; display: grid; grid-template-columns: 1fr 320px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans SC", sans-serif; color: var(--fg); background: var(--bg); -webkit-font-smoothing: antialiased; }
   /* the render target: everything inside this dashed box is drawn by renderChat(); the page owns the rest */
   #agent { min-height: 0; margin: 10px; border: 2px dashed #f59e0b; border-radius: 10px; position: relative; overflow: hidden; }
-  #agent::before { content: 'renderChat(<div id="agent">)'; position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 5; padding: 1px 8px; font: 11px ui-monospace, Menlo, monospace; color: #fff; background: #f59e0b; border-radius: 0 0 6px 6px; pointer-events: none; }
-  @media (max-width: 720px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } #agent { margin: 6px; } aside { max-height: 40vh; border-top: 1px solid #e5e7eb; } }
-  aside { padding: 12px 14px; font-size: 12px; background: #fafafa; overflow: auto; }
-  aside h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
-  label { display: block; margin-bottom: 6px; }
-  input[type=text], input[type=url], select { font: inherit; width: 100%; box-sizing: border-box; padding: 4px 6px; }
-  button { font: inherit; padding: 5px 10px; border-radius: 8px; border: 1px solid #d1d5db; background: transparent; color: inherit; cursor: pointer; margin: 2px 2px 2px 0; }
-  button.pri { background: #2563eb; border-color: #2563eb; color: #fff; }
-  pre { white-space: pre-wrap; word-break: break-all; font-size: 11px; margin: 4px 0; }
-  .box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 8px; margin: 4px 0; }
-  .skill { display: flex; gap: 6px; align-items: baseline; }
-  .skill b { font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
-  .skill span { flex: 1; min-width: 0; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .skill button { padding: 0 6px; font-size: 11px; }
-  .muted { opacity: .7; }
-  code { font-size: 11px; }
+  #agent::before { content: 'renderChat(<div id="agent">)'; position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 5; padding: 1px 8px; font: 11px var(--mono); color: #fff; background: #f59e0b; border-radius: 0 0 6px 6px; pointer-events: none; }
+  @media (max-width: 720px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } #agent { margin: 6px; } aside { max-height: 45vh; border-left: 0; border-top: 1px solid var(--border); } }
+
+  aside { padding: 14px 16px 24px; font-size: 13px; background: var(--panel); border-left: 1px solid var(--border); overflow: auto; display: flex; flex-direction: column; gap: 18px; }
+  aside h3 { margin: 0; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  aside h3 .logo { width: 24px; height: 24px; border-radius: 7px; background: linear-gradient(135deg, #9333ea, #ec4899); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
+  section { display: flex; flex-direction: column; gap: 8px; }
+  section > h4 { margin: 0; font-size: 11px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: .06em; }
+  .card { border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .kv { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: var(--fg2); }
+  .kv code { color: var(--fg); }
+  .muted { color: var(--fg2); font-size: 12px; line-height: 1.5; }
+  code { font: 11.5px var(--mono); background: var(--muted); padding: 1px 5px; border-radius: 4px; }
+
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fg2); }
+  select, input[type=url], input[type=text] { font: inherit; font-size: 13px; width: 100%; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; outline: 0; }
+  select { appearance: none; -webkit-appearance: none; padding-right: 26px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+  select:focus, input:focus { border-color: var(--p); }
+  button { font: inherit; font-size: 12.5px; font-weight: 500; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  button:hover { background: var(--muted); }
+  button.pri { background: var(--p); border-color: var(--p); color: #fff; }
+  button.pri:hover { filter: brightness(1.08); }
+  button.ghost { border-color: transparent; background: transparent; color: var(--fg2); }
+  button.ghost:hover { background: var(--muted); color: var(--fg); }
+  button.danger { color: var(--red); }
+  button.danger:hover { background: var(--red-subtle); }
+  button.xs { height: 24px; padding: 0 8px; font-size: 12px; }
+  .filebtn { position: relative; overflow: hidden; }
+  .filebtn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .fname { font-size: 12px; color: var(--fg2); min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .skills { display: flex; flex-direction: column; gap: 2px; }
+  .skill { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 6px; }
+  .skill:hover { background: var(--muted); }
+  .skill b { font: 600 12px var(--mono); color: var(--p-fg); background: var(--p-subtle); padding: 1px 6px; border-radius: 4px; }
+  .skill span { flex: 1; min-width: 0; color: var(--fg2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .skill button { opacity: 0; }
+  .skill:hover button { opacity: 1; }
+  .empty { color: var(--fg2); font-size: 12px; padding: 4px 8px; }
+
+  pre#run { margin: 0; white-space: pre-wrap; word-break: break-all; font: 11px/1.5 var(--mono); color: var(--fg2); background: var(--muted); border-radius: 6px; padding: 8px 10px; max-height: 160px; overflow: auto; }
+  pre#run:empty { display: none; }
+  .badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 999px; background: var(--p-subtle); color: var(--p-fg); }
 </style>
 </head>
 <body>
 <div id="agent"></div>
 <aside>
-  <h3 style="margin:0 0 8px">Agent Chat Lab</h3>
-  <div class="box">
-    <div id="who" class="muted">未登录</div>
-    <button id="signin" class="pri">登录 RunApps</button>
-    <button id="signout">退出</button>
-  </div>
+  <h3><span class="logo">✦</span>Agent Chat Lab</h3>
 
-  <h4>目录</h4>
-  <div class="box">
-    <label>目录模式<br><select id="dirmode"><option value="session">每个会话独立目录</option><option value="shared">所有会话共用一个目录</option></select></label>
-    <div>会话：<code id="sid">…</code></div>
-    <div>目录：<code id="wsid">…</code></div>
-    <div class="muted">目录是 IndexedDB 里的一棵树；技能在 <code>.agent/skills/&lt;name&gt;/SKILL.md</code>，从 <code>skills.zip</code> 解包。独立模式下「历史」切换会话即切换目录；共用模式下所有会话读写同一份文件，删除会话不删文件。</div>
-    <button id="clear">清空这个目录（保留技能）</button>
-  </div>
-  <div id="ws" class="muted">…</div>
+  <section>
+    <div class="card">
+      <div class="row"><span id="who" class="muted" style="flex:1">未登录</span></div>
+      <div class="row"><button id="signin" class="pri">登录 RunApps</button><button id="signout" class="ghost">退出</button></div>
+    </div>
+  </section>
 
-  <h4>技能（这个会话的）</h4>
-  <div id="skills" class="box">…</div>
-  <div class="box">
-    <input type="file" id="skillfile" accept=".zip">
-    <button id="skill-upload">安装这个 zip</button>
-    <input type="url" id="skillurl" placeholder="zip 地址，如 ./extra-skill.zip" style="margin-top:6px">
-    <button id="skill-url">从地址安装</button>
-    <button id="skills-refresh">重新拉取 skills 源</button>
-  </div>
+  <section>
+    <h4>目录</h4>
+    <div class="card">
+      <label class="f">目录模式<select id="dirmode"><option value="session">每个会话独立目录</option><option value="shared">所有会话共用一个目录</option></select></label>
+      <div class="kv">会话 <code id="sid">…</code></div>
+      <div class="kv">目录 <code id="wsid">…</code></div>
+      <div id="ws" class="muted">…</div>
+      <div class="muted">目录是 IndexedDB 里的一棵树；技能在 <code>.agent/skills/&lt;name&gt;/SKILL.md</code>。独立模式下「历史」切换会话即切换目录；共用模式下所有会话读写同一份文件，删除会话不删文件。</div>
+      <div class="row"><button id="clear" class="danger">清空目录（保留技能）</button></div>
+    </div>
+  </section>
 
-  <h4>模型与外观</h4>
-  <label>Model<br><select id="model"><option value="">(platform default)</option></select></label>
-  <label>Theme<br><select id="theme"><option>auto</option><option>light</option><option>dark</option></select></label>
-  <label>Locale<br><select id="locale"><option value="">(document)</option><option>zh</option><option>en</option></select></label>
-  <button id="remount">按这些选项重新挂载</button>
+  <section>
+    <h4>技能</h4>
+    <div class="card">
+      <div id="skills" class="skills">…</div>
+      <div class="row">
+        <label class="filebtn"><button type="button" tabindex="-1">选择 zip…</button><input type="file" id="skillfile" accept=".zip"></label>
+        <span id="skillname" class="fname">未选择文件</span>
+        <button id="skill-upload">安装</button>
+      </div>
+      <div class="row"><input type="url" id="skillurl" placeholder="zip 地址，如 ./extra-skill.zip" style="flex:1"><button id="skill-url">从地址安装</button></div>
+      <div class="row"><button id="skills-refresh" class="ghost">重新拉取 skills.zip</button></div>
+    </div>
+  </section>
 
-  <h4>宿主调用</h4>
-  <button id="ask">chat.prompt("1+1=?")</button>
-  <button id="confirm">chat.ui.confirm()</button>
-  <button id="unmount">unmount()</button>
+  <section>
+    <h4>模型与外观</h4>
+    <div class="card">
+      <label class="f">Model<select id="model"><option value="">(platform default)</option></select></label>
+      <div class="row" style="gap:8px">
+        <label class="f" style="flex:1">Theme<select id="theme"><option>auto</option><option>light</option><option>dark</option></select></label>
+        <label class="f" style="flex:1">Locale<select id="locale"><option value="">(document)</option><option>zh</option><option>en</option></select></label>
+      </div>
+      <div class="row"><button id="remount">按这些选项重新挂载</button></div>
+    </div>
+  </section>
 
-  <h4>上一次运行</h4>
-  <pre id="run"></pre>
-  <p class="muted">页面通过 RunApps SDK 弹窗登录（草稿项目 <code id="proj"></code>），模型来自网关目录。加 <code>?local=1</code> 并放一个 <code>key.json</code> 可改走本地后端。</p>
+  <section>
+    <h4>宿主调用</h4>
+    <div class="row">
+      <button id="ask" class="xs">chat.prompt("1+1=?")</button>
+      <button id="confirm" class="xs">chat.ui.confirm()</button>
+      <button id="unmount" class="xs">unmount()</button>
+    </div>
+  </section>
+
+  <section>
+    <h4>上一次运行</h4>
+    <pre id="run"></pre>
+    <p class="muted" style="margin:0">页面通过 RunApps SDK 弹窗登录（草稿项目 <code id="proj"></code>），模型来自网关目录。加 <code>?local=1</code> 并放一个 <code>key.json</code> 可改走本地后端。</p>
+  </section>
 </aside>
 <script type="module">
 const $ = (id) => document.getElementById(id);
@@ -161,12 +211,13 @@ async function refreshPanels() {
     const row = document.createElement("div"); row.className = "skill";
     const b = document.createElement("b"); b.textContent = s.name;
     const d = document.createElement("span"); d.textContent = s.description; d.title = s.description;
-    const x = document.createElement("button"); x.textContent = "删除"; x.onclick = async () => { await ws.removeSkill(s.name); await chat.refresh(); refreshPanels(); };
+    const x = document.createElement("button"); x.className = "xs danger"; x.textContent = "删除"; x.onclick = async () => { await ws.removeSkill(s.name); await chat.refresh(); refreshPanels(); };
     row.append(b, d, x); box.append(row);
   }
-  if (!skills.length) box.textContent = "(没有技能)";
+  if (!skills.length) { const e = document.createElement("div"); e.className = "empty"; e.textContent = "没有技能 — 装一个 zip 试试"; box.append(e); }
 }
 $("clear").onclick = async () => { await workspace().clearWork(); refreshPanels(); };
+$("skillfile").onchange = () => { $("skillname").textContent = $("skillfile").files[0]?.name || "未选择文件"; };
 $("skill-upload").onclick = async () => {
   const f = $("skillfile").files[0]; if (!f) return alert("先选一个 zip");
   try { const got = await workspace().installSkill(f); await chat.refresh(); refreshPanels(); chat.ui.notify("已安装：" + got.map((s) => s.name).join(", ")); } catch (e) { alert(e.message); }
