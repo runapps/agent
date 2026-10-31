@@ -450,3 +450,19 @@ test("agent — max_tokens follows the catalogue's maximum output for the model 
   await pinned.prompt("hi");
   assert.equal(requests[2].max_tokens, 1000);
 });
+
+test("agent — reasoning_content stays on the assistant turn and goes back to the model; configure({reasoningEffort}) sends reasoning_effort", async () => {
+  const think = reply({ text: "Let me check.", calls: [{ id: "call_a", name: "get_weather", args: { city: "Paris" } }] });
+  think.splice(1, 0, { id: "c", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: { reasoning_content: "thinking hard…" } }] });
+  const { client, requests } = scripted([think, reply({ text: "17°C." })]);
+  const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false });
+  agent.configure({ reasoningEffort: "high" });
+  assert.equal(agent.settings.reasoningEffort, "high");
+  await agent.prompt("Weather in Paris?");
+  assert.equal(requests[0].reasoning_effort, "high");
+  const turn = agent.messages.find((m) => m.role === "assistant" && m.tool_calls);
+  assert.equal(turn.reasoning_content, "thinking hard…");
+  assert.equal(requests[1].messages.find((m) => m.role === "assistant" && m.tool_calls).reasoning_content, "thinking hard…", "sent back with the tool-calling turn");
+  agent.configure({ reasoningEffort: null });
+  assert.equal(agent.settings.reasoningEffort, undefined);
+});

@@ -198,13 +198,19 @@ export class Agent {
   }
 
   /** The settings a user may change mid-conversation. */
-  get settings(): { model?: string; maxTurns: number; maxTokens: number | "auto"; permissions: "ask" | "auto" | "custom" } {
+  get settings(): { model?: string; maxTurns: number; maxTokens: number | "auto"; permissions: "ask" | "auto" | "custom"; reasoningEffort?: string } {
     const p = this.opts.permissions ?? "ask";
-    return { model: this.opts.model, maxTurns: this.opts.maxTurns ?? DEFAULT_MAX_TURNS, maxTokens: typeof this.opts.maxTokens === "number" ? this.opts.maxTokens : "auto", permissions: typeof p === "function" ? "custom" : p };
+    const re = (this.opts.extra as { reasoning_effort?: unknown } | undefined)?.reasoning_effort;
+    return { model: this.opts.model, maxTurns: this.opts.maxTurns ?? DEFAULT_MAX_TURNS, maxTokens: typeof this.opts.maxTokens === "number" ? this.opts.maxTokens : "auto", permissions: typeof p === "function" ? "custom" : p, reasoningEffort: typeof re === "string" ? re : undefined };
   }
-  /** Changes settings for the runs that follow (a run in progress keeps its own). `undefined` leaves a field alone. */
-  configure(patch: { model?: string; maxTurns?: number; maxTokens?: number | "auto"; permissions?: Permissions }): void {
+  /** Changes settings for the runs that follow (a run in progress keeps its own). `undefined` leaves a field alone; `reasoningEffort: null` takes the model's default. */
+  configure(patch: { model?: string; maxTurns?: number; maxTokens?: number | "auto"; permissions?: Permissions; reasoningEffort?: string | null }): void {
     if ("model" in patch) this.model = patch.model || undefined;
+    if ("reasoningEffort" in patch) {
+      const extra = { ...(this.opts.extra ?? {}) } as Record<string, unknown>;
+      if (patch.reasoningEffort) extra.reasoning_effort = patch.reasoningEffort; else delete extra.reasoning_effort;
+      this.opts.extra = extra as typeof this.opts.extra;
+    }
     if (typeof patch.maxTurns === "number" && patch.maxTurns > 0) this.opts.maxTurns = Math.floor(patch.maxTurns);
     if (patch.maxTokens !== undefined) this.opts.maxTokens = patch.maxTokens;
     if (patch.permissions !== undefined) this.opts.permissions = patch.permissions;
@@ -435,6 +441,8 @@ export class Agent {
         if (completion.usage) this.addUsage(completion.usage);
         const assistant: ChatMessage = { role: "assistant", content: completion.message.content };
         if (completion.message.tool_calls?.length) assistant.tool_calls = completion.message.tool_calls;
+        // A thinking model's reasoning stays with the turn: DeepSeek in thinking mode wants it back on tool-calling turns, and the transcript shows it.
+        if (completion.reasoning) assistant.reasoning_content = completion.reasoning;
         this.history.push(assistant);
         if (typeof assistant.content === "string" && assistant.content) lastText = assistant.content;
         const truncated = completion.finishReason === "length";

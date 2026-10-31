@@ -121,7 +121,7 @@ const STRINGS = {
     sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
-    settings: "Settings", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
+    settings: "Settings", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
     apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue.",
     files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
@@ -139,7 +139,7 @@ const STRINGS = {
     sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
-    settings: "设置", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
+    settings: "设置", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
     apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续。",
     files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存", pickFile: "选择文件", folder: "文件夹",
@@ -1098,7 +1098,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         addRow(userRow(m.content as string | ContentPart[], m));
       } else if (m.role === "assistant") {
         const text = textOfContent(m.content);
-        const rs = (m as unknown as { reasoning?: unknown }).reasoning; const reasoning = typeof rs === "string" ? rs : "";
+        const rs = (m as { reasoning_content?: unknown }).reasoning_content; const reasoning = typeof rs === "string" ? rs : "";
         // Tool-only turns join the reply before them, as they do live.
         if (!last || text || reasoning) { flush(); last = { text, reasoning, calls: [] }; }
         for (const c of m.tool_calls ?? []) {
@@ -1296,7 +1296,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   });
 
   /* --- settings --- */
-  type UserSettings = { model?: string; maxTurns?: number; maxTokens?: number };
+  type UserSettings = { model?: string; maxTurns?: number; maxTokens?: number; reasoningEffort?: string };
   const SET_KEY = `__runapps_agent_chat:${project}:settings`;
   const readSettings = (): UserSettings => { try { return JSON.parse(localStorage.getItem(SET_KEY) || "{}") as UserSettings; } catch { return {}; } };
   const writeSettings = (v: UserSettings) => { try { if (Object.keys(v).length) localStorage.setItem(SET_KEY, JSON.stringify(v)); else localStorage.removeItem(SET_KEY); } catch { /* private mode */ } };
@@ -1304,7 +1304,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   let permChoice: "ask" | "auto" | null = null;  // not persisted: allowing everything is a per-page decision
   const hasSettings = opts.settings ?? !givenAgent;
   if (!hasSettings) setBtn.style.display = "none";
-  let modelsCache: Array<{ id: string; is_default?: boolean; max_input_tokens?: number; max_tokens?: number }> | null = null;
+  type CatModel = { id: string; is_default?: boolean; max_input_tokens?: number; max_tokens?: number; options?: { inputs?: Record<string, { enum?: unknown[]; default?: unknown }> } };
+  let modelsCache: CatModel[] | null = null;
+  /** The thinking levels a model offers (`options.inputs.reasoning_effort`), or null when it has none. */
+  const effortOf = (m: CatModel | undefined): { levels: string[]; def?: string } | null => {
+    const f = m?.options?.inputs?.reasoning_effort;
+    if (!f) return null;
+    const levels = (f.enum ?? []).filter((v): v is string => typeof v === "string");
+    return levels.length ? { levels, def: typeof f.default === "string" ? f.default : undefined } : null;
+  };
   const kTok = (n?: number) => (typeof n === "number" ? (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)) : "?");
   const openSettings = async () => {
     if (menu) { closeMenu(); return; }
@@ -1315,10 +1323,21 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const modelSel = h("select");
     modelSel.append(new Option(t.sDefault, ""));
     const lim = h("div", "ra-lim");
+    const effortSel = h("select");
+    const effortNote = h("div", "ra-lim");
+    const chosenModel = () => { const id = modelSel.value || modelsCache?.find((m) => m.is_default)?.id; return modelsCache?.find((x) => x.id === id); };
     const showLim = () => {
-      const id = modelSel.value || modelsCache?.find((m) => m.is_default)?.id;
-      const m = modelsCache?.find((x) => x.id === id);
+      const m = chosenModel();
       lim.textContent = m ? `${t.context} ${kTok(m.max_input_tokens)} · ${t.sMaxTokens} ${kTok(m.max_tokens)}` : "";
+      // Thinking levels follow the model: the list is the catalogue's, the first entry its default.
+      const eff = effortOf(m);
+      const keep = effortSel.value;
+      effortSel.replaceChildren(new Option(eff?.def ? `${t.sEffortDefault} · ${eff.def}` : t.sEffortDefault, ""));
+      for (const l of eff?.levels ?? []) effortSel.append(new Option(l, l));
+      effortSel.disabled = !eff;
+      effortSel.value = eff && eff.levels.includes(keep) ? keep : "";
+      effortNote.textContent = eff ? "" : t.sEffortNone;
+      effortNote.style.display = eff ? "none" : "";
     };
     modelSel.addEventListener("change", showLim);
     if (client) {
@@ -1328,7 +1347,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     }
     if (cur.model && !Array.from(modelSel.options).some((o) => o.value === cur.model)) modelSel.append(new Option(cur.model, cur.model));
     modelSel.value = cur.model ?? "";
+    effortSel.value = cur.reasoningEffort ?? "";
     showLim();
+    if (cur.reasoningEffort && Array.from(effortSel.options).some((o) => o.value === cur.reasoningEffort)) effortSel.value = cur.reasoningEffort;
     const turns = h("input"); turns.type = "number"; turns.min = "1"; turns.max = "1000"; turns.step = "1"; turns.value = String(cur.maxTurns);
     const tokMode = h("select"); tokMode.append(new Option(t.sAuto, "auto"), new Option(t.sMaxTokens, "n"));
     const tokN = h("input"); tokN.type = "number"; tokN.min = "256"; tokN.step = "256"; tokN.value = String(typeof cur.maxTokens === "number" ? cur.maxTokens : 8192);
@@ -1339,14 +1360,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     perm.value = cur.permissions;
     const field = (label: string, ...els: HTMLElement[]) => { const l = h("label"); l.append(h("span", "", label), ...els); return l; };
     const tokRow = h("div", "ra-row"); tokRow.append(tokMode, tokN);
-    menu.append(field(t.sModel, modelSel), lim, field(t.sMaxTurns, turns), field(t.sMaxTokens, tokRow), field(t.sPerms, perm));
+    menu.append(field(t.sModel, modelSel), lim, field(t.sEffort, effortSel), effortNote, field(t.sMaxTurns, turns), field(t.sMaxTokens, tokRow), field(t.sPerms, perm));
     const btns = h("div", "ra-btns");
     const resetB = h("button", "ra-btn xs ghost", t.reset); resetB.type = "button";
     const applyB = h("button", "ra-btn xs solid", t.apply); applyB.type = "button";
     btns.append(resetB, applyB);
     menu.append(btns);
     const applyTo = (ag: Agent, s: UserSettings, p: "ask" | "auto" | null) => {
-      ag.configure({ model: s.model ?? agentOpts.model, maxTurns: s.maxTurns ?? agentOpts.maxTurns ?? 100, maxTokens: s.maxTokens ?? (typeof agentOpts.maxTokens === "number" ? agentOpts.maxTokens : "auto"), permissions: p ?? agentOpts.permissions ?? "ask" });
+      const hostEffort = (agentOpts.extra as { reasoning_effort?: unknown } | undefined)?.reasoning_effort;
+      ag.configure({ model: s.model ?? agentOpts.model, maxTurns: s.maxTurns ?? agentOpts.maxTurns ?? 100, maxTokens: s.maxTokens ?? (typeof agentOpts.maxTokens === "number" ? agentOpts.maxTokens : "auto"), permissions: p ?? agentOpts.permissions ?? "ask", reasoningEffort: s.reasoningEffort ?? (typeof hostEffort === "string" ? hostEffort : null) });
       modelEl.textContent = ag.model ?? ""; modelEl.style.display = ag.model ? "" : "none";
     };
     resetB.addEventListener("click", () => { userSettings = {}; writeSettings({}); permChoice = null; for (const ag of live.values()) applyTo(ag, {}, null); closeMenu(); ui.notify(t.applied); showUsage_(agent); });
@@ -1355,6 +1377,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (modelSel.value) next.model = modelSel.value;
       const n = parseInt(turns.value, 10); if (Number.isFinite(n) && n > 0) next.maxTurns = Math.min(1000, n);
       if (tokMode.value === "n") { const k = parseInt(tokN.value, 10); if (Number.isFinite(k) && k > 0) next.maxTokens = k; }
+      if (effortSel.value && !effortSel.disabled) next.reasoningEffort = effortSel.value;
       userSettings = next; writeSettings(next);
       if (perm.value === "ask" || perm.value === "auto") permChoice = perm.value;
       for (const ag of live.values()) applyTo(ag, next, permChoice);
@@ -1539,6 +1562,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (userSettings.model) over.model = userSettings.model;
     if (userSettings.maxTurns) over.maxTurns = userSettings.maxTurns;
     if (userSettings.maxTokens) over.maxTokens = userSettings.maxTokens;
+    if (userSettings.reasoningEffort) over.extra = { ...(agentOpts.extra ?? {}), reasoning_effort: userSettings.reasoningEffort };
     if (permChoice) over.permissions = permChoice;
     return new Agent(client!, { ...agentOpts, ...over, instructions, id: sid, workspace, ui: agentOpts.ui ?? uiFor(sid) });
   };
