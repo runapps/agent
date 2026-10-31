@@ -573,10 +573,11 @@ const CSS = tokenCSS() + `
  * `value` and `change` work as before — and a selectBox shows in its place. `host` positions the
  * list (a positioned element with the class `ra-ui`, or the chat's root).
  */
-export function enhanceSelect(select: HTMLSelectElement, host: HTMLElement, opts: { filterAt?: number; filterLabel?: string } = {}): SelectBox {
+export function enhanceSelect(select: HTMLSelectElement, host: HTMLElement, opts: { filterAt?: number; filterLabel?: string } = {}): SelectBox & { destroy(): void } {
   injectStyles();
   const read = () => Array.from(select.options).map((o) => ({ value: o.value, label: o.textContent ?? o.value }));
   const box = selectBox(host, { options: read(), value: select.value, ...opts });
+  const display = select.style.display;
   select.style.display = "none";
   select.after(box.el);
   box.el.addEventListener("change", () => {
@@ -585,12 +586,22 @@ export function enhanceSelect(select: HTMLSelectElement, host: HTMLElement, opts
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
   // Code that sets the select (or its options) is followed.
-  new MutationObserver(() => { box.setOptions(read()); box.value = select.value; }).observe(select, { childList: true, subtree: true, characterData: true });
+  const watcher = new MutationObserver(() => { box.setOptions(read()); box.value = select.value; });
+  watcher.observe(select, { childList: true, subtree: true, characterData: true });
   const desc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
   if (desc?.set && desc.get) {
     Object.defineProperty(select, "value", { configurable: true, get() { return desc.get!.call(this); }, set(v: string) { desc.set!.call(this, v); box.value = desc.get!.call(this); } });
   }
-  return box;
+  return Object.assign(box, {
+    /** Puts the select back as it was: the dropdown goes, nothing watches the select any more. */
+    destroy() {
+      box.close();
+      watcher.disconnect();
+      delete (select as { value?: unknown }).value;   // the prototype's accessor again
+      select.style.display = display;
+      box.el.remove();
+    },
+  });
 }
 
 function injectStyles(): void {
@@ -1128,7 +1139,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (agent === a) return;
       ui.notify(`${titleOfAgent(a)} · ${t.finished}`);
       // `busy` flips after the run's promise settles, a tick after this event.
-      setTimeout(() => { if (agent !== a && !a.busy && !a.queued.length && !waiting.has(a.id)) { live.delete(a.id); unwatchBackground(a); } markBackground(); }, 50);
+      setTimeout(() => { if (!mounted) return; if (agent !== a && !a.busy && !a.queued.length && !waiting.has(a.id)) { live.delete(a.id); unwatchBackground(a); release(a); } markBackground(); }, 50);
     }));
     subs.push(a.on("run_start", (ev: { message: ChatMessage | null }) => { markBackground(); if (ev.message) void checkpoint(a, ev.message); }));
     bgSubs.set(a.id, subs);
@@ -1144,7 +1155,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const applyDebug = () => {
     debugBtn.style.display = debugOn ? "" : "none";
     root.dataset.debug = debugOn ? "1" : "";
-    if (!debugOn) dpanel.close();
+    // Sessions are recorded only while debug mode is on (a trace holds on to its agent).
+    if (debugOn) { for (const a of live.values()) if (a !== agent) dpanel.setAgent(a); if (agent) dpanel.setAgent(agent); }
+    else { dpanel.close(); for (const a of live.values()) dpanel.forget(a); }
   };
   applyDebug();
   filesBtn.addEventListener("click", () => { if (dpanel.visible) { dpanel.close(); applyDebug(); } void panel.toggle(); });
@@ -2003,7 +2016,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     menu = mine;
     root.append(mine);
     const cur = a.settings;
-    const sel = (options: Array<{ value: string; label: string; note?: string }>, value: string) => selectBox(root, { options, value, filterLabel: t.filter });
+    const sel = (options: Array<{ value: string; label: string; note?: string }>, value: string) => { const b = selectBox(root, { options, value, filterLabel: t.filter }); menuSelects.push(b); return b; };
     const modelSel = sel([{ value: "", label: t.sDefault }], "");
     const lim = h("div", "ra-lim");
     const effortSel = sel([], "");
@@ -2065,7 +2078,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   setBtn.addEventListener("click", () => void openSettings());
 
   /* --- sessions menu --- */
-  const closeMenu = () => { menu?.remove(); menu = null; for (const p of root.querySelectorAll(":scope > .ra-selp")) p.remove(); };
+  // The settings menu's dropdowns: closed with it, so none keeps a document listener.
+  const menuSelects: SelectBox[] = [];
+  const closeMenu = () => { menu?.remove(); menu = null; for (const b of menuSelects.splice(0)) b.close(); };
   const openMenu = async () => {
     if (menu) { closeMenu(); return; }
     if (!agent?.workspace) return;
@@ -2384,7 +2399,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     filesBtn.style.display = a.workspace ? "" : "none";
     skillsBtn.style.display = a.workspace && skillsMenu !== false ? "" : "none";
     panel.setWorkspace(a.workspace);
-    dpanel.setAgent(a);
+    if (debugOn) dpanel.setAgent(a);
     list.clear();
     showEmpty();
     setBusy(a.busy);
@@ -2524,7 +2539,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
 
   /** Closes the workspace the chat opened for a session it no longer holds (it reopens on resume). */
-  const release = (a: Agent) => { if (typeof wsOpt === "function") a.workspace?.close(); };
+  const release = (a: Agent) => { dpanel.forget(a); if (typeof wsOpt === "function") a.workspace?.close(); };
   let switching: Promise<Agent> | null = null;
   const switchTo = (id?: string): Promise<Agent> => {
     if (givenAgent) return Promise.reject(new Error("runapps agent: newSession/resume need the chat to own its agent (pass a provider, not an agent)"));
@@ -2626,6 +2641,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       for (const f of pendingFiles) if (f.preview) URL.revokeObjectURL(f.preview);
       for (const id of [...waiters.keys()]) wake(id, false);
       if (!givenAgent) for (const a of live.values()) { unwatchBackground(a); void a.abort().finally(() => release(a)); }
+      // A host that keeps the handle does not keep the sessions, their messages or their dialogs.
+      live.clear(); parked.clear(); waiters.clear(); pendingFiles.length = 0;
       root.remove();
     },
   };

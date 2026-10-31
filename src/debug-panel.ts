@@ -39,13 +39,16 @@ export interface DebugPanel {
   toggle(): void;
   /** Starts recording an agent (once per agent) and shows it. */
   setAgent(agent: Agent): void;
+  /** Stops recording an agent the chat let go of (its trace goes with it). */
+  forget(agent: Agent): void;
   dispose(): void;
 }
 
 export function debugPanel(opts: { t: DebugStrings; root: HTMLElement; onShow?: (visible: boolean) => void }): DebugPanel {
   const { t, root } = opts;
   const traces = new WeakMap<Agent, Trace>();
-  const subs: Array<() => void> = [];
+  // One subscription per recorded agent, so a session the chat lets go of is not kept alive by its trace.
+  const subs = new Map<Agent, () => void>();
   let agent: Agent | null = null;
   let visible = false;
   type Tab = "calls" | "requests" | "events" | "context" | "tools";
@@ -195,7 +198,7 @@ export function debugPanel(opts: { t: DebugStrings; root: HTMLElement; onShow?: 
     if (traces.has(a)) return;
     const tr: Trace = { spans: [], requests: [], events: [], turn: new Map(), runs: [] };
     traces.set(a, tr);
-    subs.push(a.on("*", (name: string, ev: unknown) => {
+    subs.set(a, a.on("*", (name: string, ev: unknown) => {
       const e = (ev ?? {}) as Record<string, unknown>;
       const runId = String(e.runId ?? "");
       if (name === "run_start") { tr.runs.push(runId); cap(tr.runs, 60); }
@@ -229,6 +232,7 @@ export function debugPanel(opts: { t: DebugStrings; root: HTMLElement; onShow?: 
     close,
     toggle: () => (visible ? close() : open()),
     setAgent(a) { record(a); agent = a; if (visible) draw(); },
-    dispose() { for (const u of subs) u(); if (frame) clearTimeout(frame); el.remove(); },
+    forget(a) { subs.get(a)?.(); subs.delete(a); traces.delete(a); if (agent === a) agent = null; },
+    dispose() { for (const u of subs.values()) u(); subs.clear(); if (frame) clearTimeout(frame); el.remove(); },
   };
 }

@@ -20,6 +20,8 @@ export interface SelectBox {
   disabled: boolean;
   setOptions(options: SelectOption[]): void;
   readonly options: readonly SelectOption[];
+  /** Closes the list if it is open (and lets go of the document listener it holds while open). */
+  close(): void;
 }
 
 /**
@@ -139,6 +141,7 @@ export function selectBox(host: HTMLElement, opts: { options?: SelectOption[]; v
     set disabled(d: boolean) { disabled = d; if (d) close(false); draw(); },
     get options() { return options; },
     setOptions(next) { options = next; if (!options.some((o) => o.value === value)) value = options[0]?.value ?? ""; draw(); },
+    close() { close(false); },
   };
 }
 

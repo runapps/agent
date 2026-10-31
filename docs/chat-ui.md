@@ -131,6 +131,16 @@ chat.ui;                       // the inline dialogs — your own tools can use 
 chat.unmount();                // remove it; agents the chat made are stopped
 ```
 
+### What `unmount()` releases
+
+Everything the chat set up for itself: its element, the listeners it put on `document`, `window` and the colour-scheme query, its resize observer, timers and animation frames, open dropdowns and dialogs (a pending question is dismissed), the object URLs of attachment previews, the debug panel's subscriptions. Agents the chat made are aborted, and the workspaces it opened through a `workspace` function are closed (their database connections and the cross-tab channel). A conversation still running in the background is stopped too.
+
+What stays, on purpose:
+
+- **Yours.** An `agent` or a `workspace` you passed in is not aborted or closed — you made it, you release it (`workspace.close()`).
+- **Shared by the page.** The injected `<style>` (one for every chat on the page); pdf.js and its worker once a PDF was read; the module's caches of parsed skill zips (at most 64) and fetched skill URLs. A later `renderChat` reuses them.
+- **Saved data.** Conversations, files and settings stay in the browser's storage — that is what lets the next mount resume. `workspace.sessions.clear()` or `workspace.destroy()` remove them.
+
 `onSession` is the place to attach your own listeners, since every new or resumed conversation has a new agent:
 
 ```js
@@ -179,7 +189,8 @@ The settings menu uses the chat's own dropdown. Use it in your page too:
 import { selectBox, enhanceSelect } from "@runappsai/agent/ui";
 
 // Give an existing <select> the same look; its .value and change events keep working.
-enhanceSelect(document.querySelector("#language"), document.querySelector("aside"));
+const lang = enhanceSelect(document.querySelector("#language"), document.querySelector("aside"));
+lang.destroy();     // later: the plain <select> again
 
 // Or build one.
 const box = selectBox(document.querySelector("aside"), {
@@ -188,6 +199,7 @@ const box = selectBox(document.querySelector("aside"), {
 });
 box.el.addEventListener("change", () => console.log(box.value));
 container.append(box.el);
+box.close();        // close its list (it closes itself on a choice, Escape or a click outside)
 ```
 
 The second argument is where the list opens: a positioned element (`position: relative`) with the class **`ra-ui`**, which gives it the chat's colours (dark follows the system unless `data-scheme="light"`; `data-palette` picks a palette).

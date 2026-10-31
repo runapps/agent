@@ -116,8 +116,8 @@ From `@runappsai/agent/ui`.
 | Export | |
 |---|---|
 | `renderChat(element, options)` → `ChatHandle` | The chat. |
-| `selectBox(host, { options, value, filterAt?, placeholder?, filterLabel? })` → `SelectBox` | The dropdown. |
-| `enhanceSelect(select, host)` → `SelectBox` | Give a `<select>` the dropdown's look. |
+| `selectBox(host, { options, value, filterAt?, placeholder?, filterLabel? })` → `SelectBox` | The dropdown (`el`, `value`, `setOptions`, `close()`). |
+| `enhanceSelect(select, host)` → `SelectBox & { destroy() }` | Give a `<select>` the dropdown's look; `destroy()` puts the plain one back. |
 | `VirtualList` | The transcript's virtual list. |
 | `renderMarkdown(text)`, `renderInline(text)`, `escapeHTML(text)` | The Markdown renderer. |
 | `CHAT_PALETTES`, `CHAT_COLOR_TOKENS`, `CHAT_SHARED_TOKENS` | Theming. |
