@@ -34,7 +34,7 @@
 - **Settings** — the gear: model (with context and output limits, and which models see pictures), thinking level when the model has one, max turns, max output, tool permissions. Kept per app in the browser and applied to every conversation.
 - **Rewind** — hover a user message: when it was sent, copy, *rewind to here* (the conversation after it is dropped, the message goes back into the composer, and the directory's files can be restored to that moment).
 - **How a run ended** — *Stopped.*, the turn limit with *Continue*, an error with *Retry*; kept across reloads until the next run.
-- **Context and spending** — a small ring in the composer's toolbar shows how full the model's window is; its tooltip has the spending (cost, tokens, calls) and the context figures. Older turns are summarised automatically.
+- **Context and spending** — a ring in the header shows how full the model's window is; a click opens a panel with the figures (used / window, model), what the conversation has cost (cost, input and output tokens, calls), when it compacts on its own, and *Compact now*. Older turns are summarised automatically.
 - **Time** — "Today 22:15" above messages that start a conversation or follow a pause.
 
 ## Slash commands
@@ -76,7 +76,7 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `settings` | on | The settings gear. |
 | `attachments` | on | Paperclip, drop and paste. |
 | `uploadsDir` | `/uploads` | Where attachments are saved. |
-| `showUsage` | on | A small ring in the composer's toolbar for how full the context is, with the spending in its tooltip. |
+| `showUsage` | on | The context ring in the header and its panel (context use, spending, *Compact now*). |
 | `locale` | the document's | `"en"` or `"zh"`. |
 | `theme` | `"auto"` | `"auto"`, `"light"`, `"dark"`. |
 | `palette` | `"claude"` | `"claude"`, `"violet"`, `"slate"`, `"forest"`, or your own. |

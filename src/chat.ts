@@ -102,7 +102,7 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
    * default; `setDebug()` switches it while mounted.
    */
   debug?: boolean;
-  /** Show the context ring in the composer's toolbar, with the cost and tokens in its tooltip (default on). */
+  /** Show the context ring in the header; a click opens the context use and the spending (default on). */
   showUsage?: boolean;
   /**
    * Files attached to a message (paperclip, drag and drop, paste; default
@@ -171,7 +171,7 @@ const STRINGS = {
   en: {
     assistant: "Assistant", placeholder: "Ask the agent to do something…  type / for commands", placeholderBusy: "↵ to steer the current task, {mod}↵ to queue for later",
     send: "Send", stop: "Stop", steer: "Steer", followUp: "Follow-up", steerTip: "Insert into the current task", followUpTip: "Queue after the current task",
-    usageLine: "{cost} · {tokens} tokens · {calls} calls", emptyResult: "(empty)",
+    usageLine: "{cost} · {tokens} tokens · {calls} calls", uCost: "Cost", uIn: "Input", uOut: "Output", uCalls: "Calls", uOf: "{used} of {window} tokens", compactNow: "Compact now", emptyResult: "(empty)",
     queued: "Queued messages", queuedN: "{n} message queued", queuedNs: "{n} messages queued", queueNext: "Next:", sendNow: "Send now (insert into the current task)", editQueued: "Edit", expand: "Show all", collapse: "Collapse", clear: "Clear queue", thinking: "Thinking…", thought: "Thought process",
     enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "Chats", newChat: "New chat", clearChat: "Clear", confirmClear: "Clear this conversation? Its messages are removed; the files stay.", noSessions: "No other conversations yet", notSaved: "not saved yet",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
@@ -208,7 +208,7 @@ const STRINGS = {
   zh: {
     assistant: "助手", placeholder: "让 agent 做点什么…  输入 / 查看命令", placeholderBusy: "↵ 插入当前任务，{mod}↵ 排队到之后",
     send: "发送", stop: "停止", steer: "插入", followUp: "排队", steerTip: "插入到当前任务，下一步就会看到", followUpTip: "排到当前任务结束之后",
-    usageLine: "{cost} · {tokens} tokens · {calls} 次调用", emptyResult: "（空）",
+    usageLine: "{cost} · {tokens} tokens · {calls} 次调用", uCost: "花费", uIn: "输入", uOut: "输出", uCalls: "调用", uOf: "{used} / {window} tokens", compactNow: "立即压缩", emptyResult: "（空）",
     queued: "排队中的消息", queuedN: "{n} 条消息排队中", queuedNs: "{n} 条消息排队中", queueNext: "下一条：", sendNow: "立即发送（插入当前任务）", editQueued: "编辑", expand: "展开", collapse: "收起", clear: "清空队列", thinking: "思考中…", thought: "思考过程",
     enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "会话", newChat: "新对话", clearChat: "清除", confirmClear: "清除这次对话？消息会被删除，文件保留。", noSessions: "还没有其它对话", notSaved: "尚未保存",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
@@ -591,11 +591,26 @@ const CSS = tokenCSS() + `
 .ra-chip-link:hover{border-color:color-mix(in srgb,var(--ra-fg) 25%,transparent);background:var(--ra-subtle)}
 .ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-accent) 8%,transparent);border:2px dashed var(--ra-accent);border-radius:8px;color:var(--ra-accent-fg);font-weight:600;pointer-events:none}
 .ra-chat[data-drop="1"] .ra-drop{display:flex}
-/* How full the context is: a small ring in the toolbar; its tooltip has the numbers and the spending. */
-.ra-ring{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;cursor:default}
-.ra-ring:hover{background:var(--ra-muted)}
-.ra-ring svg{width:18px;height:18px;display:block}
+/* How full the context is: a ring in the header; its panel has the numbers and the spending. */
+.ra-head .ra-usebtn{padding:0 8px}
+.ra-ring{width:18px;height:18px;display:block}
 .ra-ring circle{fill:none;stroke-width:4}
+.ra-use{padding:14px 16px 12px;width:min(320px,calc(100% - 24px))}
+.ra-use .ra-uh{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.ra-use .ra-uh span{font-size:13px;font-weight:600}
+.ra-use .ra-uh b{font-size:22px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.ra-use .ra-ubar{height:6px;border-radius:999px;background:var(--ra-muted);overflow:hidden;margin:8px 0 6px}
+.ra-use .ra-ubar i{display:block;height:100%;border-radius:inherit;background:var(--ra-accent);transition:width .3s}
+.ra-use.mid .ra-ubar i{background:var(--ra-warn-fg)}
+.ra-use.hi .ra-ubar i{background:var(--ra-red)}
+.ra-use .ra-usub{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--ra-fg-muted);font-variant-numeric:tabular-nums}
+.ra-use .ra-usub span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ra-use .ra-ugrid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:14px 0 4px;padding-top:12px;border-top:1px solid var(--ra-border)}
+.ra-use .ra-ugrid div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ra-use .ra-ugrid small{font-size:11px;color:var(--ra-fg-muted)}
+.ra-use .ra-ugrid b{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra-use .ra-unote{font-size:11.5px;color:var(--ra-fg-muted);line-height:1.5;margin-top:10px}
+.ra-use .ra-mf{margin-top:10px;padding-top:8px}
 .ra-ring .tr{stroke:var(--ra-border)}
 .ra-ring .pr{stroke:var(--ra-accent);stroke-linecap:round;transition:stroke-dashoffset .3s}
 .ra-ring.mid .pr{stroke:var(--ra-warn-fg)}
@@ -1035,10 +1050,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const newBtn = h("button", "ra-btn ghost"); newBtn.type = "button"; newBtn.innerHTML = I.plus() + `<span>${escapeHTML(t.newChat)}</span>`;
   // Without a conversation list: one conversation, which this starts over.
   const clearBtn = h("button", "ra-btn ghost"); clearBtn.type = "button"; clearBtn.innerHTML = I.eraser() + `<span>${escapeHTML(t.clearChat)}</span>`; clearBtn.style.display = "none";
+  // How full the context is, as a ring; a click opens the numbers and the spending.
+  const useBtn = h("button", "ra-btn ghost ra-usebtn"); useBtn.type = "button"; useBtn.style.display = "none";
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
   // In a narrow chat the labels fold away and only the icons show: each button keeps its name.
   for (const [btn, label] of [[debugBtn, t.debug], [filesBtn, t.files], [skillsBtn, t.skills], [histBtn, t.history], [newBtn, t.newChat], [clearBtn, t.clearChat]] as const) { btn.setAttribute("aria-label", label); if (!btn.title) btn.title = label; }
-  head.append(titleEl, modelEl, h("span", "ra-sp"), debugBtn, filesBtn, skillsBtn, histBtn, newBtn, clearBtn, ...(headerActions ?? []), setBtn);
+  head.append(titleEl, modelEl, h("span", "ra-sp"), useBtn, debugBtn, filesBtn, skillsBtn, histBtn, newBtn, clearBtn, ...(headerActions ?? []), setBtn);
   if (title === false) head.style.display = "none";
   const log = h("div", "ra-log");
   const inner = h("div", "ra-col");
@@ -1073,9 +1090,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const fuBtn = h("button", "ra-btn xs subtle", t.followUp); fuBtn.type = "button"; fuBtn.title = t.followUpTip;
   // While it works, the send button's place holds a stop square.
   const stopBtn = h("button", "ra-stop"); stopBtn.type = "button"; stopBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="3" fill="currentColor"/></svg>'; stopBtn.title = t.stop; stopBtn.setAttribute("aria-label", t.stop);
-  // The usage: a ring for how full the context is, its tooltip with the spending.
-  const ring = h("span", "ra-ring"); ring.style.display = "none"; ring.tabIndex = 0;
-  acts.append(ring, steerBtn, fuBtn, stopBtn, sendBtn);
+  acts.append(steerBtn, fuBtn, stopBtn, sendBtn);
   left.append(attachBtn, hint);
   bar.append(left, acts);
   box.append(cmds, files, ta, bar, fileInput);
@@ -2157,7 +2172,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     // This menu's own reference: another menu opened while the catalogue loads replaces it.
     const mine = h("div", "ra-menu ra-set");
     menu = mine;
-    root.append(mine);
+    placeMenu(mine);
     const cur = a.settings;
     const sel = (options: Array<{ value: string; label: string; note?: string }>, value: string) => { const b = selectBox(root, { options, value, filterLabel: t.filter }); menuSelects.push(b); return b; };
     const modelSel = sel([{ value: "", label: t.sDefault }], "");
@@ -2226,13 +2241,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   // The settings menu's dropdowns: closed with it, so none keeps a document listener.
   const menuSelects: SelectBox[] = [];
   const closeMenu = () => { menu?.remove(); menu = null; for (const b of menuSelects.splice(0)) b.close(); };
+  /** A header menu opens right under the header, however tall the host made it. */
+  const placeMenu = (el: HTMLElement) => { root.append(el); el.style.top = `${head.offsetTop + head.offsetHeight + 4}px`; };
   const openMenu = async () => {
     if (menu) { closeMenu(); return; }
     if (!agent?.workspace) return;
     const ws = agent.workspace;
     const mine = h("div", "ra-menu");
     menu = mine;
-    root.append(mine);
+    placeMenu(mine);
     let all: SessionSummary[] = [];
     try { all = await ws.sessions.list(); } catch { /* none */ }
     if (menu !== mine) return;
@@ -2291,7 +2308,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (await modalConfirm(root, t.clearChat, t.confirmClear, { danger: true, ok: t.clearChat, cancel: t.cancel })) await clearConversation().catch((err) => ui.notify((err as Error).message, "error"));
   });
   document.addEventListener("click", onDocClick, true);
-  function onDocClick(e: Event) { if ((e.target as Element | null)?.closest?.(".ra-selp")) return; if (menu && !menu.contains(e.target as Node) && !histBtn.contains(e.target as Node) && !setBtn.contains(e.target as Node) && !skillsBtn.contains(e.target as Node)) closeMenu(); }
+  function onDocClick(e: Event) { if ((e.target as Element | null)?.closest?.(".ra-selp")) return; if (menu && !menu.contains(e.target as Node) && !histBtn.contains(e.target as Node) && !setBtn.contains(e.target as Node) && !skillsBtn.contains(e.target as Node) && !useBtn.contains(e.target as Node)) closeMenu(); }
 
   /* --- skills menu --- */
   const skillInput = h("input"); skillInput.type = "file"; skillInput.accept = ".zip,application/zip"; skillInput.multiple = true; skillInput.style.display = "none";
@@ -2315,7 +2332,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (!ws) return;
     const mine = h("div", "ra-menu ra-skm");
     menu = mine;
-    root.append(mine);
+    placeMenu(mine);
     let skills: Skill[] = [];
     try { skills = await ws.skills(); } catch (err) { ui.notify((err as Error).message, "error"); }
     if (menu !== mine) return;
@@ -2497,25 +2514,57 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
 
   /* --- wiring an agent --- */
+  /** The header's ring (how full the context is) and, while it is open, the usage panel. */
   const showUsage_ = (a: Agent) => {
-    if (showUsage === false) return;
-    const u = a.usage;
-    const spent = u.calls ? t.usageLine.replace("{cost}", fmtCost(u.total_cost)).replace("{tokens}", fmtTokens(u.prompt_tokens + u.completion_tokens)).replace("{calls}", String(u.calls)) : "";
-    const label = (context: string) => { const text = [spent, context].filter(Boolean).join("\n"); ring.title = text; ring.setAttribute("aria-label", text); };
-    if (!a.messages.length) { ring.style.display = "none"; label(""); return; }
+    if (showUsage === false || agent !== a) return;
+    if (!a.messages.length) { useBtn.style.display = "none"; if (menu?.classList.contains("ra-use")) closeMenu(); return; }
     void a.context().then((c) => {
       if (agent !== a) return;
-      // How full the context is, as a ring in the toolbar; the numbers (and the spending) are in its tooltip.
       const ratio = Math.min(1, c.used / c.window);
-      const pct = ratio < 0.01 ? "<1%" : `${Math.round(ratio * 100)}%`;
-      const r = 18, len = 2 * Math.PI * r;
-      ring.innerHTML = `<svg viewBox="0 0 40 40" aria-hidden="true"><circle class="tr" cx="20" cy="20" r="${r}"/><circle class="pr" cx="20" cy="20" r="${r}" stroke-dasharray="${len.toFixed(2)}" stroke-dashoffset="${(len * (1 - Math.max(ratio, 0.02))).toFixed(2)}" transform="rotate(-90 20 20)"/></svg>`;
-      ring.className = "ra-ring" + (ratio >= 0.9 ? " hi" : ratio >= 0.7 ? " mid" : "");
-      ring.setAttribute("role", "img");
-      label(`${t.context.charAt(0).toUpperCase()}${t.context.slice(1)} ${pct} · ${fmtTokens(c.used)} / ${fmtTokens(c.window)} tokens`);
-      ring.style.display = "";
+      const r = 8, len = 2 * Math.PI * r;
+      useBtn.innerHTML = `<svg class="ra-ring${ratio >= 0.9 ? " hi" : ratio >= 0.7 ? " mid" : ""}" viewBox="0 0 20 20" aria-hidden="true"><circle class="tr" cx="10" cy="10" r="${r}"/><circle class="pr" cx="10" cy="10" r="${r}" stroke-dasharray="${len.toFixed(2)}" stroke-dashoffset="${(len * (1 - Math.max(ratio, 0.03))).toFixed(2)}" transform="rotate(-90 10 10)"/></svg>`;
+      const label = `${cap(t.context)} ${pctOf(c.used, c.window)}`;
+      useBtn.title = label; useBtn.setAttribute("aria-label", label);
+      useBtn.style.display = "";
+      if (menu?.classList.contains("ra-use")) fillUsage(menu, a, c);
     });
   };
+  const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+  const pctOf = (used: number, window: number) => { const p = used / window; return used && p < 0.01 ? "<1%" : `${Math.round(Math.min(1, p) * 100)}%`; };
+  /** The usage panel: how full the context is, what the conversation has cost, and Compact now. */
+  const fillUsage = (panel: HTMLElement, a: Agent, c: { used: number; window: number }) => {
+    const ratio = Math.min(1, c.used / c.window), u = a.usage;
+    panel.className = "ra-menu ra-use" + (ratio >= 0.9 ? " hi" : ratio >= 0.7 ? " mid" : "");
+    const head = h("div", "ra-uh"); head.append(h("span", "", cap(t.context)), h("b", "", pctOf(c.used, c.window)));
+    const bar = h("div", "ra-ubar"); const fillEl = h("i"); fillEl.style.width = `${Math.max(ratio, c.used ? 0.01 : 0) * 100}%`; bar.append(fillEl);
+    const sub = h("div", "ra-usub"); sub.append(h("span", "", t.uOf.replace("{used}", fmtTokens(c.used)).replace("{window}", fmtTokens(c.window))), h("span", "", a.model || modelsCache?.find((m) => m.is_default)?.id || ""));
+    const grid = h("div", "ra-ugrid");
+    for (const [k, v] of [[t.uCost, fmtCost(u.total_cost)], [t.uIn, fmtTokens(u.prompt_tokens)], [t.uOut, fmtTokens(u.completion_tokens)], [t.uCalls, String(u.calls)]] as const) {
+      const cell = h("div"); cell.append(h("small", "", k), h("b", "", v)); grid.append(cell);
+    }
+    panel.replaceChildren(head, bar, sub, grid);
+    if (agentOpts.compaction !== false) panel.append(h("div", "ra-unote", `${t.autoCompact}: ${t.autoCompactAt.replace("{n}", fmtTokens(Math.min(16_384, Math.floor(c.window * 0.2))))}`));
+    const foot = h("div", "ra-mf");
+    const compactBtn = h("button", "ra-btn xs ghost"); compactBtn.type = "button"; compactBtn.textContent = t.compactNow; compactBtn.disabled = a.busy || compacting;
+    compactBtn.addEventListener("click", () => {
+      closeMenu();
+      void Promise.resolve(builtins.find((b) => b.name === "compact")!.run("")).catch((err) => ui.notify((err as Error).message, "error"));
+    });
+    foot.append(compactBtn);
+    panel.append(foot);
+  };
+  const openUsage = async () => {
+    if (menu?.classList.contains("ra-use")) { closeMenu(); return; }
+    closeMenu();
+    if (!agent) return;
+    const a = agent;
+    const mine = h("div", "ra-menu ra-use");
+    menu = mine;
+    placeMenu(mine);
+    const c = await a.context();
+    if (menu === mine && agent === a) fillUsage(mine, a, c);
+  };
+  useBtn.addEventListener("click", () => void openUsage());
 
   /** How a run ended when it did not finish — stopped, turn limit (with Continue), error (with Retry); also drawn for a reopened session until its next run. */
   const addEnd = (a: Agent, end: RunEnd | null) => {
