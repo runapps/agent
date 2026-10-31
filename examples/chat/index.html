@@ -79,7 +79,7 @@
       <div class="kv">会话 <code id="sid">…</code></div>
       <div class="kv">目录 <code id="wsid">…</code></div>
       <div id="ws" class="muted">…</div>
-      <div class="muted">目录是 IndexedDB 里的一棵树；<code>/.agent/skills/</code> 是加载时生成的只读目录：应用自带的 <code>skills.zip</code>（每次加载读取，不保存）加上 <code>/skills/</code> 里用户的技能（上传的 zip、智能体写的技能文件夹，所有会话共用）。独立模式下「历史」切换会话即切换目录；共用模式下所有会话读写同一份文件，删除会话不删文件。</div>
+      <div class="muted">目录是 IndexedDB 里的一棵树；<code>/.agent/skills/</code> 是加载时由 <code>/skills/</code> 生成的只读目录；<code>/skills/</code> 放用户的技能（上传的 zip、智能体写的技能文件夹，所有会话共用）。独立模式下「历史」切换会话即切换目录；共用模式下所有会话读写同一份文件，删除会话不删文件。</div>
       <div class="row"><button id="clear" class="danger">清空目录（保留技能）</button></div>
     </div>
   </section>
@@ -142,11 +142,13 @@ const dirMode = () => localStorage.getItem("lab_dirmode") || "session";
 $("dirmode").value = dirMode();
 $("dirmode").onchange = () => { localStorage.setItem("lab_dirmode", $("dirmode").value); mount(); };
 async function workspaceFor(sessionId) {
-  const ws = await RunAppsAgent.openWorkspace(client, { id: dirMode() === "shared" ? "shared" : sessionId, skills: "./skills.zip" });
+  // No built-in skills: the user's own go in /skills (Skills button, or the agent writes them).
+  const ws = await RunAppsAgent.openWorkspace(client, { id: dirMode() === "shared" ? "shared" : sessionId });
   // Seed files live in the directory itself (IndexedDB), so what the agent writes under them survives reloads.
   // (A `ws.mount("/doc", memoryFS(...))` would start over on every open — that is for a host's live document, not for storage.)
   if (!(await ws.exists("/doc/plan.md"))) await ws.write("/doc/plan.md", "# Q3 plan\n- hire 2 engineers\n- ship v2\n- write the launch post\n");
-  if (!(await ws.exists("/prompts/haiku.md"))) await ws.write("/prompts/haiku.md", "---\ndescription: a haiku about the arguments\nargument-hint: <topic>\n---\nWrite a haiku about $@. Only the haiku.\n");
+  // The /haiku template this page used to seed: removed where it is still the seeded text.
+  try { if ((await ws.readText("/prompts/haiku.md")).startsWith("---\ndescription: a haiku about the arguments")) await ws.delete("/prompts/haiku.md"); } catch {}
   return ws;
 }
 const workspace = () => chat.agent.workspace;
@@ -165,7 +167,7 @@ async function mount() {
     appName: "Agent Chat Lab",
     instructions: "You are the assistant inside a small notes app. The user's notes live under /doc.",
     title: "Agent Chat Lab",
-    suggestions: ["17 * 23 等于多少？", "列出工作区里的文件", "把 /doc/plan.md 的第二项改成 ship v3", "/skill:unit-convert 10 lb to kg", "/haiku autumn", "帮我选一个颜色：问我喜欢冷色还是暖色"],
+    suggestions: ["17 * 23 等于多少？", "列出工作区里的文件", "把 /doc/plan.md 的第二项改成 ship v3", "帮我选一个颜色：问我喜欢冷色还是暖色"],
     // no onOpenFile: paths in replies and tool cards open in the chat's own Files panel
     // Each session (first, new chat, resumed from history) comes with its own agent and directory.
     onSession: (agent) => {
