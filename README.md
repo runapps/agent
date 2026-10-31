@@ -71,7 +71,19 @@ description: Convert between units with exact factors. Use whenever the user ask
 3. Answer with the result and the factor used.
 ```
 
-The system prompt lists every skill's name and description (pi's `<available_skills>` block); the model reads the body with `read_file` when a task matches — the same way pi and Claude Code load skills. `disable-model-invocation: true` hides a skill from the model; typing `/skill:name …` as the prompt loads one explicitly, and `agent.useSkill(name)` does the same from code. Mount your own files with `workspace.mount("/doc", fs)`, where `fs` implements `AgentFS` (`list`, `read`, optional `write`/`delete`) — the app's document becomes files the model can read and edit; `memoryFS()` is a ready-made one. A mount is the host's live data, not storage: a `memoryFS` holds only what the page put in it and starts over on every open, so files meant to last belong in the directory itself (IndexedDB), where nested folders persist like top-level files. Everything the model writes to the directory persists; `clearWork()` empties it but keeps the skills.
+The system prompt lists every skill's name and description (pi's `<available_skills>` block); the model reads the body with `read_file` when a task matches — the same way pi and Claude Code load skills (opencode does the same through a `skill` tool). Only the name, description and path are in the prompt; bodies and reference files are read on demand, so a large skill costs nothing until it is used.
+
+**Writing the description.** It is the only thing the model sees before deciding whether to load the skill, so it decides whether the skill triggers. Say *what the skill does* and *when to use it* — the situations, the kinds of request, the words a user would use — in one to three sentences, in the language users will write in. Compare:
+
+```yaml
+# triggers rarely: a feature list, no situations
+description: Novel writing engine with character, plot and dialogue tools.
+
+# triggers reliably: scope, situations, user phrasing
+description: 网文爽文写作引擎，男频女频都支持（古言、穿越、系统、玄幻、都市……）。用户给出大纲、剧情单元或章节要求让 AI 写正文、起书名、写简介、改稿（"不够爽""不够好笑"）时使用；也负责批量生成金句和按题材出单元方案。
+```
+
+Keep the first sentence self-contained (some models skim), name the concrete triggers rather than "helps with writing", and leave out how the skill works inside — that belongs in the body. If a skill should never fire on its own (a destructive workflow, a template the user invokes), set `disable-model-invocation: true` and call it with `/skill:name`. `disable-model-invocation: true` hides a skill from the model; typing `/skill:name …` as the prompt loads one explicitly, and `agent.useSkill(name)` does the same from code. Mount your own files with `workspace.mount("/doc", fs)`, where `fs` implements `AgentFS` (`list`, `read`, optional `write`/`delete`) — the app's document becomes files the model can read and edit; `memoryFS()` is a ready-made one. A mount is the host's live data, not storage: a `memoryFS` holds only what the page put in it and starts over on every open, so files meant to last belong in the directory itself (IndexedDB), where nested folders persist like top-level files. Everything the model writes to the directory persists; `clearWork()` empties it but keeps the skills.
 
 Three more files in the workspace have a meaning: `/AGENTS.md` is added to the system prompt as project instructions; `/memory/notes.md` is the model's memory — the prompt tells it to append a line there to remember something across conversations, and shows the notes at the start of every one; `/prompts/<name>.md` are prompt templates, expanded when the prompt is `/name args` (`$1`, `$@`, `${2:-default}`, `${@:2}`, frontmatter `description` and `argument-hint`; `listTemplates(workspace)` lists them for a menu).
 
