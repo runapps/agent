@@ -113,7 +113,7 @@ In the composer, Enter sends and Shift+Enter breaks a line; while the agent runs
 
 **Sessions keep running.** Starting a new chat or resuming another while the agent works does not stop it: the session goes on in the background (its agent object is kept, its questions wait until you come back, the history menu marks it "running" and the History button shows a dot, a notice appears when it ends). Up to three may run in the background; past that the chat asks you to stop one first. `unmount()` stops them all.
 
-**Settings.** The gear in the header (on when the chat owns its agent; `settings: false` hides it) sets the model (with its context / output limits from the catalogue), the max turns per run, the max output per reply (the model's maximum, or a number) and tool permissions (ask / allow everything); model, turns and output are kept per app in localStorage and applied to every session over the host's options (`agent.settings` / `agent.configure(patch)`). A run that hits the turn limit says so with a "Continue" button.
+**Settings.** The gear in the header (on when the chat owns its agent; `settings: false` hides it) sets the model (with its context / output limits from the catalogue), the max turns per run, the max output per reply (the model's maximum, or a number) and tool permissions (ask / allow everything); model, turns and output are kept per app in localStorage and applied to every session over the host's options (`agent.settings` / `agent.configure(patch)`). A run that hits the turn limit says so with a "Continue" button, and an error card has "Retry": both call `agent.continue()`, which resumes the conversation as it stands — no new user message, a fresh turn count (pi's `continue`).
 
 **Files, zipped.** A folder row's download icon, or the icon in the panel's header for the whole directory, builds a zip in the browser (`buildZip`, deflate through `CompressionStream` when available) and hands it to the browser to save.
 
@@ -127,7 +127,7 @@ Colours come from `--ra-*` custom properties on `.ra-chat`, so a host can restyl
 
 | | |
 |---|---|
-| `createAgent(client, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `dequeue`, `clearQueue`, `abort`, `rewind`, `configure`, `settings`, `limits`, `context`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id` |
+| `createAgent(client, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `continue`, `dequeue`, `clearQueue`, `abort`, `rewind`, `configure`, `settings`, `limits`, `context`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id` |
 | `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `mountOf`, `isSkillPath`, `getData`, `putData`, `skills`, `skillBody`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` (deleting a session saved from a directory of its own id drops that directory too) |
 | Tools | `defineTool`, `fileTools`, `sandboxTool`, `runInSandbox`, `askUserTool` |
 | UI | `domUI`, `nullUI`; implement `AgentUI` for your own |

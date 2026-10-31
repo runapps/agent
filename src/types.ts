@@ -199,7 +199,8 @@ export interface RunResult {
 }
 
 export interface AgentEventMap {
-  run_start: { runId: string; message: ChatMessage };
+  /** `message` is null for `continue()`, which adds no user message. */
+  run_start: { runId: string; message: ChatMessage | null };
   turn_start: { runId: string; turn: number };
   /** Streamed assistant text: the new piece and the text so far. */
   text_delta: { runId: string; delta: string; text: string };

@@ -265,11 +265,24 @@ test("agent — repeating the same tool batch warns the model, then stops", asyn
   assert.ok(warned);
 });
 
-test("agent — max_turns ends the run", async () => {
-  const same = () => reply({ calls: [{ name: "get_weather", args: { city: "Rome" } }] });
-  const { client } = scripted([same(), same(), same()]);
-  const r = await createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false, maxTurns: 2 }).prompt("x");
+test("agent — max_turns ends the run; continue() picks up with no new message and a fresh turn count", async () => {
+  const call = (city) => reply({ calls: [{ name: "get_weather", args: { city } }] });
+  const { client, requests } = scripted([call("Rome"), call("Oslo"), call("Lima"), reply({ text: "done after four" })]);
+  const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false, maxTurns: 2 });
+  const starts = [];
+  agent.on("run_start", (e) => starts.push(e.message));
+  const r = await agent.prompt("x");
   assert.equal(r.reason, "max_turns");
+  assert.equal(requests.length, 2);
+  const before = agent.messages.length;
+  const r2 = await agent.continue();
+  assert.equal(r2.reason, "done");
+  assert.equal(r2.text, "done after four");
+  assert.equal(requests.length, 4, "two more turns under a fresh limit");
+  assert.equal(agent.messages.filter((m) => m.role === "user").length, 1, "no user message was added");
+  assert.ok(agent.messages.length > before);
+  assert.deepEqual(starts.map((m) => (m ? "message" : "continue")), ["message", "continue"]);
+  assert.throws(() => createAgent(client, { model: "m", sandbox: false, askUser: false }).continue(), /nothing to continue/);
 });
 
 test("agent — finish_reason length with far fewer tokens than asked is reported as a balance problem", async () => {

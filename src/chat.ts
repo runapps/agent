@@ -803,7 +803,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       // `busy` flips after the run's promise settles, a tick after this event.
       setTimeout(() => { if (agent !== a && !a.busy && !a.queued.length && !waiting.has(a.id)) { live.delete(a.id); unwatchBackground(a); } markBackground(); }, 50);
     }));
-    subs.push(a.on("run_start", (ev: { message: ChatMessage }) => { markBackground(); void checkpoint(a, ev.message); }));
+    subs.push(a.on("run_start", (ev: { message: ChatMessage | null }) => { markBackground(); if (ev.message) void checkpoint(a, ev.message); }));
     bgSubs.set(a.id, subs);
     markBackground();
   };
@@ -1469,12 +1469,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const on = (name: string, fn: (ev: any) => void) => unsub.push(a.on(name as never, fn as never));
-    on("run_start", (ev: { message: ChatMessage }) => {
-      // A prompt sent from here was drawn then; one from a queued follow-up (or the host's agent) is drawn now.
-      if (!root.dataset.sent) addUser(ev.message.content as string | ContentPart[], ev.message);
-      else if (lastUserRow) { lastUserRow.msg = ev.message; lastUserRow.update(); }
+    on("run_start", (ev: { message: ChatMessage | null }) => {
+      // A prompt sent from here was drawn then; one from a queued follow-up (or the host's agent) is drawn now; continue() has none.
+      if (ev.message) {
+        if (!root.dataset.sent) addUser(ev.message.content as string | ContentPart[], ev.message);
+        else if (lastUserRow) { lastUserRow.msg = ev.message; lastUserRow.update(); }
+        void checkpoint(a, ev.message);
+      }
       delete root.dataset.sent;
-      void checkpoint(a, ev.message);
       queuedShown = new Set(a.queued.map((q) => q.message));
       active = null;
       setBusy(true);
@@ -1526,8 +1528,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       flushActive(true);
       active = null;
       ui.cancelAll();
-      if (r.reason === "error" && r.error) addError(r.error.message);
-      else if (r.reason === "max_turns") addNote(t.maxTurns.replace("{n}", String(a.settings.maxTurns)) + " " + t.maxTurnsHint, undefined, { label: t.continueRun, onClick: () => void promptFromHost(t.continueRun) });
+      if (r.reason === "error" && r.error) addError(r.error.message, a.messages.length ? () => void a.continue().catch((e) => ui.notify((e as Error).message, "error")) : undefined);
+      else if (r.reason === "max_turns") addNote(t.maxTurns.replace("{n}", String(a.settings.maxTurns)) + " " + t.maxTurnsHint, undefined, { label: t.continueRun, onClick: () => void a.continue().catch((e) => ui.notify((e as Error).message, "error")) });
       else if (r.reason === "aborted") addNote(t.stopped);
       setBusy(false);
       showUsage_(a);

@@ -330,7 +330,19 @@ export class Agent {
     this.emit("rewind", { index });
   }
 
-  private start(message: ChatMessage, signal?: AbortSignal): Promise<RunResult> {
+  /**
+   * Picks the conversation up where it stopped — after a turn limit, an
+   * error or a stop — with no new user message and a fresh turn count
+   * (pi's `agent.continue()`). The model is called on the history as it
+   * is. Not while a run is active; nothing to continue is an error.
+   */
+  continue(): Promise<RunResult> {
+    if (this.current) throw new Error("runapps agent: cannot continue while a run is active");
+    if (!this.history.length) throw new Error("runapps agent: nothing to continue");
+    return this.start(null);
+  }
+
+  private start(message: ChatMessage | null, signal?: AbortSignal): Promise<RunResult> {
     const controller = new AbortController();
     if (signal) {
       if (signal.aborted) controller.abort();
@@ -354,7 +366,7 @@ export class Agent {
 
   /* ---------------- the loop ---------------- */
 
-  private async run(message: ChatMessage, controller: AbortController): Promise<RunResult> {
+  private async run(message: ChatMessage | null, controller: AbortController): Promise<RunResult> {
     await this.loaded;
     const runId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
     const signal = controller.signal;
@@ -363,8 +375,11 @@ export class Agent {
     let lastText = "";
     let truncatedRounds = 0;
 
-    const prefaced = await this.withSkillPrefaces(await this.expandSlashes(message));
-    this.history.push(prefaced);
+    let prefaced: ChatMessage | null = null;
+    if (message) {
+      prefaced = await this.withSkillPrefaces(await this.expandSlashes(message));
+      this.history.push(prefaced);
+    }
     this.emit("run_start", { runId, message: prefaced });
 
     const maxTurns = this.opts.maxTurns ?? DEFAULT_MAX_TURNS;
