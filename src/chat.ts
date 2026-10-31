@@ -162,11 +162,11 @@ const STRINGS = {
     files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", tooBig: "Too large to edit here; download it.", conflict: "The file changed since you opened it. Overwrite it?", readOnly: "Read-only", autoSaved: "Unsaved edits saved", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved",
     worked: "Worked for {t}", workedNoTime: "Work", sec: "{s}s", minSec: "{m}m {s}s", hourMin: "{h}h {m}m",
-    command: "Command", user: "User", compacting: "Compacting the context…", nothingToCompact: "Nothing to compact yet", busyCmd: "Wait for the current task to finish, or stop it, first", copiedReply: "Copied the last reply", nothingToCopy: "No reply to copy yet", nothingToContinue: "Nothing to continue",
+    command: "Command", user: "User", compacting: "Compacting the context…", nothingToCompact: "Nothing to compact yet", busyCmd: "Wait for the current task to finish, or stop it, first", nothingToExport: "Nothing to export yet", nothingToContinue: "Nothing to continue",
     unknownModel: "No model named \"{name}\"", modelSet: "Model: {name}", effortSet: "Thinking: {name}", effortLevels: "Thinking levels of {model}: {levels}", unknownEffort: "\"{name}\" is not a thinking level of {model} ({levels})", debugOff: "Debug mode is off",
     cmdsTitle: "Commands", cmdsMore: "Templates (/name) and skills (/skill:name) are listed as you type.", autoCompact: "Auto-compaction", autoCompactAt: "when less than {n} tokens are left", directory: "Directory", messagesLabel: "Messages",
     cmdArgs: { compact: "[focus]", model: "[name]", effort: "[level]" },
-    cmd: { help: "Show these commands", new: "Start a new conversation", resume: "Open a saved conversation", compact: "Summarise older turns now; add what the summary must keep", continue: "Continue the last run", model: "Switch model; no name opens the settings", effort: "Set the thinking level", context: "Context use, model and spending", copy: "Copy the last reply", export: "Download the conversation as Markdown", files: "Open the file manager", settings: "Open the settings", debug: "Show or hide the debug panel" },
+    cmd: { help: "Show these commands", new: "Start a new conversation", resume: "Open a saved conversation", compact: "Summarise older turns now; add what the summary must keep", continue: "Continue the last run", model: "Switch model; no name opens the settings", effort: "Set the thinking level", context: "Context use, model and spending", export: "Download the conversation as Markdown", files: "Open the file manager", settings: "Open the settings", debug: "Show or hide the debug panel" },
   },
   zh: {
     assistant: "助手", placeholder: "让 agent 做点什么…  输入 / 查看命令", placeholderBusy: "↵ 插入当前任务，{mod}↵ 排队到之后",
@@ -192,11 +192,11 @@ const STRINGS = {
     files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", tooBig: "文件太大，无法在这里编辑，可以下载。", conflict: "文件在你打开后被改过，要覆盖吗？", readOnly: "只读", autoSaved: "未保存的修改已自动保存", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存",
     worked: "已工作 {t}", workedNoTime: "工作过程", sec: "{s}秒", minSec: "{m}分{s}秒", hourMin: "{h}小时{m}分",
-    command: "命令", user: "用户", compacting: "正在压缩上下文…", nothingToCompact: "暂时没有可压缩的内容", busyCmd: "请等当前任务结束（或先停止）", copiedReply: "已复制最后一条回复", nothingToCopy: "还没有可复制的回复", nothingToContinue: "没有可继续的内容",
+    command: "命令", user: "用户", compacting: "正在压缩上下文…", nothingToCompact: "暂时没有可压缩的内容", busyCmd: "请等当前任务结束（或先停止）", nothingToExport: "还没有可导出的内容", nothingToContinue: "没有可继续的内容",
     unknownModel: "没有名为“{name}”的模型", modelSet: "模型：{name}", effortSet: "思考强度：{name}", effortLevels: "{model} 的思考强度：{levels}", unknownEffort: "“{name}”不是 {model} 的思考强度（{levels}）", debugOff: "调试模式未开启",
     cmdsTitle: "命令", cmdsMore: "模板（/名称）和 Skill（/skill:名称）在输入时列出。", autoCompact: "自动压缩", autoCompactAt: "剩余不足 {n} tokens 时", directory: "目录", messagesLabel: "消息",
     cmdArgs: { compact: "[重点]", model: "[名称]", effort: "[档位]" },
-    cmd: { help: "显示这些命令", new: "开始新对话", resume: "打开保存的对话", compact: "立即压缩较早的对话，可附上要保留的重点", continue: "继续上一次运行", model: "切换模型，不带名称则打开设置", effort: "设置思考强度", context: "上下文占用、模型和花费", copy: "复制最后一条回复", export: "把对话下载为 Markdown", files: "打开文件管理", settings: "打开设置", debug: "显示或隐藏调试面板" },
+    cmd: { help: "显示这些命令", new: "开始新对话", resume: "打开保存的对话", compact: "立即压缩较早的对话，可附上要保留的重点", continue: "继续上一次运行", model: "切换模型，不带名称则打开设置", effort: "设置思考强度", context: "上下文占用、模型和花费", export: "把对话下载为 Markdown", files: "打开文件管理", settings: "打开设置", debug: "显示或隐藏调试面板" },
   },
 };
 type Strings = typeof STRINGS.en;
@@ -1912,23 +1912,6 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   type Builtin = { name: string; aliases?: string[]; args?: string; run: (arg: string) => void | Promise<void> };
   const fail = (err: unknown) => ui.notify((err as Error).message, "error");
   let compacting = false;
-  const copyText = async (text: string) => {
-    try { await navigator.clipboard.writeText(text); return; } catch { /* not focused, or no permission: the old way */ }
-    const area = h("textarea"); area.value = text; area.style.cssText = "position:fixed;opacity:0;top:0;left:0";
-    root.append(area); area.select();
-    const ok = document.execCommand("copy");
-    area.remove(); ta.focus();
-    if (!ok) throw new Error(t.error);
-  };
-  const lastReply = (): string => {
-    for (let i = agent.messages.length - 1; i >= 0; i--) {
-      const m = agent.messages[i]!;
-      if (m.role !== "assistant") continue;
-      const text = textOfContent(m.content as string | ContentPart[]).trim();
-      if (text) return text;
-    }
-    return "";
-  };
   /** The conversation as Markdown: what was said, and the tools each turn called. */
   const transcriptMarkdown = (a: Agent): string => {
     const out = [`# ${titleOfAgent(a)}`, ""];
@@ -2024,14 +2007,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       ].filter(Boolean);
       addNote(t.context, lines.join("\n"));
     } },
-    { name: "copy", run: async () => {
-      const text = lastReply();
-      if (!text) { ui.notify(t.nothingToCopy); return; }
-      await copyText(text);
-      ui.notify(t.copiedReply);
-    } },
     { name: "export", run: () => {
-      if (!agent.messages.length) { ui.notify(t.nothingToCopy); return; }
+      if (!agent.messages.length) { ui.notify(t.nothingToExport); return; }
       const name = titleOfAgent(agent).replace(/[\\/:*?"<>|\s]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "conversation";
       downloadBlob(`${name}.md`, transcriptMarkdown(agent), "text/markdown;charset=utf-8");
     } },
