@@ -34,14 +34,18 @@ function button(label: string, primary: boolean, danger: boolean, onClick: () =>
   return b;
 }
 
-function openDialog(build: (d: HTMLDialogElement, done: (value: unknown) => void) => void): Promise<unknown> {
+function openDialog(build: (d: HTMLDialogElement, done: (value: unknown) => void) => void, signal?: AbortSignal, cancelValue: unknown = null): Promise<unknown> {
   const d = el("dialog", DIALOG_STYLE);
-  let value: unknown = null;
+  let value: unknown = cancelValue;
   const done = (v: unknown) => { value = v; d.close(); };
   build(d, done);
+  if (signal?.aborted) return Promise.resolve(cancelValue);
   document.body.append(d);
   return new Promise((resolve) => {
-    d.addEventListener("close", () => { d.remove(); resolve(value); }, { once: true });
+    // A stopped run closes its question as if dismissed.
+    const onAbort = () => done(cancelValue);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    d.addEventListener("close", () => { signal?.removeEventListener("abort", onAbort); d.remove(); resolve(value); }, { once: true });
     d.showModal();
   });
 }
@@ -62,7 +66,7 @@ export function domUI(): AgentUI {
         );
         d.append(row);
         queueMicrotask(() => (row.lastElementChild as HTMLButtonElement).focus());
-      });
+      }, opts.signal, false);
       return v === true;
     },
 
@@ -109,7 +113,7 @@ export function domUI(): AgentUI {
         );
         d.append(row);
         queueMicrotask(() => inputs[0]?.focus());
-      });
+      }, opts.signal, null);
       return Array.isArray(v) ? (v as string[]) : null;
     },
 
@@ -121,7 +125,7 @@ export function domUI(): AgentUI {
         const field = el(opts.multiline ? "textarea" : "input", "font:inherit;padding:8px 10px;border:1px solid rgba(127,127,127,.35);border-radius:8px;background:transparent;color:inherit;width:100%;box-sizing:border-box;margin:6px 0 12px" + (opts.multiline ? ";min-height:96px;resize:vertical" : ""));
         if (opts.placeholder) field.placeholder = opts.placeholder;
         if (opts.initial) field.value = opts.initial;
-        if (!opts.multiline) field.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") done(field.value); });
+        if (!opts.multiline) field.addEventListener("keydown", (e) => { const k = e as KeyboardEvent; if (k.key === "Enter" && !k.isComposing && k.keyCode !== 229) done(field.value); });
         d.append(field);
         const row = el("div", "display:flex;justify-content:flex-end;gap:8px");
         row.append(
@@ -130,7 +134,7 @@ export function domUI(): AgentUI {
         );
         d.append(row);
         queueMicrotask(() => field.focus());
-      });
+      }, opts.signal, null);
       return typeof v === "string" ? v : null;
     },
 
@@ -212,10 +216,10 @@ export function askUserTool(): Tool {
         ctx.signal.throwIfAborted();
         let answer: string | string[] | null;
         if (q.options && q.options.length) {
-          const picked = await ctx.ui.select(q.question, q.options.map((o) => ({ value: o.label, label: o.label, description: o.description })), { multi: !!q.multi, allowOther: q.allow_other !== false });
+          const picked = await ctx.ui.select(q.question, q.options.map((o) => ({ value: o.label, label: o.label, description: o.description })), { multi: !!q.multi, allowOther: q.allow_other !== false, signal: ctx.signal });
           answer = picked === null ? null : q.multi ? picked : (picked[0] ?? null);
         } else {
-          answer = await ctx.ui.input(q.question, { multiline: true });
+          answer = await ctx.ui.input(q.question, { multiline: true, signal: ctx.signal });
         }
         answers.push({ question: q.question, answer });
         if (answer === null) break;

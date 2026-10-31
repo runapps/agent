@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { RunApps, APIError } from "@runappsai/sdk";
-import { createAgent, defineTool, fitBudget, groupTurns } from "../dist/index.js";
+import { createAgent, defineTool, fitBudget, groupTurns, estimateTokens, applyEdits, Workspace } from "../dist/index.js";
 
 /** SSE body from chunk objects (the gateway's framing). */
 function sse(chunks) {
@@ -282,7 +282,7 @@ test("agent — max_turns ends the run; continue() picks up with no new message 
   assert.equal(agent.messages.filter((m) => m.role === "user").length, 1, "no user message was added");
   assert.ok(agent.messages.length > before);
   assert.deepEqual(starts.map((m) => (m ? "message" : "continue")), ["message", "continue"]);
-  assert.throws(() => createAgent(client, { model: "m", sandbox: false, askUser: false }).continue(), /nothing to continue/);
+  await assert.rejects(createAgent(client, { model: "m", sandbox: false, askUser: false }).continue(), /nothing to continue/);
 });
 
 test("agent — finish_reason length with far fewer tokens than asked is reported as a balance problem", async () => {
@@ -465,4 +465,79 @@ test("agent — reasoning_content stays on the assistant turn and goes back to t
   assert.equal(requests[1].messages.find((m) => m.role === "assistant" && m.tool_calls).reasoning_content, "thinking hard…", "sent back with the tool-calling turn");
   agent.configure({ reasoningEffort: null });
   assert.equal(agent.settings.reasoningEffort, undefined);
+});
+
+test("agent — one prompt with many big tool rounds compacts inside the turn instead of outgrowing the window", async () => {
+  const big = defineTool({ name: "big", description: "returns a lot", parameters: { type: "object", properties: { n: { type: "integer" } }, additionalProperties: false }, execute: ({ n }) => `${n}:` + "y".repeat(9000) });
+  const script = [];
+  for (let i = 0; i < 12; i++) script.push(reply({ calls: [{ id: `b${i}`, name: "big", args: { n: i } }] }));
+  script.push(reply({ text: "done" }));
+  const { client, requests } = scripted(script);
+  const agent = createAgent(client, { model: "m", tools: [big], sandbox: false, askUser: false, maxInputTokens: 20000, compaction: async () => "SUMMARY OF EARLIER ROUNDS" });
+  let compactions = 0;
+  agent.on("compaction", () => compactions++);
+  const r = await agent.prompt("go");
+  assert.equal(r.reason, "done");
+  assert.ok(compactions >= 1, "compacted at least once");
+  for (const q of requests) assert.ok(estimateTokens(q.messages) < 20000, `request of ${estimateTokens(q.messages)} tokens fits the window`);
+  // Every tool result in a request still has its call right before it.
+  for (const q of requests) q.messages.forEach((m, i) => { if (m.role === "tool") assert.ok(q.messages.slice(0, i).some((a) => a.tool_calls?.some((c) => c.id === m.tool_call_id))); });
+});
+
+test("agent — compact() and a prompt sent meanwhile: the prompt queues behind it and is kept", async () => {
+  const { client } = scripted([reply({ text: "a1" }), reply({ text: "a2" }), reply({ text: "a3" })]);
+  let release;
+  const agent = createAgent(client, { model: "m", sandbox: false, askUser: false, compaction: () => new Promise((r) => { release = () => r("SUM"); }) });
+  await agent.prompt("one " + "x".repeat(40000));
+  await agent.prompt("two " + "x".repeat(40000));
+  const compacting = agent.compact();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(agent.busy, true, "compaction counts as busy");
+  const later = agent.prompt("NEW QUESTION");
+  release();
+  assert.equal(await compacting, true);
+  const r = await later;
+  assert.equal(r.text, "a3");
+  assert.ok(agent.messages.some((m) => m.content === "NEW QUESTION"), "the message sent during compaction is in the history");
+});
+
+test("agent — a follow-up whose preface fails settles with an error; leftover steering goes before the next prompt", async () => {
+  const { client, requests } = scripted([reply({ calls: [{ name: "get_weather", args: { city: "Rome" } }] }), reply({ text: "after" })]);
+  const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false, maxTurns: 1 });
+  const off = agent.on("tool_end", () => { off(); agent.steer("STEER"); });  // arrives during the last allowed batch
+  const r1 = await agent.prompt("x");
+  assert.equal(r1.reason, "max_turns");
+  assert.deepEqual(agent.queued.map((q) => q.kind), ["steer"], "the steer is still waiting");
+  await agent.prompt("NEXT");
+  const users = requests[1].messages.filter((m) => m.role === "user").map((m) => m.content);
+  assert.deepEqual(users.slice(-2), ["STEER", "NEXT"], "typed order kept");
+  // A skill that does not exist makes the run's preface throw: the follow-up still resolves.
+  const { client: c2 } = scripted([reply({ text: "z" })]);
+  const ws = await Workspace.open(null, { id: "preface", project: "preface-test" });
+  const a2 = createAgent(c2, { model: "m", workspace: ws, sandbox: false, askUser: false, persist: false });
+  a2.useSkill("missing");
+  const res = await Promise.race([a2.followUp("x"), new Promise((r) => setTimeout(() => r("hung"), 1000))]);
+  assert.notEqual(res, "hung");
+  assert.equal(res.reason, "error");
+});
+
+test("agent — abort() closes an open confirmation and returns promptly", async () => {
+  const del = defineTool({ name: "wipe", description: "dangerous", destructive: true, parameters: { type: "object", properties: {}, additionalProperties: false }, execute: () => "wiped" });
+  const { client } = scripted([reply({ calls: [{ name: "wipe", args: {} }] })]);
+  let sawSignal = false;
+  const ui = { confirm: (_t, _m, o) => new Promise((resolve) => { sawSignal = !!o?.signal; o?.signal?.addEventListener("abort", () => resolve(false)); }), select: async () => null, input: async () => null, notify() {} };
+  const agent = createAgent(client, { model: "m", tools: [del], sandbox: false, askUser: false, ui });
+  const run = agent.prompt("wipe it");
+  await new Promise((r) => setTimeout(r, 30));
+  const t0 = Date.now();
+  await agent.abort();
+  assert.ok(Date.now() - t0 < 500, "abort did not wait for the dialog");
+  assert.equal((await run).reason, "aborted");
+  assert.ok(sawSignal, "the dialog got the run's signal");
+});
+
+test("edit — a fuzzy match changes only the matched text; the rest keeps its exact characters", () => {
+  const src = "标题：你好，世界（测试）  \n第二行 “引号” 保持\n结尾  ";
+  const out = applyEdits("/a.md", src, [{ oldText: '第二行 "引号" 保持', newText: "第二行 已改" }]);
+  assert.equal(out, "标题：你好，世界（测试）  \n第二行 已改\n结尾  ");
 });

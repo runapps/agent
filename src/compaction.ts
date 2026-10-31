@@ -130,32 +130,35 @@ export interface CutPlan {
 }
 
 /**
- * Splits the transcript at a turn boundary so that about
- * `keepRecentTokens` of the newest turns stay. Never splits a turn (a
- * tool call from its result); the newest turn always stays; null when
- * there is nothing older to summarise.
+ * Splits the transcript so that about `keepRecentTokens` of the newest
+ * messages stay verbatim. A cut falls before a user message or before an
+ * assistant message — inside a long agentic turn too (pi's split turn),
+ * so one prompt followed by many tool rounds can still be summarised —
+ * and never between a tool call and its result. The newest message
+ * always stays; null when there is nothing older to summarise.
  */
 export function planCut(messages: ChatMessage[], keepRecentTokens: number): CutPlan | null {
-  const turns = groupTurns(messages);
-  if (turns.length < 2) return null;
+  if (messages.length < 2) return null;
   let acc = 0;
-  let cut = turns.length - 1;
-  for (let i = turns.length - 1; i >= 1; i--) {
-    acc += estimateTokens(turns[i]!);
-    cut = i;
-    if (acc >= keepRecentTokens) break;
+  let cut = -1;
+  for (let i = messages.length - 1; i >= 1; i--) {
+    acc += estimateTokens([messages[i]!]);
+    const role = messages[i]!.role;
+    if (role === "user" || role === "assistant") {
+      cut = i;
+      if (acc >= keepRecentTokens) break;
+    }
   }
-  const older = turns.slice(0, cut).flat();
-  if (!older.length) return null;
+  if (cut <= 0) return null;
   let previousSummary: string | undefined;
   const toSummarize: ChatMessage[] = [];
-  for (const m of older) {
+  for (const m of messages.slice(0, cut)) {
     const s = summaryOf(m);
     if (s !== null && previousSummary === undefined) previousSummary = s;
     else toSummarize.push(m);
   }
   if (!toSummarize.length) return null;
-  return { toSummarize, previousSummary, kept: turns.slice(cut).flat() };
+  return { toSummarize, previousSummary, kept: messages.slice(cut) };
 }
 
 /** The conversation as text, so the summariser describes it instead of continuing it. */

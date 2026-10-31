@@ -537,12 +537,16 @@ interface Pending { card: HTMLElement; cancel: () => void }
 /** `AgentUI` whose questions are cards above the composer and whose notices are toasts in the chat. */
 function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChange: () => void): AgentUI & { cancelAll(all?: boolean): void; park(): HTMLElement[]; restore(cards: HTMLElement[]): void } {
   const pending = new Set<Pending>();
-  const open = <T,>(build: (card: HTMLElement, done: (v: T) => void) => void, cancelValue: T): Promise<T> =>
+  const open = <T,>(build: (card: HTMLElement, done: (v: T) => void) => void, cancelValue: T, signal?: AbortSignal): Promise<T> =>
     new Promise<T>((resolve) => {
+      if (signal?.aborted) { resolve(cancelValue); return; }
       const card = h("section", "ra-q");
       let entry: Pending;
-      const done = (v: T) => { pending.delete(entry); card.remove(); onChange(); resolve(v); };
+      // A stopped run takes its question away as if dismissed.
+      const onAbort = () => entry.cancel();
+      const done = (v: T) => { signal?.removeEventListener("abort", onAbort); pending.delete(entry); card.remove(); onChange(); resolve(v); };
       entry = { card, cancel: () => done(cancelValue) };
+      signal?.addEventListener("abort", onAbort, { once: true });
       card.addEventListener("keydown", (e) => { if (e.key === "Escape" && !(e as KeyboardEvent).isComposing) { e.preventDefault(); e.stopPropagation(); entry.cancel(); } });
       build(card, done);
       pending.add(entry);
@@ -563,7 +567,7 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
       const row = h("div", "ra-btns");
       row.append(btn(opts.cancel ?? t.decline, "ghost", () => done(false)), btn(opts.ok ?? t.allow, opts.danger ? "red" : "solid", () => done(true)));
       card.append(row);
-    }, false),
+    }, false, opts.signal),
 
     select: (title, options: SelectOption[], opts = {}) => open<string[] | null>((card, done) => {
       head(card, title, opts.message);
@@ -607,7 +611,7 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
         if (picked.length) done(picked);
       }));
       card.append(row);
-    }, null),
+    }, null, opts.signal),
 
     input: (title, opts = {}) => open<string | null>((card, done) => {
       head(card, title, opts.message);
@@ -623,7 +627,7 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
       const row = h("div", "ra-btns");
       row.append(btn(t.cancel, "ghost", () => done(null)), btn(t.submit, "solid", () => done(field.value)));
       card.append(row);
-    }, null),
+    }, null, opts.signal),
 
     notify(message, level = "info") {
       const el = h("div", "ra-toast " + level, message);

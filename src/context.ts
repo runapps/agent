@@ -107,6 +107,7 @@ export function estimateTokens(messages: ChatMessage[], system?: string): number
       }
     }
     if (m.tool_calls) for (const c of m.tool_calls) bytes += utf8Length(c.function.name) + utf8Length(c.function.arguments) + 24;
+    if (typeof m.reasoning_content === "string") bytes += utf8Length(m.reasoning_content);
   }
   return Math.ceil(bytes / 3) + images * IMAGE_TOKENS;
 }
@@ -158,6 +159,29 @@ export function fitBudget(
   while (turns.length > 1 && over()) {
     turns.shift();
     dropped++;
+  }
+  // One long agentic turn left (a prompt and many tool rounds): elide its
+  // older tool results, then drop its oldest rounds — an assistant message
+  // with its tool results, so calls and results stay paired.
+  if (over() && turns.length === 1) {
+    const turn = turns[0]!;
+    const toolIdx = turn.map((m, i) => (m.role === "tool" ? i : -1)).filter((i) => i >= 0);
+    for (const i of toolIdx.slice(0, Math.max(0, toolIdx.length - 3))) {
+      if (!over()) break;
+      const m = turn[i]!;
+      const text = typeof m.content === "string" ? m.content : partsText(m.content);
+      if (text.length <= elideAbove || text.startsWith("[result elided")) continue;
+      turn[i] = { ...m, content: `[result elided to save context: ${text.length} characters; call the tool again if needed]` };
+      elided++;
+    }
+    const head = turn[0]?.role === "user" ? 1 : 0;
+    const roundAt = (from: number) => { let j = from + 1; while (j < turn.length && turn[j]!.role === "tool") j++; return j; };
+    while (over()) {
+      const rounds = turn.slice(head).filter((m) => m.role === "assistant").length;
+      if (rounds <= 1 || turn[head]?.role !== "assistant") break;
+      turn.splice(head, roundAt(head) - head);
+      dropped++;
+    }
   }
   return { messages: turns.flat(), droppedTurns: dropped, elidedResults: elided };
 }

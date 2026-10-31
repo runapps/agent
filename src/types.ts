@@ -99,12 +99,13 @@ export interface SelectOption {
  * default (plain `<dialog>`s); an app with its own design passes an
  * object implementing this interface.
  */
+/** The agent's dialogs. A question given `signal` closes (as if dismissed) when the run is stopped. */
 export interface AgentUI {
   /** Yes/no question; resolves false when dismissed. */
   confirm(
     title: string,
     message?: string,
-    opts?: { ok?: string; cancel?: string; danger?: boolean },
+    opts?: { ok?: string; cancel?: string; danger?: boolean; signal?: AbortSignal },
   ): Promise<boolean>;
   /**
    * Pick one (or several with `multi`) of `options`; `allowOther` adds a
@@ -113,12 +114,12 @@ export interface AgentUI {
   select(
     title: string,
     options: SelectOption[],
-    opts?: { message?: string; multi?: boolean; allowOther?: boolean },
+    opts?: { message?: string; multi?: boolean; allowOther?: boolean; signal?: AbortSignal },
   ): Promise<string[] | null>;
   /** Free text; null when dismissed. */
   input(
     title: string,
-    opts?: { message?: string; placeholder?: string; multiline?: boolean; initial?: string },
+    opts?: { message?: string; placeholder?: string; multiline?: boolean; initial?: string; signal?: AbortSignal },
   ): Promise<string | null>;
   notify(message: string, level?: "info" | "warning" | "error"): void;
 }

@@ -54,11 +54,34 @@ interface Queued {
   resolve?: (r: RunResult) => void;
 }
 
-/** The message as the model sees it: without the chat's own bookkeeping fields. */
-function stripMeta(m: ChatMessage): ChatMessage {
-  if (!("ts" in m)) return m;
+/**
+ * The message as the model sees it: without the chat's own bookkeeping
+ * (`ts`), and without the reasoning of turns before the latest user
+ * message — a thinking model needs it back only within the current tool
+ * loop (DeepSeek), and older reasoning is just tokens.
+ */
+function toWire(m: ChatMessage, older: boolean): ChatMessage {
+  const meta = "ts" in m;
+  const dropReasoning = older && m.role === "assistant" && m.reasoning_content !== undefined;
+  if (!meta && !dropReasoning) return m;
   const { ts: _ts, ...rest } = m as ChatMessage & { ts?: number };
+  if (dropReasoning) delete (rest as ChatMessage).reasoning_content;
   return rest as ChatMessage;
+}
+
+const emptyUsage = (): AgentUsage => ({ total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 });
+const abortedResult = (): RunResult => ({ runId: "", reason: "aborted", text: "", usage: emptyUsage() });
+const SKIPPED_STOP = "Skipped: the user stopped the run.";
+const balanceError = () => new APIError(402, "insufficient_balance", "runapps agent: the reply was cut short because the balance could not cover a full answer; top up to continue");
+
+/** Settles with `p`, or rejects as soon as `signal` aborts (the work itself may go on; its result is ignored). */
+function raceAbort<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason ?? new Error("aborted"));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error("aborted"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then((v) => { signal.removeEventListener("abort", onAbort); resolve(v); }, (e) => { signal.removeEventListener("abort", onAbort); reject(e); });
+  });
 }
 
 export class Agent {
@@ -71,7 +94,7 @@ export class Agent {
   private history: ChatMessage[] = [];
   private committed = 0;
   private droppedTurns = 0;
-  private _usage: AgentUsage = { total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 };
+  private _usage: AgentUsage = emptyUsage();
   private readonly handlers = new Map<AgentEventName, Set<Handler<AgentEventName>>>();
   private readonly anyHandlers = new Set<AnyHandler>();
   private queue: Queued[] = [];
@@ -83,7 +106,7 @@ export class Agent {
   private loopWarned = false;
   private readonly loaded: Promise<void>;
   private createdAt = Date.now();
-  private readonly persist: boolean;
+  private persist: boolean;
 
   constructor(client: RunApps, opts: AgentOptions = {}) {
     this.client = client;
@@ -115,7 +138,11 @@ export class Agent {
       // An id names a session: continue it when the workspace has one.
       this.loaded = this.workspace!.sessions.get(opts.id).then((saved) => {
         if (saved) this.applySession(saved);
-      }).catch(() => undefined);
+      }).catch((err) => {
+        // Saving now would overwrite a session we could not read: stay in memory only.
+        this.persist = false;
+        console.warn(`runapps agent: could not load session ${opts.id}; it will not be saved over`, err);
+      });
     } else {
       this.loaded = Promise.resolve();
     }
@@ -128,7 +155,7 @@ export class Agent {
     this.droppedTurns = data.droppedTurns ?? 0;
     this._usage = { ...data.usage };
     this.createdAt = data.createdAt ?? data.savedAt ?? Date.now();
-    if (data.model && !this.opts.model) this.opts.model = data.model;
+    if (data.model && !this.opts.model) { this.opts.model = data.model; this.inputTokens = null; }
   }
 
   /** Resolves once a saved session (if any) has been loaded. */
@@ -288,14 +315,14 @@ export class Agent {
     const q = this.queue.find((q) => q.message === message);
     if (!q) return false;
     this.queue = this.queue.filter((x) => x !== q);
-    q.resolve?.({ runId: "", reason: "aborted", text: "", usage: { total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 } });
+    q.resolve?.(abortedResult());
     return true;
   }
   /** Drops everything queued; a waiting `followUp()` resolves as aborted. */
   clearQueue(): void {
     const dropped = this.queue;
     this.queue = [];
-    for (const q of dropped) q.resolve?.({ runId: "", reason: "aborted", text: "", usage: { total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 } });
+    for (const q of dropped) q.resolve?.(abortedResult());
   }
   /** Stops the current run (pending tool calls get a "skipped" result) and drops the queue. */
   async abort(): Promise<void> {
@@ -325,6 +352,7 @@ export class Agent {
    * message. Not while a run is active.
    */
   async rewind(index: number): Promise<void> {
+    await this.loaded;
     if (this.current) throw new Error("runapps agent: cannot rewind while a run is active; abort() first");
     if (!Number.isInteger(index) || index < 0 || index > this.history.length) throw new Error(`runapps agent: no message at ${index}`);
     this.clearQueue();
@@ -342,7 +370,8 @@ export class Agent {
    * (pi's `agent.continue()`). The model is called on the history as it
    * is. Not while a run is active; nothing to continue is an error.
    */
-  continue(): Promise<RunResult> {
+  async continue(): Promise<RunResult> {
+    await this.loaded;
     if (this.current) throw new Error("runapps agent: cannot continue while a run is active");
     if (!this.history.length) throw new Error("runapps agent: nothing to continue");
     return this.start(null);
@@ -367,7 +396,7 @@ export class Agent {
     const next = this.queue.find((q) => q.kind === "followUp");
     if (!next) return;
     this.queue = this.queue.filter((q) => q !== next);
-    this.start(next.message).then((r) => next.resolve?.(r), () => undefined);
+    this.start(next.message).then((r) => next.resolve?.(r), (err) => next.resolve?.({ ...abortedResult(), reason: "error", error: err instanceof Error ? err : new Error(String(err)) }));
   }
 
   /* ---------------- the loop ---------------- */
@@ -381,9 +410,19 @@ export class Agent {
     let lastText = "";
     let truncatedRounds = 0;
 
+    // Steering left over from a run that ended (turn limit, error) goes in before the new message, in the order it was typed.
+    for (const q of this.queue.filter((q) => q.kind === "steer")) this.history.push(q.message);
+    this.queue = this.queue.filter((q) => q.kind !== "steer");
+
     let prefaced: ChatMessage | null = null;
+    let prefaceError: Error | undefined;
     if (message) {
-      prefaced = await this.withSkillPrefaces(await this.expandSlashes(message));
+      try {
+        prefaced = await this.withSkillPrefaces(await this.expandSlashes(message));
+      } catch (err) {
+        prefaced = message;
+        prefaceError = err instanceof Error ? err : new Error(String(err));
+      }
       this.history.push(prefaced);
     }
     this.emit("run_start", { runId, message: prefaced });
@@ -393,6 +432,7 @@ export class Agent {
     const compaction = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
 
     try {
+      if (prefaceError) throw prefaceError;
       for (let turn = 1; ; turn++) {
         if (signal.aborted) { reason = "aborted"; break; }
         if (turn > maxTurns) { reason = "max_turns"; break; }
@@ -427,7 +467,7 @@ export class Agent {
         const params: ChatCompletionParams = {
           ...(this.opts.extra ?? {}),
           model: this.opts.model ?? "",
-          messages: [{ role: "system", content: system }, ...this.history.map(stripMeta)],
+          messages: [{ role: "system", content: system }, ...this.toWireHistory()],
           max_tokens: maxTokens,
         };
         if (!params.model) delete (params as Partial<ChatCompletionParams>).model;
@@ -455,7 +495,7 @@ export class Agent {
           await this.saveSession();
           if (truncated && this.balanceLimited(completion.usage, maxTokens)) {
             reason = "error";
-            error = new APIError(402, "insufficient_balance", "runapps agent: the reply was cut short because the balance could not cover a full answer; top up to continue");
+            error = balanceError();
             break;
           }
           // pi: steering that arrived during the final reply still gets its turn.
@@ -471,7 +511,7 @@ export class Agent {
           truncatedRounds++;
           if (this.balanceLimited(completion.usage, maxTokens)) {
             reason = "error";
-            error = new APIError(402, "insufficient_balance", "runapps agent: the reply was cut short because the balance could not cover a full answer; top up to continue");
+            error = balanceError();
             break;
           }
           if (truncatedRounds >= 2) {
@@ -517,6 +557,12 @@ export class Agent {
     return result;
   }
 
+  private toWireHistory(): ChatMessage[] {
+    let lastUser = -1;
+    for (let i = this.history.length - 1; i >= 0; i--) if (this.history[i]!.role === "user") { lastUser = i; break; }
+    return this.history.map((m, i) => toWire(m, i < lastUser));
+  }
+
   /** The system prompt for the next request (what the model is told). */
   async systemPrompt(): Promise<string> {
     const ws = this.workspace;
@@ -549,13 +595,26 @@ export class Agent {
    * by itself when the window is nearly full). Resolves true when a
    * summary replaced older turns.
    */
-  async compact(): Promise<boolean> {
-    if (this.current) throw new Error("runapps agent: cannot compact while a run is active");
-    const window = await this.contextTokens();
-    const settings = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
-    const done = await this.compactWith(settings, undefined, new AbortController().signal);
-    if (done) await this.saveSession();
-    return done;
+  compact(): Promise<boolean> {
+    if (this.current) return Promise.reject(new Error("runapps agent: cannot compact while a run is active"));
+    // Runs like a run: messages sent meanwhile queue behind it instead of being lost when the history is replaced.
+    const controller = new AbortController();
+    const work = this.chain.then(async () => {
+      await this.loaded;
+      const window = await this.contextTokens();
+      const settings = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
+      const done = await this.compactWith(settings, undefined, controller.signal);
+      if (done) await this.saveSession();
+      return done;
+    });
+    const promise = work.then(() => ({ ...abortedResult(), reason: "done" as const }), () => abortedResult());
+    this.current = { controller, promise };
+    this.chain = promise;
+    void promise.finally(() => {
+      if (this.current?.controller === controller) this.current = null;
+      this.drainFollowUps();
+    });
+    return work;
   }
 
   private async compactWith(settings: CompactionSettings, runId: string | undefined, signal: AbortSignal): Promise<boolean> {
@@ -593,7 +652,7 @@ export class Agent {
   private async expandSlashes(message: ChatMessage): Promise<ChatMessage> {
     if (!this.workspace || typeof message.content !== "string" || !message.content.startsWith("/")) return message;
     const expanded = await expandSlash(this.workspace, message.content);
-    return expanded === message.content ? message : { role: "user", content: expanded };
+    return expanded === message.content ? message : { ...message, content: expanded };
   }
 
   /** One model call with retries for transient failures. */
@@ -669,7 +728,7 @@ export class Agent {
       return { message: { role: "tool", tool_call_id: id, content }, fingerprint: `${name}|${call.function.arguments}|${status}|${result.slice(0, 2000)}` };
     };
 
-    if (signal.aborted) return finish("skipped", "Skipped: the user stopped the run.");
+    if (signal.aborted) return finish("skipped", SKIPPED_STOP);
     if (truncated) {
       // pi: nothing from a reply cut by the output limit runs.
       this.emit("tool_start", { runId, id, name, args: call.function.arguments });
@@ -691,36 +750,36 @@ export class Agent {
 
     // Gate: hook, permissions, the tool's own confirm.
     try {
-      const hook = await this.opts.onToolCall?.({ id, name, args, tool });
+      const hook = await raceAbort(Promise.resolve(this.opts.onToolCall?.({ id, name, args, tool })), signal);
       if (hook && hook.block) return finish("blocked", `${hook.reason ?? "This action was not allowed."} Do not retry it another way; say what you would have done.`);
-      const allowed = await this.permitted(tool, args);
+      const allowed = await raceAbort(this.permitted(tool, args, signal), signal);
       if (!allowed) return finish("declined", "The user declined this action. Do not retry it another way; say what you would have done.");
     } catch (err) {
-      if (signal.aborted) return finish("skipped", "Skipped: the user stopped the run.");
+      if (signal.aborted) return finish("skipped", SKIPPED_STOP);
       return finish("error", `Error: ${(err as Error).message}`);
     }
 
-    if (signal.aborted) return finish("skipped", "Skipped: the user stopped the run.");
+    if (signal.aborted) return finish("skipped", SKIPPED_STOP);
     try {
-      const value = await tool.execute(args as Record<string, unknown>, {
+      const value = await raceAbort(Promise.resolve(tool.execute(args as Record<string, unknown>, {
         signal,
         ui: this.ui,
         workspace: this.workspace,
         agent: this,
         callId: id,
         update: (content) => this.emit("tool_update", { runId, id, name, content }),
-      });
-      if (signal.aborted) return finish("skipped", "Skipped: the user stopped the run.");
+      })), signal);
+      if (signal.aborted) return finish("skipped", SKIPPED_STOP);
       const norm = normalizeResult(value, tool.maxResultChars);
       return finish("ok", norm.content, norm.details);
     } catch (err) {
-      if (signal.aborted) return finish("skipped", "Skipped: the user stopped the run.");
+      if (signal.aborted) return finish("skipped", SKIPPED_STOP);
       const msg = err instanceof Error ? err.message : String(err);
       return finish("error", msg.startsWith("Error:") ? msg : `Error: ${msg}`);
     }
   }
 
-  private async permitted(tool: Tool, args: unknown): Promise<boolean> {
+  private async permitted(tool: Tool, args: unknown, signal?: AbortSignal): Promise<boolean> {
     const p = this.opts.permissions ?? "ask";
     if (typeof p === "function") return p({ name: tool.name, args, tool });
     if (p === "auto") return true;
@@ -728,7 +787,7 @@ export class Agent {
     if (tool.confirm) question = await tool.confirm(args as Record<string, unknown>);
     else if (tool.destructive) question = `Allow ${tool.name}?`;
     if (question === false) return true;
-    return this.ui.confirm(question, undefined, { danger: !!tool.destructive });
+    return this.ui.confirm(question, undefined, { danger: !!tool.destructive, signal });
   }
 
   /** After an abort, every open tool call gets a result so the transcript stays valid. */
@@ -741,7 +800,7 @@ export class Agent {
     if (!assistant || assistant.role !== "assistant" || !assistant.tool_calls?.length) return;
     const answered = new Set(this.history.slice(i + 1).map((m) => m.tool_call_id));
     for (const c of assistant.tool_calls) {
-      if (c.id && !answered.has(c.id)) this.history.push({ role: "tool", tool_call_id: c.id, content: "Skipped: the user stopped the run." });
+      if (c.id && !answered.has(c.id)) this.history.push({ role: "tool", tool_call_id: c.id, content: SKIPPED_STOP });
     }
   }
 
@@ -808,6 +867,8 @@ export class Agent {
           const output = typeof m?.max_tokens === "number" && m.max_tokens > 0 ? m.max_tokens : DEFAULT_MAX_TOKENS;
           return { input, output };
         } catch {
+          // Offline for a moment: use the defaults now, ask the catalogue again next time.
+          queueMicrotask(() => { this.inputTokens = null; });
           return { input: DEFAULT_INPUT_TOKENS, output: DEFAULT_MAX_TOKENS };
         }
       })();
@@ -824,15 +885,15 @@ export class Agent {
       parts.push({ type: "text", text: `[The user invoked the skill "${skill.name}" (${skill.path}). Follow these instructions for the request below.]\n\n${body}` });
     }
     const own: ContentPart[] = typeof message.content === "string" ? [{ type: "text", text: message.content }] : (message.content ?? []);
-    return { role: "user", content: [...parts, ...own] };
+    return { ...message, role: "user", content: [...parts, ...own] };
   }
 
-  /** Tokens the next request would send (estimate), for status displays. */
+  /** Tokens of the transcript alone (estimate, no system prompt); `context()` gives the full figure and the window. */
   estimateContext(): number {
     return estimateTokens(this.history);
   }
 
-  /** The model's context window in tokens (from the catalogue). */
+  /** The model's context window in tokens (from the catalogue); same as `(await limits()).input`. */
   contextWindow(): Promise<number> {
     return this.contextTokens();
   }
@@ -854,8 +915,9 @@ function retryDelay(err: unknown, attempt: number): number {
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => { clearTimeout(t); reject(signal.reason ?? new Error("aborted")); }, { once: true });
+    const onAbort = () => { clearTimeout(t); reject(signal.reason ?? new Error("aborted")); };
+    const t = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 

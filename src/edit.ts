@@ -10,16 +10,45 @@ export interface TextEdit {
   newText: string;
 }
 
-export function normalizeForFuzzyMatch(text: string): string {
-  return text
+function normalizeChar(ch: string): string {
+  return ch
     .normalize("NFKC")
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .join("\n")
     .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
     .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
     .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, "-")
     .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, " ");
+}
+
+/**
+ * The normalised text with, for each of its characters, the span of the
+ * original it came from — so a match found in the normalised text is
+ * spliced into the original, and the rest of the file keeps its exact
+ * characters (full-width punctuation, trailing spaces, quotes).
+ */
+export function normalizeWithMap(text: string): { text: string; start: number[]; end: number[] } {
+  let out = "";
+  const start: number[] = [];
+  const end: number[] = [];
+  let pos = 0;
+  const lines = text.split("\n");
+  lines.forEach((line, li) => {
+    const kept = line.trimEnd();
+    let i = 0;
+    for (const ch of kept) {
+      const n = normalizeChar(ch);
+      for (let k = 0; k < n.length; k++) { start.push(pos + i); end.push(pos + i + ch.length); }
+      out += n;
+      i += ch.length;
+    }
+    // trailing whitespace of the line produces nothing; the newline maps to itself
+    pos += line.length;
+    if (li < lines.length - 1) { out += "\n"; start.push(pos); end.push(pos + 1); pos += 1; }
+  });
+  return { text: out, start, end };
+}
+
+export function normalizeForFuzzyMatch(text: string): string {
+  return normalizeWithMap(text).text;
 }
 
 function countOccurrences(content: string, needle: string): number {
@@ -46,6 +75,7 @@ export function applyEdits(path: string, content: string, edits: TextEdit[]): st
 
   // Exact matching first; when any edit needs it, match all of them on the normalised text.
   let haystack = original;
+  let map: { start: number[]; end: number[] } | null = null;
   let needsFuzzy = false;
   for (const e of edits) {
     if (!e.oldText) continue;
@@ -54,7 +84,7 @@ export function applyEdits(path: string, content: string, edits: TextEdit[]): st
       break;
     }
   }
-  if (needsFuzzy) haystack = normalizeForFuzzyMatch(original);
+  if (needsFuzzy) { const n = normalizeWithMap(original); haystack = n.text; map = n; }
 
   const spans: Array<{ start: number; end: number; newText: string; i: number }> = [];
   edits.forEach((e, i) => {
@@ -72,8 +102,11 @@ export function applyEdits(path: string, content: string, edits: TextEdit[]): st
         ? `Found ${count} occurrences of edits[${i}] in ${path}. Each oldText must be unique. Please provide more context to make it unique.`
         : `Found ${count} occurrences of the text in ${path}. The text must be unique. Please provide more context to make it unique.`);
     }
-    const start = haystack.indexOf(needle);
-    spans.push({ start, end: start + needle.length, newText: e.newText.replace(/\r\n/g, "\n"), i });
+    const at = haystack.indexOf(needle);
+    // Back to the original's offsets when matched on the normalised text.
+    const start = map ? map.start[at]! : at;
+    const end = map ? map.end[at + needle.length - 1]! : at + needle.length;
+    spans.push({ start, end, newText: e.newText.replace(/\r\n/g, "\n"), i });
   });
   spans.sort((a, b) => a.start - b.start);
   for (let k = 1; k < spans.length; k++) {
@@ -84,11 +117,11 @@ export function applyEdits(path: string, content: string, edits: TextEdit[]): st
   let out = "";
   let pos = 0;
   for (const s of spans) {
-    out += haystack.slice(pos, s.start) + s.newText;
+    out += original.slice(pos, s.start) + s.newText;
     pos = s.end;
   }
-  out += haystack.slice(pos);
-  if (out === haystack) {
+  out += original.slice(pos);
+  if (out === original) {
     throw new Error(many
       ? `No changes made to ${path}. The replacements produced identical content.`
       : `No changes made to ${path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected.`);

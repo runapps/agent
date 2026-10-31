@@ -67,7 +67,7 @@ test("sessions — an agent with an id saves after every turn and a new agent wi
   assert.equal((await w.sessions.list()).length, 0);
 });
 
-test("compaction — planCut keeps whole recent turns and extracts an earlier summary", () => {
+test("compaction — planCut cuts before user or assistant messages (inside a long turn too), never between a call and its result, and extracts an earlier summary", () => {
   const big = "x".repeat(600);
   const msgs = [];
   for (let t = 0; t < 5; t++) {
@@ -78,17 +78,23 @@ test("compaction — planCut keeps whole recent turns and extracts an earlier su
   }
   const plan = planCut(msgs, 500);
   assert.ok(plan);
-  // Walking back from the newest turn, two turns (~420 tokens each) are needed to reach 500.
-  assert.equal(plan.kept[0].content.slice(0, 2), "q3");
-  assert.equal(plan.toSummarize.length, 12);
+  // Walking back from the newest message, 500 tokens are reached at turn 3's tool call: q3 is summarised, the call stays with its result.
+  assert.equal(plan.kept[0].role, "assistant");
+  assert.equal(plan.kept[0].tool_calls[0].id, "c3");
+  assert.equal(plan.kept[1].tool_call_id, "c3");
+  assert.equal(plan.toSummarize.length, 13);
   assert.equal(plan.previousSummary, undefined);
   // With a summary message at the front, it becomes previousSummary.
   const withSummary = [{ role: "user", content: "The conversation history before this point was compacted into the following summary:\n\n<summary>\nOLD\n</summary>" }, ...msgs];
   assert.equal(summaryOf(withSummary[0]), "OLD");
   const plan2 = planCut(withSummary, 500);
   assert.equal(plan2.previousSummary, "OLD");
-  assert.equal(plan2.toSummarize.length, 12);
-  assert.equal(planCut(msgs.slice(0, 4), 500), null, "one turn: nothing older to summarise");
+  assert.equal(plan2.toSummarize.length, 13);
+  // One long turn can be split too: the prompt is summarised, the rounds after it stay.
+  const one = planCut(msgs.slice(0, 4), 500);
+  assert.deepEqual(one.toSummarize.map((m) => m.role), ["user"]);
+  assert.equal(one.kept[0].tool_calls[0].id, "c0");
+  assert.equal(planCut(msgs.slice(0, 1), 500), null, "a single message: nothing to summarise");
   const text = serializeConversation(msgs.slice(0, 4));
   assert.match(text, /^\[User\]: q0/);
   assert.match(text, /\[Assistant tool calls\]: f\(\{\}\)/);
