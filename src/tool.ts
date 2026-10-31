@@ -2,7 +2,7 @@
 // helpers the loop uses to turn a tool into the chat schema and a tool's
 // return value into what the model reads.
 
-import type { ChatTool, ContentPart } from "@runappsai/sdk";
+import type { ChatTool, ContentPart } from "./llm.js";
 import type { JSONSchema, Tool, ToolDefinition, ToolResultValue } from "./types.js";
 
 const NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;

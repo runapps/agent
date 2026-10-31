@@ -12,8 +12,8 @@
 // transcript (`VirtualList`) that keeps only the rows near the viewport
 // in the DOM, so a long history costs nothing to open.
 
-import type { RunApps } from "@runappsai/sdk";
-import type { ChatMessage, ContentPart } from "@runappsai/sdk";
+import { toProvider, type ModelProvider, type RunAppsClientLike } from "./provider.js";
+import type { ChatMessage, ContentPart } from "./llm.js";
 import { Agent } from "./agent.js";
 import { titleOf, UNTITLED, type Workspace } from "./workspace.js";
 import { summaryOf } from "./compaction.js";
@@ -28,8 +28,14 @@ import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } f
 import type { AgentOptions, AgentUI, RunEnd, RunResult, SelectOption, SessionSummary, Skill, ToolStatus } from "./types.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
-  /** The client the agent calls the gateway with (required unless `agent` is given). */
-  client?: RunApps;
+  /**
+   * Where the model calls go (required unless `agent` is given): a
+   * ModelProvider — `openAIProvider({ baseURL, apiKey })`, `runappsProvider(client)`
+   * or one of your own.
+   */
+  provider?: ModelProvider | RunAppsClientLike;
+  /** A RunApps SDK client: the same as `provider: runappsProvider(client)`. */
+  client?: RunAppsClientLike;
   /**
    * One workspace shared by every session, or a function making one per
    * session from the session's id — `(id) => openWorkspace(client, { id, skills })`
@@ -887,13 +893,14 @@ function writeLast(project: string, id: string | null): void {
 
 export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   if (typeof document === "undefined") throw new Error("runapps agent: renderChat needs a document");
-  if (!opts.agent && !opts.client) throw new Error("runapps agent: renderChat needs a client (or an agent)");
+  if (!opts.agent && !opts.provider && !opts.client) throw new Error("runapps agent: renderChat needs a provider (or a RunApps client, or an agent)");
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
+  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
-  const project = (client as unknown as { projectName?: string } | undefined)?.projectName ?? agentOpts.appName ?? "app";
+  const provider: ModelProvider | null = providerOpt ? toProvider(providerOpt) : clientOpt ? toProvider(clientOpt) : givenAgent?.provider ?? null;
+  const project = provider?.name ?? agentOpts.appName ?? "app";
 
   // Shell.
   const root = h("div", "ra-chat");
@@ -1925,7 +1932,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
   const saveSettings = (next: UserSettings) => { userSettings = next; writeSettings(next); for (const ag of live.values()) applyTo(ag, next, permChoice); showUsage_(agent); };
   const loadModels = async (): Promise<CatModel[]> => {
-    if (client) { try { modelsCache ??= (await client.models.list({ capability: "text" })) as unknown as CatModel[]; } catch { /* no catalogue */ } }
+    if (provider?.models) { try { modelsCache ??= (await provider.models({ capability: "text" })).filter((m) => !m.capability || m.capability === "text") as CatModel[]; } catch { /* no catalogue */ } }
     return modelsCache ?? [];
   };
   const kTok = (n?: number) => (typeof n === "number" ? (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)) : "?");
@@ -1958,7 +1965,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       effortNote.style.display = eff ? "none" : "";
     };
     modelSel.addEventListener("change", showLim);
-    if (client) {
+    if (provider?.models) {
       await loadModels();
       if (menu !== mine) return;
       for (const m of modelsCache ?? []) modelSel.append(new Option(`${m.id}${m.is_default ? " ★" : ""} · ${kTok(m.max_input_tokens)} / ${kTok(m.max_tokens)}`, m.id));
@@ -2452,14 +2459,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (userSettings.maxTokens) over.maxTokens = userSettings.maxTokens;
     if (userSettings.reasoningEffort) over.extra = { ...(agentOpts.extra ?? {}), reasoning_effort: userSettings.reasoningEffort };
     if (permChoice) over.permissions = permChoice;
-    return new Agent(client!, { ...agentOpts, ...over, instructions, id: sid, workspace, ui: agentOpts.ui ?? uiFor(sid) });
+    return new Agent(provider!, { ...agentOpts, ...over, instructions, id: sid, workspace, ui: agentOpts.ui ?? uiFor(sid) });
   };
 
   /** Closes the workspace the chat opened for a session it no longer holds (it reopens on resume). */
   const release = (a: Agent) => { if (typeof wsOpt === "function") a.workspace?.close(); };
   let switching: Promise<Agent> | null = null;
   const switchTo = (id?: string): Promise<Agent> => {
-    if (givenAgent) return Promise.reject(new Error("runapps agent: newSession/resume need the chat to own its agent (pass a client, not an agent)"));
+    if (givenAgent) return Promise.reject(new Error("runapps agent: newSession/resume need the chat to own its agent (pass a provider, not an agent)"));
     // One switch at a time: a double click on New chat makes one new session, not two.
     if (switching) return switching;
     const run = (async () => {
@@ -2483,7 +2490,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const resume = (id: string) => switchTo(id);
   const deleteSession = async (id: string, keepOpen = false, space?: string) => {
     await ready;
-    if (givenAgent) throw new Error("runapps agent: deleteSession needs the chat to own its agent (pass a client, not an agent)");
+    if (givenAgent) throw new Error("runapps agent: deleteSession needs the chat to own its agent (pass a provider, not an agent)");
     const ws = agent.workspace;
     if (!ws) return;
     if (id !== agent.id) {

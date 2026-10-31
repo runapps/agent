@@ -5,8 +5,8 @@
 // endpoint; everything an app owns — its dialogs, its document as
 // files, its skills zip, its tools — comes in through these interfaces.
 
-import type { ChatCompletionParams, ChatMessage, ContentPart, PromptInput } from "@runappsai/sdk";
-import type { Usage } from "@runappsai/sdk";
+import type { ChatCompletionParams, ChatMessage, ContentPart } from "./llm.js";
+import type { Usage } from "./llm.js";
 import type { Agent } from "./agent.js";
 import type { CompactionSettings, CutPlan } from "./compaction.js";
 import type { Workspace } from "./workspace.js";
@@ -302,8 +302,8 @@ export interface AgentOptions {
   instructions?: string | (() => string);
   /** A short name for the app, used in the system prompt. */
   appName?: string;
-  /** Private prompt reference(s), forwarded on every request. */
-  prompt?: PromptInput;
+  /** Private prompt reference(s) (RunApps: `{id, vars}`), forwarded on every request. */
+  prompt?: unknown;
   tools?: Tool[];
   /** Adds the file tools and the skills list; `client.workspace()` makes one. */
   workspace?: Workspace | null;

@@ -1,25 +1,45 @@
-# @runappsai/agent — agent harness for RunApps apps
+# @runappsai/agent — agent harness
 
-The model ↔ tool loop for apps built on [RunApps](https://www.runapps.ai), on top of [`@runappsai/sdk`](https://github.com/runapps/sdk-js): streaming, tool calls checked against JSON Schema, a workspace of files in IndexedDB with skills unpacked from a zip, sessions, pi-style compaction, memory notes, prompt templates, dialogs, and a JavaScript sandbox. Modelled on [pi](https://pi.dev) (MIT; the compaction prompts, edit matching, template arguments and skills wording are copied from it).
+The model ↔ tool loop for web apps, with any model provider — [RunApps](https://www.runapps.ai) or any OpenAI-compatible endpoint — and no runtime dependencies: streaming, tool calls checked against JSON Schema, a workspace of files in IndexedDB with skills unpacked from a zip, sessions, pi-style compaction, memory notes, prompt templates, dialogs, and a JavaScript sandbox. Modelled on [pi](https://pi.dev) (MIT; the compaction prompts, edit matching, template arguments and skills wording are copied from it).
 
-**Status: test phase.** The package is separate from the SDK so it can change freely; nothing in the SDK depends on it.
+**Status: test phase.** The package is separate from the SDK so it can change freely; nothing in the SDK depends on it, and it needs nothing from the SDK.
 
 ## Install
 
-In a bundle, after the SDK:
-
 ```html
-<script src="https://www.runapps.ai/sdk/latest.js"></script>
 <script src="https://www.runapps.ai/sdk/agent-latest.js"></script>
 <script>
-  const client = new RunApps({ project: "<slug>" });
-  const agent = RunAppsAgent.createAgent(client, { /* … */ });
+  const provider = RunAppsAgent.openAIProvider({ baseURL: "https://api.openai.com/v1", apiKey: KEY });
+  const agent = RunAppsAgent.createAgent(provider, { model: "gpt-4.1", /* … */ });
 </script>
 ```
 
-With a bundler: `npm i @runappsai/sdk @runappsai/agent` and `import { createAgent, openWorkspace, defineTool } from "@runappsai/agent"`.
+With a bundler: `npm i @runappsai/agent` and `import { createAgent, openWorkspace, defineTool, openAIProvider } from "@runappsai/agent"`.
 
-`createAgent(client)` runs the model ↔ tool loop for you: it streams the reply, re-assembles tool calls, checks their arguments against your schema, asks the user before destructive steps, runs the tools, feeds the results back and repeats until the model answers. Your app provides what is its own — tools, a workspace of files and skills, and (optionally) its dialogs.
+## Providers
+
+The agent calls models through a **`ModelProvider`** — an object with one required method:
+
+```ts
+interface ModelProvider {
+  stream(params, { signal }): AsyncIterable<ChatCompletionChunk>;   // required: one streamed Chat Completions call
+  complete?(params, { signal }): Promise<ChatCompletion>;            // whole reply (compaction); else stream() is collected
+  models?(): Promise<ModelInfo[]>;   // catalogue: id, is_default, max_input_tokens, max_tokens, options.inputs.reasoning_effort
+  readFile?(path, { etag }): Promise<{ bytes, etag } | null>;        // `files:` skills sources
+  name?: string;                     // names the app's IndexedDB storage when no `project` is given
+}
+```
+
+`params` is OpenAI's Chat Completions request (`model` — absent when the agent names none —, `messages` with `tool` messages and `image_url` parts, `tools`, `max_tokens`, sometimes `reasoning_effort`); the chunks are OpenAI's (`delta.content`, `delta.reasoning_content` or `reasoning`, `delta.tool_calls` by `index`, `finish_reason`, `usage`, with `usage.total_cost` in USD when the provider knows it). Throw a `ProviderError(status, message, { code, retryAfter })` (or anything with a numeric `status`/`statusCode`) for a failed call: 408, 429, 5xx and 0 (no answer) are retried with backoff, honouring `retryAfter`; the rest end the run with the error. Without `models()` the agent assumes a 128 k window and 8 k replies, and the settings menu offers no model list.
+
+Two come with the package:
+
+- **`openAIProvider({ baseURL, apiKey?, headers?, models?, fetch?, name? })`** — any OpenAI-compatible endpoint (OpenAI, DeepSeek, OpenRouter, a local server, your own proxy) with plain `fetch` and SSE. `models` is a fixed `ModelInfo[]`, `"fetch"` for `GET /models` (ids, plus limits and capability where the endpoint lists them, as the RunApps gateway does), or nothing. In a browser, put the key behind your own proxy (`baseURL: "/api/llm"`, no `apiKey`) rather than in the page.
+- **`runappsProvider(client)`** — the RunApps SDK client: users sign in with RunApps and pay for their own usage, the catalogue comes from the gateway, `files:` sources read the user's RunApps storage, the client's project names the storage. Passing the client itself (`createAgent(client)`, `renderChat({ client })`, `openWorkspace(client)`) does the same.
+
+Or write your own: wrap another SDK, your server's endpoint, a local model — anything that can produce the chunks.
+
+`createAgent(provider)` runs the model ↔ tool loop for you: it streams the reply, re-assembles tool calls, checks their arguments against your schema, asks the user before destructive steps, runs the tools, feeds the results back and repeats until the model answers. Your app provides what is its own — tools, a workspace of files and skills, and (optionally) its dialogs.
 
 ```ts
 import { createAgent, openWorkspace, defineTool } from "@runappsai/agent";
@@ -36,8 +56,8 @@ const addTodo = defineTool({
   execute: async ({ text, due }) => { await db.todos.add({ text, due }); return `Added "${text}".`; },
 });
 
-const workspace = await openWorkspace(client, { skills: "/skills.zip" });   // see Skills below
-const agent = createAgent(client, {
+const workspace = await openWorkspace(provider, { skills: "/skills.zip" });   // see Skills below
+const agent = createAgent(provider, {
   model: "Claude Sonnet 4.6",            // the platform default when omitted
   appName: "Todos",
   instructions: "You manage the user's todo list.",
@@ -59,7 +79,7 @@ console.log(result.reason, result.text, result.usage.total_cost);
 
 **Built-in tools.** `ask_user` lets the model put one to three questions to the user, with options or free text, when a request is ambiguous. `run_js` runs JavaScript the model writes in a Worker — no DOM, no network, a captured console, and `fs` bound to the workspace — so it computes, parses and transforms data instead of guessing, and can run a skill's scripts. Both are on by default (`askUser: false`, `sandbox: false` to remove; `sandbox: { timeoutMs, network }` to configure). With a workspace: `list_files`, `read_file` (2000 lines / 50 KB a call, `offset` and `limit` to continue), `write_file`, `edit_file` (one or more exact replacements per call, matched like pi's: exact first, then tolerant of smart quotes, dashes and trailing spaces), `delete_file` (asks), `search_files`; choose a subset with `fileTools: ["read_file", "list_files"]`.
 
-**Workspace and skills.** `openWorkspace(client, { id, skills, skillsDir, dir })` is the directory the agent works in: by default a virtual file tree kept in IndexedDB — one database per app, in which every `id` is a separate directory (default `"default"`; the same id continues across reloads and tabs). Give each conversation its own directory by opening the workspace under the session's id: `renderChat` does that when `workspace` is a function, `workspace: (id) => openWorkspace(client, { id, skills: "/skills.zip" })` — a new chat starts in an empty directory that already has the skills, resuming a session reopens its directory, and `workspace.sessions.list()` still lists every session of the app (each naming its `workspace`). Skills live in two places. **`/.agent/skills/` (`skillsDir`) is virtual and read-only:** generated in memory when the workspace opens, and again whenever the user's skills change, with one folder per skill — the agent reads them there, nothing is stored there. It is made from (1) **the app's skills**, the `skills` option: zips as URLs / bundle paths (`/skills.zip`), `files:<path>` in the user's RunApps storage, Blobs / Files / Uint8Arrays, or `{ name, data }` — read in place each time the page opens them (a URL is fetched once per page; `refreshSkills()` fetches again), never stored, and not removable by the user (`Skill.builtin`); and (2) **the user's skills in `/skills/` (`userSkillsDir`, `false` for none)**, one folder shared by every directory of the app (IndexedDB) and visible in the files panel: zips there are read in place — never unpacked (an entry is inflated the first time it is read, then kept in memory) — and folders `/skills/<name>/SKILL.md` are ordinary files, which is where the agent writes a skill it makes (the prompt tells it so). A user's skill of the same name takes the app's place. `workspace.installSkill(zipFileOrURL, { name })` saves a zip as `/skills/<name>.zip` (the same name replaces it; `unpack: true` writes its skill folders instead, to be edited), `removeSkill(name)` deletes the user's zip (with every skill in it) or folder, and `Skill.from` says which. A change in one directory or tab shows in the others at once. A zip with SKILL.md at its root is one skill named after the zip; otherwise each folder with a SKILL.md is one. Directories from before this layout have their own skill files moved to `/skills/` (copies of the app's zips are dropped) on open. `workspace.skills()` lists them all. To work in a real folder instead of IndexedDB, pass `dir`: `directoryFS(await showDirectoryPicker())` (Chromium's File System Access API; `navigator.storage.getDirectory()` works too) or any `AgentFS` — files and the agent's edits then land in that folder (its own `.agent/skills/<name>/` folders count as skills too), while sessions and `/skills/` stay in IndexedDB. A skill is a folder with a `SKILL.md`:
+**Workspace and skills.** `openWorkspace(provider, { id, skills, skillsDir, dir })` is the directory the agent works in: by default a virtual file tree kept in IndexedDB — one database per app, in which every `id` is a separate directory (default `"default"`; the same id continues across reloads and tabs). Give each conversation its own directory by opening the workspace under the session's id: `renderChat` does that when `workspace` is a function, `workspace: (id) => openWorkspace(provider, { id, skills: "/skills.zip" })` — a new chat starts in an empty directory that already has the skills, resuming a session reopens its directory, and `workspace.sessions.list()` still lists every session of the app (each naming its `workspace`). Skills live in two places. **`/.agent/skills/` (`skillsDir`) is virtual and read-only:** generated in memory when the workspace opens, and again whenever the user's skills change, with one folder per skill — the agent reads them there, nothing is stored there. It is made from (1) **the app's skills**, the `skills` option: zips as URLs / bundle paths (`/skills.zip`), `files:<path>` in the user's RunApps storage, Blobs / Files / Uint8Arrays, or `{ name, data }` — read in place each time the page opens them (a URL is fetched once per page; `refreshSkills()` fetches again), never stored, and not removable by the user (`Skill.builtin`); and (2) **the user's skills in `/skills/` (`userSkillsDir`, `false` for none)**, one folder shared by every directory of the app (IndexedDB) and visible in the files panel: zips there are read in place — never unpacked (an entry is inflated the first time it is read, then kept in memory) — and folders `/skills/<name>/SKILL.md` are ordinary files, which is where the agent writes a skill it makes (the prompt tells it so). A user's skill of the same name takes the app's place. `workspace.installSkill(zipFileOrURL, { name })` saves a zip as `/skills/<name>.zip` (the same name replaces it; `unpack: true` writes its skill folders instead, to be edited), `removeSkill(name)` deletes the user's zip (with every skill in it) or folder, and `Skill.from` says which. A change in one directory or tab shows in the others at once. A zip with SKILL.md at its root is one skill named after the zip; otherwise each folder with a SKILL.md is one. Directories from before this layout have their own skill files moved to `/skills/` (copies of the app's zips are dropped) on open. `workspace.skills()` lists them all. To work in a real folder instead of IndexedDB, pass `dir`: `directoryFS(await showDirectoryPicker())` (Chromium's File System Access API; `navigator.storage.getDirectory()` works too) or any `AgentFS` — files and the agent's edits then land in that folder (its own `.agent/skills/<name>/` folders count as skills too), while sessions and `/skills/` stay in IndexedDB. A skill is a folder with a `SKILL.md`:
 
 ```markdown
 ---
@@ -87,7 +107,7 @@ A skill's scripts run only as JavaScript (`run_js`, a Worker sandbox: no shell, 
 
 Three more files in the workspace have a meaning: `/AGENTS.md` is added to the system prompt as project instructions; `/memory/notes.md` is the model's memory — the prompt tells it to append a line there to remember something across conversations, and shows the notes at the start of every one; `/prompts/<name>.md` are prompt templates, expanded when the prompt is `/name args` (`$1`, `$@`, `${2:-default}`, `${@:2}`, frontmatter `description` and `argument-hint`; `listTemplates(workspace)` lists them for a menu).
 
-**Sessions.** With a workspace, an agent saves its conversation under its `id` after every turn, in the same IndexedDB database (one store per workspace, so workspaces never see each other's sessions). `createAgent(client, { id: "chat-1", workspace })` continues the session of that id when one exists — call `await agent.ready()` before reading `agent.messages` — and `workspace.sessions.list()` / `get(id)` / `delete(id)` manage them (a session's `title` is its first message). `persist: false` keeps a conversation in memory only; `agent.export()` and `createAgent(client, { restore })` still work for apps with their own storage.
+**Sessions.** With a workspace, an agent saves its conversation under its `id` after every turn, in the same IndexedDB database (one store per workspace, so workspaces never see each other's sessions). `createAgent(provider, { id: "chat-1", workspace })` continues the session of that id when one exists — call `await agent.ready()` before reading `agent.messages` — and `workspace.sessions.list()` / `get(id)` / `delete(id)` manage them (a session's `title` is its first message). `persist: false` keeps a conversation in memory only; `agent.export()` and `createAgent(provider, { restore })` still work for apps with their own storage.
 
 **Compaction.** When the transcript comes within about 16 k tokens of the model's window (from the catalogue; `maxInputTokens` overrides), the older turns are summarised by the model into pi's structured checkpoint (goal, constraints, progress, decisions, next steps, critical context) and replaced by it; the newest ~20 k tokens of turns stay verbatim and the summary is updated, not rewritten, the next time. A `compaction` event reports it (`summary: true`, tokens before and after). `compaction: { reserveTokens, keepRecentTokens }` tunes it, a function writes the summary itself, `false` falls back to eliding old tool results and dropping old turns, which is also what happens when the summariser fails. `agent.compact(focus?)` does it on demand: every turn before the latest may be summarised (even when they would all fit), and `focus` — what the user wants kept above all — is added to the summariser's prompt (and is `plan.focus` for a `compaction` function).
 
@@ -103,10 +123,12 @@ Three more files in the workspace have a meaning: `/AGENTS.md` is added to the s
 ```html
 <div id="assistant" style="height: 600px"></div>
 <script>
-  const client = new RunApps({ project: "my-app" });
+  // Any provider: RunApps (users sign in and pay), or your own OpenAI-compatible endpoint.
+  const provider = RunAppsAgent.runappsProvider(new RunApps({ project: "my-app" }));
+  // const provider = RunAppsAgent.openAIProvider({ baseURL: "/api/llm" });
   const chat = RunAppsAgent.renderChat(document.getElementById("assistant"), {
-    client,
-    workspace: (sessionId) => RunAppsAgent.openWorkspace(client, { id: sessionId, skills: "/skills.zip" }),
+    provider,                     // or client: a RunApps SDK client
+    workspace: (sessionId) => RunAppsAgent.openWorkspace(provider, { id: sessionId, skills: "/skills.zip" }),
     appName: "My app",
     instructions: "You are the assistant inside My app.",
     tools: [myTool],
@@ -154,9 +176,9 @@ The transcript is a virtual list (`VirtualList`, also exported): a row is built 
 **Look.** Every colour and font is a `--ra-*` custom property on `.ra-chat`: `bg`, `panel`, `subtle`, `muted`, `fg`, `fg-muted`, `border`, `accent`, `accent-fg`, `accent-subtle`, `accent-muted`, `user-bg`, `link`, `ok`, `red`, `red-subtle`, `warn-fg`, `warn-bg`, `warn-border`, `shadow`, `shadow-md`, plus `font` and `mono` (`CHAT_COLOR_TOKENS`, `CHAT_SHARED_TOKENS`). Built-in palettes (`CHAT_PALETTES`): `claude` (default: ivory and warm charcoal, coral accent), `violet`, `slate` (neutral, blue accent) and `forest`, each with a light and a dark set. Three ways to restyle, from simplest:
 
 ```js
-renderChat(el, { client, palette: "slate", theme: "dark" });                 // a built-in palette
-renderChat(el, { client, vars: { accent: "#e11d48", font: "Inter, sans-serif" } }); // override tokens
-renderChat(el, { client, palette: { light: { accent: "#0a7" }, dark: { accent: "#3c9" } } }); // your own palette
+renderChat(el, { provider, palette: "slate", theme: "dark" });                 // a built-in palette
+renderChat(el, { provider, vars: { accent: "#e11d48", font: "Inter, sans-serif" } }); // override tokens
+renderChat(el, { provider, palette: { light: { accent: "#0a7" }, dark: { accent: "#3c9" } } }); // your own palette
 chat.setAppearance({ palette: "forest", theme: "light" });                    // live, no remount
 ```
 
@@ -166,8 +188,9 @@ chat.setAppearance({ palette: "forest", theme: "light" });                    //
 
 | | |
 |---|---|
-| `createAgent(client, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `continue`, `dequeue`, `clearQueue`, `abort`, `rewind`, `configure`, `settings`, `limits`, `context`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id` |
-| `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `readAsText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `mountOf`, `isSkillPath`, `isReadOnly`, `getData`, `putData`, `deleteData`, `onChange`, `close`, `skills`, `skillBody`, `installSkill`, `removeSkill`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` — sessions are kept per directory (`[space, id]`): `get(id)` reads this directory's session, else the one in the directory named after it; deleting a session saved from a directory of its own id drops that directory too |
+| `openAIProvider(opts)`, `runappsProvider(client)` → `ModelProvider` | see Providers; `ProviderError`, `toProvider`, `sseData` |
+| `createAgent(provider, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `continue`, `dequeue`, `clearQueue`, `abort`, `rewind`, `configure`, `settings`, `limits`, `context`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id`, `provider`, `lastEnd` |
+| `openWorkspace(provider, opts)` → `Workspace` | `list`, `read`, `readText`, `readAsText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `mountOf`, `isSkillPath`, `isReadOnly`, `getData`, `putData`, `deleteData`, `onChange`, `close`, `skills`, `skillBody`, `installSkill`, `removeSkill`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` — sessions are kept per directory (`[space, id]`): `get(id)` reads this directory's session, else the one in the directory named after it; deleting a session saved from a directory of its own id drops that directory too |
 | Tools | `defineTool`, `fileTools`, `sandboxTool`, `runInSandbox`, `askUserTool` |
 | UI | `domUI`, `nullUI`; implement `AgentUI` for your own (a question's `opts.signal` aborts when the run is stopped: close it as dismissed) |
 | Files | `memoryFS`; implement `AgentFS` to mount your document |

@@ -4,11 +4,8 @@
 // app shows comes through `on()` events; what the app owns (dialogs,
 // files, skills, tools) comes in through the options.
 
-import type { RunApps } from "@runappsai/sdk";
-import type { ChatCompletionParams, ChatMessage, ChatToolCall, ContentPart } from "@runappsai/sdk";
-import { APIError } from "@runappsai/sdk";
-import type { Usage } from "@runappsai/sdk";
-import type { Unsubscribe } from "@runappsai/sdk";
+import type { ChatCompletionParams, ChatMessage, ChatToolCall, ContentPart, Usage, Unsubscribe } from "./llm.js";
+import { errorStatus, ProviderError, toProvider, type ModelProvider, type RunAppsClientLike } from "./provider.js";
 import { planCut, resolveSettings, shouldCompact, summaryMessage, summaryOf, summarizationMessages, type CompactionSettings } from "./compaction.js";
 import { collectCompletion } from "./completion.js";
 import { buildSystemPrompt, estimateTokens, fitBudget } from "./context.js";
@@ -73,7 +70,7 @@ function toWire(m: ChatMessage, older: boolean): ChatMessage {
 const emptyUsage = (): AgentUsage => ({ total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 });
 const abortedResult = (): RunResult => ({ runId: "", reason: "aborted", text: "", usage: emptyUsage() });
 const SKIPPED_STOP = "Skipped: the user stopped the run.";
-const balanceError = () => new APIError(402, "insufficient_balance", "runapps agent: the reply was cut short because the balance could not cover a full answer; top up to continue");
+const balanceError = () => new ProviderError(402, "runapps agent: the reply was cut short because the balance could not cover a full answer; top up to continue", { code: "insufficient_balance" });
 
 /** Settles with `p`, or rejects as soon as `signal` aborts (the work itself may go on; its result is ignored). */
 function raceAbort<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -87,7 +84,8 @@ function raceAbort<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
 
 export class Agent {
   readonly id: string;
-  readonly client: RunApps;
+  /** Where the model calls go. */
+  readonly provider: ModelProvider;
   readonly ui: AgentUI;
   readonly workspace: Workspace | null;
   readonly tools: Tool[];
@@ -112,8 +110,9 @@ export class Agent {
   private _ended: RunEnd | null = null;
   private persist: boolean;
 
-  constructor(client: RunApps, opts: AgentOptions = {}) {
-    this.client = client;
+  /** `provider`: a ModelProvider, or a RunApps SDK client (wrapped in runappsProvider). */
+  constructor(provider: ModelProvider | RunAppsClientLike, opts: AgentOptions = {}) {
+    this.provider = toProvider(provider);
     this.opts = opts;
     this.id = opts.id || `agent_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     this.ui = opts.ui ?? domUI();
@@ -673,10 +672,11 @@ export class Agent {
       if (typeof this.opts.compaction === "function") {
         summary = await this.opts.compaction(plan, this);
       } else {
-        const res = await this.client.chat.create(
-          { model: this.opts.model ?? "", messages: summarizationMessages(plan.toSummarize, plan.previousSummary, plan.focus), max_tokens: (await this.limits()).output },
-          { signal },
-        );
+        const params: ChatCompletionParams = { model: this.opts.model ?? "", messages: summarizationMessages(plan.toSummarize, plan.previousSummary, plan.focus), max_tokens: (await this.limits()).output };
+        if (!params.model) delete (params as Partial<ChatCompletionParams>).model;
+        const res = this.provider.complete
+          ? await this.provider.complete(params, { signal })
+          : await collectCompletion((p, init) => this.provider.stream(p, init), params, { signal }).then((c) => ({ choices: [{ message: { ...c.message, content: typeof c.message.content === "string" ? c.message.content : null }, finish_reason: c.finishReason }], usage: c.usage }));
         if (res.usage) this.addUsage(res.usage);
         const choice = res.choices[0];
         if (!choice || choice.finish_reason === "length") throw new Error("the summary is incomplete");
@@ -720,7 +720,7 @@ export class Agent {
       reasoning = "";
       try {
         return await collectCompletion(
-          (p, init) => this.client.chat.stream(p, init),
+          (p, init) => this.provider.stream(p, init),
           params,
           {
             signal,
@@ -915,7 +915,8 @@ export class Agent {
     if (!this.inputTokens) {
       this.inputTokens = (async () => {
         try {
-          const models = await this.client.models.list();
+          if (!this.provider.models) return { input: DEFAULT_INPUT_TOKENS, output: DEFAULT_MAX_TOKENS };
+          const models = await this.provider.models();
           const want = this.opts.model?.toLowerCase();
           const m = (want ? models.find((x) => x.id.toLowerCase() === want) : models.find((x) => x.is_default && (x.capability === "text"))) as { max_input_tokens?: number; max_tokens?: number } | undefined;
           const input = typeof m?.max_input_tokens === "number" && m.max_input_tokens > 0 ? m.max_input_tokens : DEFAULT_INPUT_TOKENS;
@@ -958,13 +959,15 @@ export class Agent {
 /* ------------------------------------------------------------------ */
 
 function isTransient(err: unknown): boolean {
-  if (err instanceof APIError) return err.statusCode === 408 || err.statusCode === 429 || err.statusCode >= 500 || err.statusCode === 0;
+  // Any provider's error with an HTTP status (ProviderError, the RunApps SDK's APIError, …).
+  const s = errorStatus(err);
+  if (s !== undefined) return s === 408 || s === 429 || s >= 500 || s === 0;
   if (err instanceof Error) return /network|fetch failed|ECONNRESET|socket|stream ended before/i.test(err.message) || err.name === "TypeError";
   return false;
 }
 
 function retryDelay(err: unknown, attempt: number): number {
-  const ra = err instanceof APIError ? err.retryAfter : undefined;
+  const ra = err && typeof err === "object" ? (err as { retryAfter?: unknown }).retryAfter : undefined;
   if (typeof ra === "number" && ra > 0) return Math.min(30_000, ra * 1000);
   return Math.min(8000, 800 * 2 ** (attempt - 1)) + Math.random() * 300;
 }

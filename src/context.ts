@@ -3,7 +3,7 @@
 // when it outgrows the model's window (tool results elided first, then
 // the oldest whole turns dropped — never a tool call without its result).
 
-import type { ChatMessage, ContentPart } from "@runappsai/sdk";
+import type { ChatMessage, ContentPart } from "./llm.js";
 import type { Skill, Tool } from "./types.js";
 
 export interface SystemPromptInput {

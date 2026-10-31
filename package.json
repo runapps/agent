@@ -1,7 +1,7 @@
 {
   "name": "@runappsai/agent",
   "version": "0.1.0",
-  "description": "Agent harness for RunApps apps: the model ↔ tool loop with a workspace, skills, sessions, compaction and a sandbox, on top of @runappsai/sdk",
+  "description": "Agent harness: the model ↔ tool loop with a workspace, skills, sessions, compaction, a sandbox and a chat UI. Bring any OpenAI-compatible model provider (RunApps included); no runtime dependencies.",
   "license": "MIT",
   "author": "RunApps",
   "homepage": "https://github.com/runapps/agent",
@@ -36,9 +36,6 @@
     "build": "tsc -p tsconfig.json && tsup",
     "test": "npm run build && node --test --test-timeout=20000 tests/*.test.mjs",
     "release:cdn": "bash scripts/publish-cdn.sh"
-  },
-  "peerDependencies": {
-    "@runappsai/sdk": ">=0.16.1"
   },
   "devDependencies": {
     "@runappsai/sdk": "^0.17.0",

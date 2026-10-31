@@ -5,7 +5,7 @@
 // of the conversation as text (so the model summarises instead of
 // continuing it) and the cut-point rules are theirs.
 
-import type { ChatMessage } from "@runappsai/sdk";
+import type { ChatMessage } from "./llm.js";
 import { estimateTokens, groupTurns } from "./context.js";
 
 export interface CompactionSettings {

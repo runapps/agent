@@ -12,7 +12,7 @@
 // place, never unpacked) and folders (written by the user or the agent).
 // The file tools in file-tools.ts and the sandbox's `fs` work on it.
 
-import type { RunApps } from "@runappsai/sdk";
+import { toProvider, type ModelProvider, type RunAppsClientLike } from "./provider.js";
 import type { AgentFS, FileStat, SessionData, SessionSummary, Skill } from "./types.js";
 import { listZip, readZipEntry, type Inflate, MAX_ZIP_BYTES } from "./zip.js";
 import { parseSkill } from "./skills.js";
@@ -110,7 +110,7 @@ export interface WorkspaceOptions {
    * `"default"`) opens the same tree, also across tabs and reloads.
    */
   id?: string;
-  /** The app the database belongs to; `openWorkspace` fills it in from the client. */
+  /** The app the database belongs to; `openWorkspace` fills it in from the provider's `name`. */
   project?: string;
   /**
    * The app's skills zip(s): a path or URL (`/skills.zip` in the bundle,
@@ -174,7 +174,8 @@ export class Workspace {
   private readonly changeListeners = new Set<(c: WorkspaceChange) => void>();
   private channel: BroadcastChannel | null | undefined;
   private readonly sources: SkillSource[];
-  private readonly client: RunApps | null;
+  /** Reads `files:` skills sources (the provider's own storage). */
+  private readonly provider: ModelProvider | null;
   private readonly inflate?: Inflate;
   private readonly fetchFn: typeof fetch;
   /** Part of the page cache key for the app's zips: a host's own fetch is its own cache. */
@@ -223,10 +224,10 @@ export class Workspace {
     },
   };
 
-  constructor(client: RunApps | null, opts: WorkspaceOptions = {}) {
-    this.client = client;
+  constructor(provider: ModelProvider | RunAppsClientLike | null, opts: WorkspaceOptions = {}) {
+    this.provider = provider ? toProvider(provider) : null;
     this.id = opts.id || "default";
-    this.dbName = `${DB_PREFIX}:${opts.project || "app"}`;
+    this.dbName = `${DB_PREFIX}:${opts.project || this.provider?.name || "app"}`;
     this.sources = opts.skills ? ([] as SkillSource[]).concat(opts.skills) : [];
     this.skillsDir = normalizePath(opts.skillsDir || DEFAULT_SKILLS_DIR);
     if (this.skillsDir === "/") throw new Error("runapps agent: skillsDir cannot be /");
@@ -241,8 +242,8 @@ export class Workspace {
   }
 
   /** Opens the database and brings the skills layer up to date. */
-  static async open(client: RunApps | null, opts: WorkspaceOptions = {}): Promise<Workspace> {
-    const ws = new Workspace(client, opts);
+  static async open(provider: ModelProvider | RunAppsClientLike | null, opts: WorkspaceOptions = {}): Promise<Workspace> {
+    const ws = new Workspace(provider, opts);
     await ws.ready();
     return ws;
   }
@@ -835,13 +836,11 @@ export class Workspace {
     prev?: { etag?: string; lastModified?: string },
   ): Promise<{ bytes: Uint8Array; etag?: string; lastModified?: string } | null> {
     if (source.startsWith("files:")) {
-      if (!this.client) throw new Error("a files: skills source needs a client");
-      const path = source.slice(6);
-      const stat = await this.client.files.stat(path);
-      if (prev?.etag && stat.etag && prev.etag === stat.etag) return null;
-      const blob = await this.client.files.get(path);
-      if (blob.size > MAX_ZIP_BYTES) throw new Error("skills zip too large");
-      return { bytes: new Uint8Array(await blob.arrayBuffer()), etag: stat.etag };
+      if (!this.provider?.readFile) throw new Error("a files: skills source needs a provider that reads files (RunApps)");
+      const got = await this.provider.readFile(source.slice(6), { etag: prev?.etag });
+      if (!got) return null;
+      if (got.bytes.byteLength > MAX_ZIP_BYTES) throw new Error("skills zip too large");
+      return got;
     }
     const headers: Record<string, string> = {};
     if (prev?.etag) headers["If-None-Match"] = prev.etag;

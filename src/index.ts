@@ -2,24 +2,31 @@
 // `defineTool`, the default UI and the built-in tools.
 
 export { Agent, type PromptContent } from "./agent.js";
+export { openAIProvider, runappsProvider, toProvider, ProviderError, sseData, type ModelProvider, type ModelInfo, type OpenAIProviderOptions, type RunAppsClientLike } from "./provider.js";
+export type { ChatMessage, ContentPart, ChatTool, ChatToolCall, ChatCompletionParams, ChatCompletionChunk, ChatCompletion, Usage } from "./llm.js";
 
-import type { RunApps } from "@runappsai/sdk";
 import { Agent } from "./agent.js";
 import type { AgentOptions } from "./types.js";
 import { Workspace, type WorkspaceOptions } from "./workspace.js";
+import { toProvider, type ModelProvider, type RunAppsClientLike } from "./provider.js";
 
-/** An agent on a client: `createAgent(client, { tools, workspace, … })`. */
-export function createAgent(client: RunApps, opts: AgentOptions = {}): Agent {
-  return new Agent(client, opts);
+/**
+ * An agent on a model provider: `createAgent(openAIProvider({ baseURL, apiKey }), { tools, workspace, … })`,
+ * or on a RunApps SDK client directly (`createAgent(client, …)`).
+ */
+export function createAgent(provider: ModelProvider | RunAppsClientLike, opts: AgentOptions = {}): Agent {
+  return new Agent(provider, opts);
 }
 
 /**
- * A workspace for agents, scoped to the client's app (`project` option
- * of the client, or `opts.project`); resolves once its skills are unpacked.
+ * A workspace for agents, in the app's own IndexedDB database
+ * (`opts.project`, else the provider's `name`, e.g. the RunApps client's
+ * project); resolves once its skills are ready. The provider is only
+ * needed for `files:` skills sources; `null` is fine.
  */
-export function openWorkspace(client: RunApps | null, opts: WorkspaceOptions = {}): Promise<Workspace> {
-  const project = opts.project ?? (client as unknown as { projectName?: string } | null)?.projectName ?? undefined;
-  return Workspace.open(client, { ...opts, project });
+export function openWorkspace(provider: ModelProvider | RunAppsClientLike | null, opts: WorkspaceOptions = {}): Promise<Workspace> {
+  const p = provider ? toProvider(provider) : null;
+  return Workspace.open(p, { ...opts, project: opts.project ?? p?.name ?? undefined });
 }
 export { Workspace, memoryFS, normalizePath, DEFAULT_SKILLS_DIR, DEFAULT_USER_SKILLS_DIR, type SkillSource, type WorkspaceOptions, type WorkspaceRead, type WorkspaceChange, type SessionStore } from "./workspace.js";
 export { directoryFS } from "./directory-fs.js";

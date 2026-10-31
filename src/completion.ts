@@ -4,8 +4,8 @@
 // once the stream has ended with a `finish_reason`, so a cut stream can
 // never run half a tool call.
 
-import type { ChatCompletionParams, ChatCompletionChunk, ChatMessage, ChatToolCall } from "@runappsai/sdk";
-import type { Usage } from "@runappsai/sdk";
+import type { ChatCompletionParams, ChatCompletionChunk, ChatMessage, ChatToolCall } from "./llm.js";
+import type { Usage } from "./llm.js";
 
 export interface CollectedCompletion {
   message: ChatMessage & { role: "assistant"; tool_calls?: ChatToolCall[] };
