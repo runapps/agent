@@ -32,16 +32,26 @@ renderChat(el, { provider, workspace: (sessionId) => openWorkspace(provider, { i
 
 Pass one workspace instead (`workspace: await openWorkspace(provider, { id: "shared" })`) and every conversation shares the same files.
 
-**A real folder.** `dir` makes a folder the directory itself — a folder the user picks (Chromium's File System Access API), the origin-private file system, or any `AgentFS`:
+**A real folder.** `dir` makes a folder the directory itself — any `AgentFS`. In a browser, a folder the user picks (Chromium's File System Access API) or the origin-private file system:
 
 ```js
-import { directoryFS } from "@runappsai/agent";
+import { directoryFS } from "@runappsai/agent/ui";
 
 const handle = await showDirectoryPicker({ mode: "readwrite" });
 const workspace = await openWorkspace(provider, { id: "project", dir: directoryFS(handle, { description: "the user's project folder" }) });
 ```
 
-Files then land in that folder; sessions and the user's skills stay in IndexedDB.
+In Node, a folder on disk — and `store` keeps the rest (sessions, the user's skills) on disk too instead of in memory (see [Node and the command line](node.md)):
+
+```js
+import { nodeFS, nodeStore } from "@runappsai/agent/node";
+
+const workspace = await openWorkspace(provider, { id: "project", dir: nodeFS(process.cwd()), store: nodeStore() });
+```
+
+Files then land in that folder; sessions and the user's skills stay in the workspace's store (IndexedDB in a browser).
+
+**Where a workspace keeps things.** In a browser, IndexedDB. Where there is none (Node, Deno), memory — gone when the process ends — unless you give it a `store`: `nodeStore(folder)`, or your own `WorkspaceStoreFactory` (`open(dbName, space)` → a `WorkspaceStore`; see `nodeStore` in `src/node.ts` for a complete one).
 
 ## Reading and writing
 
@@ -119,6 +129,7 @@ Typing `/standup 2026-11-01` sends the expanded text. Arguments follow bash: `$1
 import { configurePdf } from "@runappsai/agent";
 configurePdf({ url: "/vendor/pdf.min.mjs", workerUrl: "/vendor/pdf.worker.min.mjs" });   // a copy you host
 configurePdf({ load: () => import("pdfjs-dist") });                                       // a bundled one
+// In Node: nodePdf() from @runappsai/agent/node (with `npm i pdfjs-dist`).
 ```
 
 ## Change events

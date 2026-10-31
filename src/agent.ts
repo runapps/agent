@@ -28,7 +28,7 @@ import type {
   Tool,
   ToolStatus,
 } from "./types.js";
-import { askUserTool, domUI } from "./ui.js";
+import { askUserTool, domUI } from "./dialogs.js";
 import { isMachineTitle, titleOf, UNTITLED, type Workspace } from "./workspace.js";
 
 const DEFAULT_MAX_TURNS = 100;

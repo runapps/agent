@@ -3,8 +3,7 @@
 // or the origin private file system (`navigator.storage.getDirectory()`).
 // Used as a workspace's `dir`, the agent works directly in that folder.
 
-import type { AgentFS, FileStat } from "./types.js";
-import { decodeText, guessType, normalizePath } from "./workspace.js";
+import { decodeText, guessType, normalizePath, type AgentFS, type FileStat } from "./index.js";
 
 const TEXT_TYPES = /^(text\/|application\/(json|xml|yaml|javascript|x-sh))/;
 

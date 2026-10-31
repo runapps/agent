@@ -1,5 +1,8 @@
-// The agent harness: `Agent` (the loop), `Workspace` (files + skills),
-// `defineTool`, the default UI and the built-in tools.
+// @runappsai/agent — the core: `Agent` (the loop), `Workspace` (files,
+// skills, sessions), providers, tools. No DOM: it runs in browsers, Node,
+// Deno and workers. The chat UI is `@runappsai/agent/ui`; Node helpers
+// (a folder as the directory, storage on disk, terminal dialogs) are
+// `@runappsai/agent/node`.
 
 export { Agent, type PromptContent } from "./agent.js";
 export { openAIProvider, runappsProvider, toProvider, ProviderError, sseData, type ModelProvider, type ModelInfo, type OpenAIProviderOptions, type RunAppsClientLike } from "./provider.js";
@@ -28,19 +31,13 @@ export function openWorkspace(provider: ModelProvider | RunAppsClientLike | null
   const p = provider ? toProvider(provider) : null;
   return Workspace.open(p, { ...opts, project: opts.project ?? p?.name ?? undefined });
 }
-export { Workspace, memoryFS, normalizePath, DEFAULT_SKILLS_DIR, DEFAULT_USER_SKILLS_DIR, type SkillSource, type LazySkill, type WorkspaceOptions, type WorkspaceRead, type WorkspaceChange, type SessionStore } from "./workspace.js";
-export { directoryFS } from "./directory-fs.js";
+export { Workspace, memoryFS, normalizePath, guessType, decodeText, titleOf, UNTITLED, DEFAULT_SKILLS_DIR, DEFAULT_USER_SKILLS_DIR, type SkillSource, type LazySkill, type WorkspaceOptions, type WorkspaceRead, type WorkspaceChange, type SessionStore, type WorkspaceStore, type WorkspaceStoreFactory, type FileRecord } from "./workspace.js";
 export { planCut, serializeConversation, summaryOf, type CompactionSettings, type CutPlan } from "./compaction.js";
 export { parseCommandArgs, substituteArgs, listTemplates, expandSlash, type PromptTemplate } from "./templates.js";
 export { applyEdits, normalizeForFuzzyMatch, type TextEdit } from "./edit.js";
 export { defineTool, normalizeResult } from "./tool.js";
-export { domUI, nullUI, askUserTool } from "./ui.js";
-export { VirtualList, type VRow, type VListOptions } from "./vlist.js";
-export { renderChat, enhanceSelect, type ChatOptions, type ChatHandle } from "./chat.js";
-export { selectBox, type SelectBox, type SelectOption as SelectBoxOption } from "./select.js";
+export { domUI, nullUI, askUserTool } from "./dialogs.js";
 export { configurePdf, extractPdfText, formatPdfText, isPdf, type PdfLib } from "./pdf.js";
-export { CHAT_PALETTES, CHAT_COLOR_TOKENS, CHAT_SHARED_TOKENS, type ChatPalette, type ChatVars, type ChatToken, type ChatColorToken } from "./chat-theme.js";
-export { renderMarkdown, renderInline, escapeHTML } from "./markdown.js";
 export { fileTools } from "./file-tools.js";
 export { sandboxTool, runInSandbox, type SandboxOptions, type SandboxResult } from "./sandbox.js";
 export { parseSkill, parseFrontmatter } from "./skills.js";

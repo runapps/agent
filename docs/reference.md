@@ -1,6 +1,13 @@
 # API reference
 
-Everything `@runappsai/agent` exports (the browser build puts it all on `window.RunAppsAgent`).
+Three entry points:
+
+| Import | |
+|---|---|
+| `@runappsai/agent` | The core — everything below except the last two sections. No DOM: browsers, Node, Deno, workers. |
+| `@runappsai/agent/ui` | The chat UI and browser helpers ([Chat UI](#chat-ui--guide) below). |
+| `@runappsai/agent/node` | Node helpers ([Node](#node--guide) below). |
+| `@runappsai/agent/browser` | `agent.umd.js`: the core and the UI as one script, on `window.RunAppsAgent` (`/browser/core`: the core alone). |
 
 ## Providers — [guide](providers.md)
 
@@ -62,7 +69,7 @@ Options: see [the options table](agent.md#options). Events: see [Events](agent.m
 
 `openWorkspace(provider | null, options)` → `Workspace` (also `Workspace.open(...)`).
 
-Options: `id`, `project`, `dir`, `skills`, `skillsDir`, `userSkills`, `userSkillsDir`, `fetch`, `indexedDB`, `inflate`.
+Options: `id`, `project`, `dir`, `store`, `skills`, `skillsDir`, `userSkills`, `userSkillsDir`, `fetch`, `indexedDB`, `inflate`.
 
 | Member | |
 |---|---|
@@ -81,25 +88,14 @@ Options: `id`, `project`, `dir`, `skills`, `skillsDir`, `userSkills`, `userSkill
 | Export | |
 |---|---|
 | `memoryFS(files, { description?, readonly? })` | An in-memory `AgentFS` to mount. |
-| `directoryFS(handle, { description?, readonly? })` | A File System Access folder as an `AgentFS`. |
 | `listTemplates(workspace)`, `expandSlash(workspace, text)` | Prompt templates. |
 | `parseSkill(text, path)`, `parseFrontmatter(text)`, `skillFoldersOf(paths, name)`, `skillZipFS(...)`, `subFS(fs, base)` | Skill helpers. |
 | `normalizePath(path)` | `/a/../b//c` → `/b/c`. |
+| `guessType(path, data)`, `decodeText(bytes)` | A content type from a name; UTF-8 text or null. |
+| `titleOf(session)`, `UNTITLED` | A session's title (the user's first words). |
 | `configurePdf({ url?, workerUrl?, load? })`, `extractPdfText(bytes)`, `formatPdfText(path, result)`, `isPdf(path, type?, data?)` | PDFs. |
 | `DEFAULT_SKILLS_DIR`, `DEFAULT_USER_SKILLS_DIR` | `/.agent/skills`, `/skills`. |
-| types | `AgentFS`, `FileStat`, `Skill`, `SkillSource`, `LazySkill`, `WorkspaceOptions`, `WorkspaceRead`, `WorkspaceChange`, `SessionStore`, `SessionData`, `SessionSummary`, `RunEnd` |
-
-## Chat UI — [guide](chat-ui.md)
-
-| Export | |
-|---|---|
-| `renderChat(element, options)` → `ChatHandle` | The chat. |
-| `selectBox(host, { options, value, filterAt?, placeholder?, filterLabel? })` → `SelectBox` | The dropdown. |
-| `enhanceSelect(select, host)` → `SelectBox` | Give a `<select>` the dropdown's look. |
-| `VirtualList` | The transcript's virtual list. |
-| `renderMarkdown(text)`, `renderInline(text)`, `escapeHTML(text)` | The Markdown renderer. |
-| `CHAT_PALETTES`, `CHAT_COLOR_TOKENS`, `CHAT_SHARED_TOKENS` | Theming. |
-| types | `ChatOptions`, `ChatHandle`, `ChatPalette`, `ChatVars`, `ChatToken`, `ChatColorToken`, `SelectBox`, `VRow`, `VListOptions` |
+| types | `AgentFS`, `FileStat`, `Skill`, `SkillSource`, `LazySkill`, `WorkspaceOptions`, `WorkspaceRead`, `WorkspaceChange`, `SessionStore`, `SessionData`, `SessionSummary`, `RunEnd`, `WorkspaceStore`, `WorkspaceStoreFactory`, `FileRecord` (for a `store` of your own) |
 
 ## Lower level
 
@@ -111,3 +107,30 @@ Options: `id`, `project`, `dir`, `skills`, `skillsDir`, `userSkills`, `userSkill
 | `applyEdits(text, edits)`, `normalizeForFuzzyMatch(text)` | The edit matching of `edit_file`. |
 | `parseCommandArgs(text)`, `substituteArgs(template, args)` | Template arguments. |
 | `listZip(bytes)`, `readZipEntry(bytes, entry)`, `buildZip(entries)` | Zip files. |
+
+## Chat UI — [guide](chat-ui.md)
+
+From `@runappsai/agent/ui`.
+
+| Export | |
+|---|---|
+| `renderChat(element, options)` → `ChatHandle` | The chat. |
+| `selectBox(host, { options, value, filterAt?, placeholder?, filterLabel? })` → `SelectBox` | The dropdown. |
+| `enhanceSelect(select, host)` → `SelectBox` | Give a `<select>` the dropdown's look. |
+| `VirtualList` | The transcript's virtual list. |
+| `renderMarkdown(text)`, `renderInline(text)`, `escapeHTML(text)` | The Markdown renderer. |
+| `CHAT_PALETTES`, `CHAT_COLOR_TOKENS`, `CHAT_SHARED_TOKENS` | Theming. |
+| `directoryFS(handle, { description?, readonly? })` | A folder the user picked (File System Access API) as an `AgentFS`. |
+| types | `ChatOptions`, `ChatHandle`, `ChatPalette`, `ChatVars`, `ChatToken`, `ChatColorToken`, `SelectBox`, `VRow`, `VListOptions` |
+
+## Node — [guide](node.md)
+
+From `@runappsai/agent/node` (Node 18+).
+
+| Export | |
+|---|---|
+| `nodeFS(folder, { description?, readonly?, ignore? })` | A folder on disk as an `AgentFS` (`dir`). |
+| `nodeStore(folder?)` → `WorkspaceStoreFactory` | The workspace's storage on disk (`store`); default `~/.runapps-agent`. |
+| `terminalUI({ input?, output?, rl?, ask? })` → `AgentUI` | Dialogs in the terminal. |
+| `nodePdf()` | Read PDFs with the `pdfjs-dist` package. |
+| types | `NodeFSOptions`, `TerminalUIOptions` |

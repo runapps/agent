@@ -1,11 +1,12 @@
 # Chat UI
 
-`renderChat(element, options)` turns an element into a complete chat with an agent. Plain DOM, no framework; its styles are injected once. Give the element a height.
+`renderChat(element, options)` turns an element into a complete chat with an agent. Plain DOM, no framework; its styles are injected once. Give the element a height. It comes from `@runappsai/agent/ui` (the browser script has it on `RunAppsAgent`), and runs on the core: the agent, workspace and providers are the ones from `@runappsai/agent`.
 
 ```html
 <div id="assistant" style="height: 100vh"></div>
 <script type="module">
-  import { renderChat, openWorkspace, openAIProvider } from "@runappsai/agent";
+  import { openWorkspace, openAIProvider } from "@runappsai/agent";
+  import { renderChat } from "@runappsai/agent/ui";
 
   const provider = openAIProvider({ baseURL: "/api/llm", models: "fetch" });
   const chat = renderChat(document.getElementById("assistant"), {
@@ -149,7 +150,7 @@ Or from your stylesheet — the chat's own rules weigh nothing, so yours win:
 The settings menu uses the chat's own dropdown. Use it in your page too:
 
 ```js
-import { selectBox, enhanceSelect } from "@runappsai/agent";
+import { selectBox, enhanceSelect } from "@runappsai/agent/ui";
 
 // Give an existing <select> the same look; its .value and change events keep working.
 enhanceSelect(document.querySelector("#language"), document.querySelector("aside"));

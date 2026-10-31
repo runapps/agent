@@ -5,7 +5,7 @@
 // messages, limits, usage) and the tools declared to the model. It
 // records from the moment the chat opens a session, background runs too.
 
-import type { Agent } from "./agent.js";
+import type { Agent } from "./index.js";
 import { h, I } from "./dom.js";
 
 export interface DebugStrings {

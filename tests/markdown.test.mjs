@@ -2,7 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderMarkdown, renderInline } from "../dist/index.js";
+import { renderMarkdown, renderInline } from "../dist/ui.js";
 
 test("inline markup and escaping", () => {
   assert.equal(renderInline("a **b** _c_ `d<e>` ~~f~~"), "a <strong>b</strong> <em>c</em> <code>d&lt;e&gt;</code> <del>f</del>");

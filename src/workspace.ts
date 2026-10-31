@@ -59,7 +59,8 @@ interface SkillView { fs: AgentFS; builtin: boolean; from?: string; lazy?: LazyS
 
 type Layer = "skills" | "work";
 
-interface FileRecord {
+/** A file as a WorkspaceStore keeps it. */
+export interface FileRecord {
   /** The directory (workspace id) the file belongs to. */
   space?: string;
   path: string;
@@ -71,7 +72,13 @@ interface FileRecord {
   source?: string;
 }
 
-interface Store {
+/**
+ * Where a workspace keeps its files (when it has no `dir`), its meta data
+ * and the app's sessions: one store per directory (`space`) of an app's
+ * database. IndexedDB in browsers, memory elsewhere, or a store of your
+ * own through the `store` option (`nodeStore()` keeps it on disk).
+ */
+export interface WorkspaceStore {
   get(path: string): Promise<FileRecord | undefined>;
   put(rec: FileRecord): Promise<void>;
   delete(path: string): Promise<void>;
@@ -93,6 +100,11 @@ interface Store {
   clear(space?: string): Promise<void>;
   close(): void;
 }
+/** Opens the store of one directory (`space`) of an app's database (`dbName`). */
+export interface WorkspaceStoreFactory {
+  open(dbName: string, space: string): Promise<WorkspaceStore>;
+}
+type Store = WorkspaceStore;
 
 interface SkillsMeta {
   etag?: string;
@@ -163,8 +175,10 @@ export interface WorkspaceOptions {
   /** Inflate for runtimes without DecompressionStream (tests: zlib.inflateRawSync). */
   inflate?: Inflate;
   fetch?: typeof fetch;
-  /** IndexedDB to use (tests); in-memory when the runtime has none. */
-  indexedDB?: IDBFactory | null;
+  /** IndexedDB to use (an `IDBFactory`; tests pass fake-indexeddb's); in-memory when the runtime has none and no `store` is given. */
+  indexedDB?: object | null;
+  /** Keep the workspace somewhere other than IndexedDB — `nodeStore(dir)` from `@runappsai/agent/node` keeps it on disk. */
+  store?: WorkspaceStoreFactory;
 }
 
 /** A file of the directory was written or deleted — by this page, or (`remote`) by another tab of the app. */
@@ -209,6 +223,7 @@ export class Workspace {
   /** Part of the page cache key for the app's zips: a host's own fetch is its own cache. */
   private readonly fetchKey: string;
   private readonly idb: IDBFactory | null;
+  private readonly storeFactory: WorkspaceStoreFactory | null;
   private skillCache: Skill[] | null = null;
   private opened: Promise<void> | null = null;
 
@@ -266,7 +281,8 @@ export class Workspace {
     this.inflate = opts.inflate;
     this.fetchFn = opts.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
     this.fetchKey = opts.fetch ? `f${idOf(opts.fetch)}` : "";
-    this.idb = opts.indexedDB !== undefined ? opts.indexedDB : (typeof indexedDB !== "undefined" ? indexedDB : null);
+    this.idb = opts.indexedDB !== undefined ? (opts.indexedDB as IDBFactory | null) : (typeof indexedDB !== "undefined" ? indexedDB : null);
+    this.storeFactory = opts.store ?? null;
   }
 
   /** Opens the database and brings the skills layer up to date. */
@@ -280,8 +296,9 @@ export class Workspace {
   ready(): Promise<void> {
     if (!this.opened) {
       const opening = (async () => {
-        this.store = this.idb ? await openIDBStore(this.idb, this.dbName, this.id) : memoryStore(this.dbName, this.id);
-        this.lib = this.idb ? await openIDBStore(this.idb, this.dbName, LIB_SPACE) : memoryStore(this.dbName, LIB_SPACE);
+        const open = (space: string): Promise<Store> => this.storeFactory ? this.storeFactory.open(this.dbName, space) : this.idb ? openIDBStore(this.idb, this.dbName, space) : Promise.resolve(memoryStore(this.dbName, space));
+        this.store = await open(this.id);
+        this.lib = await open(LIB_SPACE);
         this.openChannel();
         await withLock(`${this.dbName}:skills-migrate`, () => this.migrateSkills());
         this.builtins = await this.loadBuiltins();

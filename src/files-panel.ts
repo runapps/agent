@@ -4,10 +4,8 @@
 // delete. Modelled on the harness app's sidebar + editor pane, in one
 // panel beside the transcript.
 
-import type { Workspace } from "./workspace.js";
-import type { FileStat } from "./types.js";
+import { buildZip, type Workspace, type FileStat } from "./index.js";
 import { h, I, modalConfirm, modalInput, downloadBlob, renderMD } from "./dom.js";
-import { buildZip } from "./zip.js";
 
 export interface FilesStrings {
   files: string; upload: string; newFile: string; refresh: string; close: string; save: string; download: string; delete: string; cancel: string; ok: string;

@@ -24,7 +24,19 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
-    "./browser": "./dist/agent.umd.js"
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "import": "./dist/ui.js",
+      "require": "./dist/ui.cjs"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js",
+      "require": "./dist/node.cjs"
+    },
+    "./browser": "./dist/agent.umd.js",
+    "./browser/core": "./dist/agent-core.umd.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -39,8 +51,10 @@
   },
   "devDependencies": {
     "@runappsai/sdk": "^0.17.0",
+    "@types/node": "^22.20.5",
     "fake-indexeddb": "^6.0.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.0"
-  }
+  },
+  "sideEffects": false
 }

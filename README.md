@@ -1,6 +1,12 @@
 # @runappsai/agent
 
-An agent harness for the browser: the model ↔ tool loop, a file workspace with skills, saved sessions, context compaction, a JavaScript sandbox — and a complete chat UI you can drop into any element. It works with any OpenAI-compatible model API ([RunApps](https://www.runapps.ai), OpenAI, DeepSeek, OpenRouter, your own proxy) and has no runtime dependencies.
+An agent harness: the model ↔ tool loop, a file workspace with skills, saved sessions, context compaction, a JavaScript sandbox — and, separately, a complete chat UI for web pages and helpers for command-line tools. It works with any OpenAI-compatible model API ([RunApps](https://www.runapps.ai), OpenAI, DeepSeek, OpenRouter, your own proxy) and has no runtime dependencies.
+
+| Import | What | Runs in |
+|---|---|---|
+| `@runappsai/agent` | The core: `createAgent`, `openWorkspace`, providers, tools, skills | Browsers, Node, Deno, workers |
+| `@runappsai/agent/ui` | The chat UI: `renderChat`, dropdowns, themes | Browsers |
+| `@runappsai/agent/node` | A folder as the workspace, storage on disk, terminal dialogs | Node 18+ |
 
 Modelled on [pi](https://pi.dev) (MIT): the compaction prompts, edit matching, template arguments and skills wording come from it.
 
@@ -8,20 +14,23 @@ Modelled on [pi](https://pi.dev) (MIT): the compaction prompts, edit matching, t
 
 ## Install
 
-```html
-<script src="https://www.runapps.ai/sdk/agent-latest.js"></script>
-<!-- exposes window.RunAppsAgent -->
-```
-
-or
-
 ```sh
 npm i @runappsai/agent
 ```
 
 ```js
-import { renderChat, createAgent, openWorkspace, defineTool, openAIProvider } from "@runappsai/agent";
+import { createAgent, openWorkspace, defineTool, openAIProvider } from "@runappsai/agent";
+import { renderChat } from "@runappsai/agent/ui";                 // web pages
+import { nodeFS, nodeStore, terminalUI } from "@runappsai/agent/node";   // Node
 ```
+
+Or in a page, with no build step — the core and the UI in one script, on `window.RunAppsAgent`:
+
+```html
+<script src="https://www.runapps.ai/sdk/agent-latest.js"></script>
+```
+
+(`dist/agent-core.umd.js`, also `@runappsai/agent/browser/core`, is the core alone.)
 
 ## Quick start: a chat in five minutes
 
@@ -30,6 +39,8 @@ import { renderChat, createAgent, openWorkspace, defineTool, openAIProvider } fr
 
 <script src="https://www.runapps.ai/sdk/agent-latest.js"></script>
 <script type="module">
+  // With npm: import { openWorkspace, openAIProvider, defineTool } from "@runappsai/agent";
+  //           import { renderChat } from "@runappsai/agent/ui";
   const { renderChat, openWorkspace, openAIProvider, defineTool } = RunAppsAgent;
 
   // 1. Where the model calls go. Keep API keys on your server: point at your own proxy.
@@ -72,7 +83,27 @@ With [RunApps](https://www.runapps.ai) instead, users sign in and pay for their 
 </script>
 ```
 
-## Quick start: an agent without the UI
+## Quick start: a command-line agent
+
+```js
+import { createAgent, openAIProvider, openWorkspace } from "@runappsai/agent";
+import { nodeFS, nodeStore, terminalUI } from "@runappsai/agent/node";
+
+const provider = openAIProvider({ baseURL: process.env.OPENAI_BASE_URL, apiKey: process.env.OPENAI_API_KEY, models: "fetch" });
+const workspace = await openWorkspace(provider, {
+  id: "my-project",
+  dir: nodeFS(process.cwd()),      // the agent works in this folder
+  store: nodeStore(),              // sessions and skills in ~/.runapps-agent
+});
+const agent = createAgent(provider, { workspace, ui: terminalUI() });   // confirmations as y/N in the terminal
+
+agent.on("text_delta", (e) => process.stdout.write(e.delta));
+await agent.prompt(process.argv.slice(2).join(" "));
+```
+
+`examples/cli.mjs` is a complete terminal chat: streaming, tool calls, confirmations, sessions you can resume, Ctrl+C to stop. See [Node and the command line](docs/node.md).
+
+## Quick start: an agent without any UI
 
 ```js
 import { createAgent, defineTool, openAIProvider } from "@runappsai/agent";
@@ -114,15 +145,16 @@ console.log(result.reason, result.usage);
 | [Workspace and files](docs/workspace.md) | The virtual directory, mounting your app's data, a real folder, memory and project notes, prompt templates, PDFs, change events |
 | [Skills](docs/skills.md) | Skill folders and zips, the app's skills, lazy skills, the user's skills, writing descriptions |
 | [Chat UI](docs/chat-ui.md) | `renderChat` options and handle, what the UI does, commands, theming, dropdowns, debug |
+| [Node and the command line](docs/node.md) | A folder as the workspace, storage on disk, terminal dialogs, PDFs, the CLI example |
 | [API reference](docs/reference.md) | Every export in one place |
 
-`examples/chat/index.html` is a complete page using everything (serve the package root and open `/examples/chat/index.html`).
+`examples/chat/index.html` is a complete page using everything (serve the package root and open `/examples/chat/index.html`); `examples/cli.mjs` is the terminal version.
 
 ## Development
 
 ```sh
 npm install
-npm run build     # dist/index.cjs, dist/index.js (ESM), dist/agent.umd.js (browser, minified)
+npm run build     # dist/*.js (ESM), dist/{index,ui,node}.cjs, dist/agent.umd.js + agent-core.umd.js (browser)
 npm test          # node:test on the built output, model calls mocked
 ```
 

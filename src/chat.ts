@@ -12,21 +12,16 @@
 // transcript (`VirtualList`) that keeps only the rows near the viewport
 // in the DOM, so a long history costs nothing to open.
 
-import { toProvider, type ModelProvider, type RunAppsClientLike } from "./provider.js";
-import type { ChatMessage, ContentPart } from "./llm.js";
-import { Agent } from "./agent.js";
-import { titleOf, UNTITLED, type Workspace } from "./workspace.js";
-import { summaryOf } from "./compaction.js";
 import { escapeHTML } from "./markdown.js";
-import { listTemplates } from "./templates.js";
 import { VirtualList, type VRow } from "./vlist.js";
 import { downloadBlob, h, I, modal, modalConfirm, renderMD } from "./dom.js";
 import { selectBox, SELECT_CSS, type SelectBox } from "./select.js";
 import { filesPanel, freePath } from "./files-panel.js";
 import { debugPanel } from "./debug-panel.js";
-import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
 import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } from "./chat-theme.js";
-import type { AgentOptions, AgentUI, RunEnd, RunResult, SelectOption, SessionSummary, Skill, ToolStatus } from "./types.js";
+// The core comes in through its entry, so a CommonJS build of the UI requires the core package instead of bundling a copy.
+import { Agent, toProvider, titleOf, UNTITLED, summaryOf, listTemplates, extractPdfText, formatPdfText, isPdf } from "./index.js";
+import type { ModelProvider, RunAppsClientLike, ChatMessage, ContentPart, Workspace, AgentOptions, AgentUI, RunEnd, RunResult, SelectOption, SessionSummary, Skill, ToolStatus } from "./index.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   /**
