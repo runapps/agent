@@ -1360,6 +1360,16 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (act.body.lastElementChild !== el) act.body.append(el);
     list.schedule();
   };
+  /** The reply's last piece of content: the live status at the end does not count. */
+  const lastContent = (body: HTMLElement): Element | null => {
+    const last = body.lastElementChild;
+    return last?.classList.contains("ra-pending") ? last.previousElementSibling : last;
+  };
+  /** Adds content to a reply, before the live status (which stays last). */
+  const putContent = (body: HTMLElement, el: HTMLElement) => {
+    const p = body.lastElementChild;
+    if (p?.classList.contains("ra-pending")) body.insertBefore(el, p); else body.append(el);
+  };
   /** The preview of a tool call: the code it runs, the text it writes, else its arguments in short. */
   const toolPreview = (name: string, args: unknown): { text: string; code?: boolean; head?: boolean } => {
     const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
@@ -1458,13 +1468,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
    * "Ran 3 tool calls" when done, failures counted — and their cards only show when it is opened.
    */
   const groupIn = (body: HTMLElement): HTMLElement => {
-    const last = body.lastElementChild;
+    const last = lastContent(body);
     if (last instanceof HTMLDetailsElement && last.classList.contains("ra-tg")) return last.querySelector<HTMLElement>(".ra-tgb")!;
     const g = h("details", "ra-tg") as HTMLDetailsElement;
     const sum = h("summary");
     const inner = h("div", "ra-tgb");
     g.append(sum, inner);
-    body.append(g);
+    putContent(body, g);
     return inner;
   };
   /** "读取了 3 个文件，修改了 1 个文件" — counted by kind, distinct paths for file tools, in the order they first ran. */
@@ -2342,7 +2352,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     on("text_delta", (ev: { text: string }) => {
       const act = ensureActive();
       clearPending(act);
-      if (!act.text) { act.text = h("div", "ra-md"); act.body.append(act.text); }
+      if (!act.text) { act.text = h("div", "ra-md"); putContent(act.body, act.text); }
       act.md = ev.text;
       scheduleRender();
     });
@@ -2353,10 +2363,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         [act.think, act.thinkBody] = thinkEl("", false);
         act.think.style.display = "none";
         // Inside the running group when the chain has started; otherwise before this turn's text.
-        const last = act.body.lastElementChild;
+        const last = lastContent(act.body);
         if (last instanceof HTMLDetailsElement && last.classList.contains("ra-tg") && !act.text) last.querySelector(".ra-tgb")!.append(act.think);
         else if (act.text) act.body.insertBefore(act.think, act.text);
-        else act.body.append(act.think);
+        else putContent(act.body, act.think);
       }
       act.reasoning = ev.text;
       scheduleRender();
