@@ -179,6 +179,7 @@ Both live in the workspace's directory: shared by every conversation that uses t
 | `tools` | `[]` | Tools from `defineTool`. |
 | `workspace` | `null` | A `Workspace`: files, skills, sessions. |
 | `fileTools` | all | `false`, or a subset: `["read_file", "list_files"]` for a read-only agent. |
+| `readBeforeWrite` | `true` | Refuse to overwrite or edit an existing file the model has not read, or that changed since it read it (see [Tools](tools.md#read-before-write)). |
 | `sandbox` | on | The `run_js` tool; `false` removes it, `{ timeoutMs, network }` configures it. |
 | `askUser` | on | The `ask_user` tool. |
 | `ui` | `domUI()` | Dialogs (`AgentUI`). |

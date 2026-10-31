@@ -327,6 +327,13 @@ export interface AgentOptions {
    * search_files). `["read_file", "list_files"]` gives a read-only agent.
    */
   fileTools?: boolean | string[];
+  /**
+   * The file tools refuse to overwrite or edit an existing file the model
+   * has not read in this conversation, or that changed since it read it
+   * (the user edited it meanwhile), and ask it to read the file again —
+   * so nobody's changes are overwritten from a stale copy. Default true.
+   */
+  readBeforeWrite?: boolean;
   /** Dialogs; `domUI()` when omitted. */
   ui?: AgentUI;
   /**

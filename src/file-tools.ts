@@ -13,7 +13,49 @@ const MAX_READ_LINES = 2000;
 const MAX_READ_BYTES = 50 * 1024;
 const MAX_SEARCH_HITS = 100;
 
-export function fileTools(ws: Workspace): Tool[] {
+/** FNV-1a over a file's content: its version where the file has no modified time. */
+function fingerprint(data: string | Uint8Array): string {
+  let h = 0x811c9dc5;
+  if (typeof data === "string") for (let i = 0; i < data.length; i++) { h ^= data.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  else for (const b of data) { h ^= b; h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(36);
+}
+
+export interface FileToolsOptions {
+  /**
+   * Refuse to overwrite or edit an existing file the model has not read in
+   * this conversation, or that changed since it last read it — by the user,
+   * the host or another process — and tell it to read the file again
+   * (default true). A new file can always be written.
+   */
+  readBeforeWrite?: boolean;
+}
+
+export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
+  const guard = opts.readBeforeWrite !== false;
+  // The version of each file as the model last saw it (read it, or wrote it itself).
+  const seen = new Map<string, string>();
+  const versionOf = async (p: string): Promise<string | null> => {
+    const st = await ws.stat(p);
+    if (!st) return null;
+    if (typeof st.mtime === "number") return `t${st.mtime}:${st.size}`;
+    // No modified time (some mounts): the content itself says whether it changed.
+    return `h${fingerprint((await ws.read(p)).data)}:${st.size}`;
+  };
+  const remember = async (p: string) => {
+    if (!guard) return;
+    const v = await versionOf(p).catch(() => null);
+    if (v) seen.set(p, v); else seen.delete(p);
+  };
+  const checkFresh = async (p: string, verb: string) => {
+    if (!guard) return;
+    const now = await versionOf(p);
+    if (now === null) return;   // a new file
+    const was = seen.get(p);
+    if (was === undefined) throw new Error(`${p} already exists and you have not read it in this conversation: read it with read_file first, then ${verb} it.`);
+    if (was !== now) throw new Error(`${p} has changed since you last read it (the user or another process edited it): read it again with read_file, then make your change on the current content.`);
+  };
+
   return [
     defineTool<{ path?: string }>({
       name: "list_files",
@@ -56,6 +98,7 @@ export function fileTools(ws: Workspace): Tool[] {
         let doc: { text: string } | null;
         try {
           doc = await ws.readAsText(path);
+          await remember(normalizePath(path));
         } catch (err) {
           const st = await ws.stat(path);
           if (st && /\.pdf$/i.test(path)) return `Could not read the PDF ${normalizePath(path)}: ${(err as Error).message}`;
@@ -94,7 +137,8 @@ export function fileTools(ws: Workspace): Tool[] {
     defineTool<{ path: string; content: string }>({
       name: "write_file",
       description:
-        "Create or overwrite a text file in the workspace with the given content. Folders are implied by the path. Prefer edit_file for small changes to an existing file.",
+        "Create or overwrite a text file in the workspace with the given content. Folders are implied by the path. Prefer edit_file for small changes to an existing file." +
+        (guard ? " To overwrite an existing file, read it with read_file first; if it changed since you read it, read it again." : ""),
       parameters: {
         type: "object",
         properties: { path: { type: "string" }, content: { type: "string" } },
@@ -102,16 +146,20 @@ export function fileTools(ws: Workspace): Tool[] {
         additionalProperties: false,
       },
       async execute({ path, content }) {
-        const existed = await ws.exists(path);
-        await ws.write(path, content);
-        return `${existed ? "Updated" : "Created"} ${normalizePath(path)} (${new TextEncoder().encode(content).byteLength} bytes).`;
+        const p = normalizePath(path);
+        const existed = await ws.exists(p);
+        if (existed) await checkFresh(p, "overwrite");
+        await ws.write(p, content);
+        await remember(p);
+        return `${existed ? "Updated" : "Created"} ${p} (${new TextEncoder().encode(content).byteLength} bytes).`;
       },
     }),
 
     defineTool<{ path: string; edits?: TextEdit[]; oldText?: string; newText?: string }>({
       name: "edit_file",
       description:
-        "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
+        "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes." +
+        (guard ? " Read the file with read_file before editing it; if it changed since you read it (the user may edit files while you work), read it again." : ""),
       parameters: {
         type: "object",
         properties: {
@@ -145,8 +193,10 @@ export function fileTools(ws: Workspace): Tool[] {
         // The schema allows `edits` (an array) and the `oldText`/`newText` shorthand; nothing else gets this far.
         const edits: TextEdit[] = Array.isArray(args.edits) ? [...args.edits] : [];
         if (args.oldText !== undefined) edits.push({ oldText: args.oldText, newText: args.newText ?? "" });
+        await checkFresh(p, "edit");
         // The workspace applies them: a mount with its own edit() gets them as they are, anything else is read, edited and written back.
         await ws.edit(p, edits);
+        await remember(p);
         return `Successfully replaced ${edits.length} block(s) in ${p}.`;
       },
     }),

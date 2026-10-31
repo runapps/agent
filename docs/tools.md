@@ -111,6 +111,10 @@ Under `permissions: "ask"` (the default) a tool with `destructive: true` or a `c
 | `delete_file` | Delete a file (asks). | |
 | `search_files` | Search file contents. | |
 
+### Read before write
+
+`write_file` and `edit_file` refuse to change an existing file that the model has not read in this conversation, or that changed since it last read it — because the user edited it in the files panel, your app changed a mounted document, or another tab wrote it. The model is told why and reads the file again, so its change is made on the current content and nobody's edits are overwritten from a stale copy. New files can always be written, and the model's own writes count as read (it can edit a file several times in a row). A file's version is its modified time and size, or a fingerprint of its content for mounts that give no time. Turn it off with `readBeforeWrite: false`.
+
 The file tools come with a workspace; `fileTools: ["read_file", "list_files", "search_files"]` gives a read-only agent, `fileTools: false` none.
 
 `sandboxTool(workspace, options)` and `runInSandbox(workspace, code, input)` are exported if you want the sandbox on its own.

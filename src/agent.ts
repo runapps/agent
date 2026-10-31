@@ -120,7 +120,7 @@ export class Agent {
     const tools: Tool[] = [...(opts.tools ?? [])];
     if (this.workspace && opts.fileTools !== false) {
       const want = Array.isArray(opts.fileTools) ? new Set(opts.fileTools) : null;
-      tools.push(...fileTools(this.workspace).filter((t) => !want || want.has(t.name)));
+      tools.push(...fileTools(this.workspace, { readBeforeWrite: opts.readBeforeWrite }).filter((t) => !want || want.has(t.name)));
     }
     if (opts.askUser !== false) tools.push(askUserTool());
     if (opts.sandbox !== false) tools.push(sandboxTool(this.workspace, typeof opts.sandbox === "object" ? opts.sandbox : {}));

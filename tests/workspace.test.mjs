@@ -264,6 +264,7 @@ test("workspace — edit_file hands a mount with edit() the replacements as they
   ws.onChange((c) => seen.push(c.path));
   const tools = Object.fromEntries(fileTools(ws).map((t) => [t.name, t]));
   const ctx = { signal: new AbortController().signal, ui: nullUI(), workspace: ws, update() {} };
+  await tools.read_file.execute({ path: "/doc/page.xml" }, ctx);
   await tools.edit_file.execute({ path: "/doc/page.xml", edits: [{ oldText: "hello", newText: "hi" }, { oldText: "world", newText: "there" }] }, ctx);
   assert.equal(doc["/page.xml"], "<p>hi</p><p>there</p>");
   assert.deepEqual(calls, [["edit", "/page.xml", 2]], "edit() only — no whole-file write");
@@ -273,6 +274,7 @@ test("workspace — edit_file hands a mount with edit() the replacements as they
 
   // No edit(): read, applyEdits, write back.
   ws.mount("/plain", memoryFS({ "/a.md": "one\ntwo\n" }));
+  await tools.read_file.execute({ path: "/plain/a.md" }, ctx);
   await tools.edit_file.execute({ path: "/plain/a.md", oldText: "two", newText: "2" }, ctx);
   assert.equal(await ws.readText("/plain/a.md"), "one\n2\n");
   // The directory itself, and read-only places.
@@ -281,6 +283,41 @@ test("workspace — edit_file hands a mount with edit() the replacements as they
   assert.equal(await ws.readText("/notes.md"), "final");
   ws.mount("/ro", memoryFS({ "/r.md": "x" }, { readonly: true }));
   await assert.rejects(ws.edit("/ro/r.md", [{ oldText: "x", newText: "y" }]), /read-only/);
+});
+
+test("file tools — read before write: an unread or since-changed file is not overwritten or edited; the model's own writes keep counting as read; mounts without a time compare content", async () => {
+  const ws = await Workspace.open(null, { id: "stale", project: "stale-test", indexedDB: null, userSkills: false });
+  const tools = Object.fromEntries(fileTools(ws).map((t) => [t.name, t]));
+  const ctx = { signal: new AbortController().signal, ui: nullUI(), workspace: ws, update() {} };
+  await ws.write("/plan.md", "- hire\n- ship v2\n- launch post\n");
+  // Never read: overwriting or editing it is refused; a new file is fine.
+  await assert.rejects(tools.write_file.execute({ path: "/plan.md", content: "x" }, ctx), /not read it in this conversation/);
+  await assert.rejects(tools.edit_file.execute({ path: "/plan.md", oldText: "hire", newText: "hire 2" }, ctx), /not read it/);
+  await tools.write_file.execute({ path: "/new.md", content: "fresh" }, ctx);
+  // Read, then edit; the agent's own edit counts as seen, so a second edit needs no re-read.
+  await tools.read_file.execute({ path: "/plan.md" }, ctx);
+  await tools.edit_file.execute({ path: "/plan.md", oldText: "hire", newText: "hire 2" }, ctx);
+  await tools.edit_file.execute({ path: "/plan.md", oldText: "launch post", newText: "launch post (draft)" }, ctx);
+  await tools.edit_file.execute({ path: "/new.md", oldText: "fresh", newText: "fresher" }, ctx);
+  // The user changes it meanwhile: refused until read again — even an edit whose oldText still matches.
+  await new Promise((r) => setTimeout(r, 2));
+  await ws.write("/plan.md", (await ws.readText("/plan.md")).replace("ship v2", "ship v3"));
+  await assert.rejects(tools.edit_file.execute({ path: "/plan.md", oldText: "hire 2", newText: "hire 3" }, ctx), /changed since you last read it/);
+  await assert.rejects(tools.write_file.execute({ path: "/plan.md", content: "- hire\n- ship v2\n" }, ctx), /changed since you last read it/);
+  assert.match(await ws.readText("/plan.md"), /ship v3/, "the user's change is still there");
+  await tools.read_file.execute({ path: "/plan.md" }, ctx);
+  await tools.edit_file.execute({ path: "/plan.md", oldText: "hire 2", newText: "hire 3" }, ctx);
+  assert.equal(await ws.readText("/plan.md"), "- hire 3\n- ship v3\n- launch post (draft)\n");
+  // A mount with no modified time: the content decides.
+  const doc = memoryFS({ "/d.md": "alpha" });
+  ws.mount("/doc", doc);
+  await tools.read_file.execute({ path: "/doc/d.md" }, ctx);
+  doc.files.set("/d.md", "alpha beta");
+  await assert.rejects(tools.edit_file.execute({ path: "/doc/d.md", oldText: "alpha", newText: "a" }, ctx), /changed since/);
+  // Off: no checks.
+  const loose = Object.fromEntries(fileTools(ws, { readBeforeWrite: false }).map((t) => [t.name, t]));
+  await loose.write_file.execute({ path: "/plan.md", content: "overwritten" }, ctx);
+  assert.equal(await ws.readText("/plan.md"), "overwritten");
 });
 
 test("workspace — reading a folder says so and read_file lists it", async () => {

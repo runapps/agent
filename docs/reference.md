@@ -50,12 +50,12 @@ Options: see [the options table](agent.md#options). Events: see [Events](agent.m
 | Export | |
 |---|---|
 | `defineTool({ name, description, parameters?, execute, destructive?, confirm?, guidelines?, maxResultChars? })` | A tool. |
-| `fileTools(workspace)` | The file tools for a workspace. |
+| `fileTools(workspace, { readBeforeWrite? })` | The file tools for a workspace. |
 | `sandboxTool(workspace, options)`, `runInSandbox(workspace, code, input, options)` | The `run_js` sandbox. |
 | `askUserTool()` | The `ask_user` tool. |
 | `normalizeResult(value)` | How a tool's return value becomes the model's result. |
 | `validateSchema(schema, value)` → `string[]` | The JSON Schema check used on arguments (the errors, empty when valid). |
-| types | `Tool`, `ToolDefinition`, `ToolContext`, `ToolResultValue`, `ToolStatus`, `JSONSchema` |
+| types | `Tool`, `ToolDefinition`, `ToolContext`, `ToolResultValue`, `ToolStatus`, `JSONSchema`, `FileToolsOptions` |
 
 ## Dialogs
 
