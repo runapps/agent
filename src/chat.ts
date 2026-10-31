@@ -1889,7 +1889,16 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const pendingFiles: Attachment[] = [];
   const renderFiles = () => { files.style.display = pendingFiles.length ? "" : "none"; };
   const removeFile = (a: Attachment) => { const i = pendingFiles.indexOf(a); if (i >= 0) pendingFiles.splice(i, 1); if (a.preview) URL.revokeObjectURL(a.preview); a.chip.remove(); renderFiles(); };
-  const addFiles = async (list: ArrayLike<File> | null | undefined, paths: Array<string | undefined> = []) => {
+  // Files are read before they join the message: a send waits for the ones still being read (attach, then Enter at once).
+  let reading: Promise<void> = Promise.resolve();
+  const addFiles = (list: ArrayLike<File> | null | undefined, paths: Array<string | undefined> = []): Promise<void> => {
+    // Copied now: the picker's list is emptied as soon as this returns.
+    const files = list ? Array.from(list) : [];
+    const run = reading.then(() => readFiles(files, paths));
+    reading = run.catch(() => undefined);
+    return run;
+  };
+  const readFiles = async (list: ArrayLike<File> | null | undefined, paths: Array<string | undefined>) => {
     if (attachOpt === false || !list?.length) return;
     for (const [i, file] of Array.from(list).entries()) {
       if (file.size > MAX_ATTACHMENT) { ui.notify(`${file.name} ${t.tooLarge}`, "warning"); continue; }
@@ -1965,6 +1974,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   let sending = false;
   const send = async (mode: "prompt" | "steer" | "followUp") => {
+    await reading;
     const text = ta.value.trim();
     if ((!text && !pendingFiles.length) || !agent || sending) return;
     if (runBuiltin(text)) return;
