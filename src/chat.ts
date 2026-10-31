@@ -268,6 +268,7 @@ const CSS = tokenCSS() + `
 .ra-menu .ra-mi:hover .ra-x{opacity:1}
 .ra-menu .ra-x:hover{background:var(--ra-red-subtle);color:var(--ra-red)}
 .ra-menu .ra-none{padding:8px 10px;color:var(--ra-fg-muted);font-size:13px}
+.ra-head .ra-cnt{font-size:11px;font-weight:600;line-height:16px;min-width:16px;height:16px;padding:0 5px;border-radius:999px;background:var(--ra-muted);color:var(--ra-fg-muted);text-align:center;box-sizing:border-box;margin-left:-1px}
 .ra-skm .ra-skh{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 8px;font-size:13px;font-weight:600}
 .ra-skm .ra-skh .ra-btn{gap:4px}
 .ra-skm .ra-skb{flex:none;font-size:10.5px;font-weight:500;line-height:16px;padding:0 6px;border-radius:999px;background:var(--ra-muted);color:var(--ra-fg-muted)}
@@ -920,6 +921,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const debugBtn = h("button", "ra-btn ghost"); debugBtn.type = "button"; debugBtn.innerHTML = I.bug() + `<span>${escapeHTML(t.debug)}</span>`;
   const filesBtn = h("button", "ra-btn ghost"); filesBtn.type = "button"; filesBtn.innerHTML = I.folder() + `<span>${escapeHTML(t.files)}</span>`;
   const skillsBtn = h("button", "ra-btn ghost"); skillsBtn.type = "button"; skillsBtn.innerHTML = I.puzzle() + `<span>${escapeHTML(t.skills)}</span>`;
+  // How many skills there are, beside the label (also on narrow screens, where the label hides); none: no number.
+  const skillCount = h("b", "ra-cnt"); skillCount.style.display = "none";
+  skillsBtn.append(skillCount);
+  const setSkillCount = (n: number) => {
+    skillCount.textContent = String(n); skillCount.style.display = n ? "" : "none";
+    skillsBtn.title = n ? `${t.skills} · ${n}` : t.skills;
+  };
   const histBtn = h("button", "ra-btn ghost"); histBtn.type = "button"; histBtn.innerHTML = I.hist() + `<span>${escapeHTML(t.history)}</span>`;
   const newBtn = h("button", "ra-btn ghost"); newBtn.type = "button"; newBtn.innerHTML = I.plus() + `<span>${escapeHTML(t.newChat)}</span>`;
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
@@ -1639,14 +1647,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   const refreshCommands = async () => {
     const ws = agent?.workspace;
-    if (!ws) { commands = []; return; }
+    if (!ws) { commands = []; setSkillCount(0); return; }
     try {
       const [skills, templates] = await Promise.all([ws.skills(), listTemplates(ws)]);
+      if (agent?.workspace === ws) setSkillCount(skills.length);
       commands = [
         ...templates.map((p) => ({ name: p.name, description: p.description, kind: t.template })),
         ...skills.map((s) => ({ name: `skill:${s.name}`, description: s.description, kind: t.skill })),
       ];
-    } catch { commands = []; }
+    } catch { commands = []; setSkillCount(0); }
   };
   let cmdsDismissed = false;
   const currentSuggestions = (): Command[] => {
@@ -2202,6 +2211,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const attach = async (a: Agent) => {
     for (const u of unsub) u();
     unsub = [];
+    // Skills added or removed anywhere (the menu, the agent, another tab): the count and the / list follow.
+    if (a.workspace) { const ws = a.workspace; unsub.push(ws.onChange((c) => { if (ws.isSkillPath(c.path)) void refreshCommands(); })); }
     if (agent && agent !== a) parked.set(agent.id, ui.park());
     agent = a;
     live.set(a.id, a);
