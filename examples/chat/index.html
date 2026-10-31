@@ -7,8 +7,8 @@
 <script src="https://www.runapps.ai/sdk/latest.js"></script>
 <script src="../../dist/agent.umd.js"></script>
 <style>
-  :root { --bg: #fff; --panel: #fafafa; --muted: #f4f4f5; --fg: #09090b; --fg2: #52525b; --border: #e4e4e7; --p-subtle: #f3e8ff; --p-fg: #7e22ce; --p: #9333ea; --red: #dc2626; --red-subtle: #fef2f2; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #09090b; --panel: #0f0f12; --muted: #18181b; --fg: #fafafa; --fg2: #a1a1aa; --border: #27272a; --p-subtle: #3b0764; --p-fg: #d8b4fe; --red: #f87171; --red-subtle: #2a1215; } }
+  :root { --bg: #faf9f5; --panel: #f5f4ee; --muted: #f0eee6; --fg: #141413; --fg2: #73726c; --border: #e5e3da; --p-subtle: #f7e8e1; --p-fg: #b85a3a; --p: #d97757; --red: #b53333; --red-subtle: #f9ebe9; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #262624; --panel: #1f1e1d; --muted: #343432; --fg: #f5f4ee; --fg2: #a3a19a; --border: #3d3d3a; --p-subtle: rgba(217,119,87,.14); --p-fg: #e8957a; --red: #e57373; --red-subtle: rgba(229,115,115,.12); } }
   * { box-sizing: border-box; }
   body { margin: 0; height: 100vh; display: grid; grid-template-columns: 1fr 320px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans SC", sans-serif; color: var(--fg); background: var(--bg); -webkit-font-smoothing: antialiased; }
   /* the render target: everything inside this dashed box is drawn by renderChat(); the page owns the rest */
@@ -18,7 +18,7 @@
 
   aside { padding: 14px 16px 24px; font-size: 13px; background: var(--panel); border-left: 1px solid var(--border); overflow: auto; display: flex; flex-direction: column; gap: 18px; }
   aside h3 { margin: 0; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-  aside h3 .logo { width: 24px; height: 24px; border-radius: 7px; background: linear-gradient(135deg, #9333ea, #ec4899); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
+  aside h3 .logo { width: 24px; height: 24px; border-radius: 7px; background: #d97757; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
   section { display: flex; flex-direction: column; gap: 8px; }
   section > h4 { margin: 0; font-size: 11px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: .06em; }
   .card { border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }

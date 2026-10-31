@@ -162,8 +162,8 @@ function pickLocale(opt?: "zh" | "en"): "zh" | "en" {
 /* ------------------------------------------------------------------ */
 
 const STYLE_ID = "runapps-agent-chat-style";
-const LIGHT = "--ra-bg:#fff;--ra-panel:#fff;--ra-subtle:#fafafa;--ra-muted:#f4f4f5;--ra-fg:#09090b;--ra-fg-muted:#52525b;--ra-border:#e4e4e7;--ra-p-subtle:#f3e8ff;--ra-p-muted:#e9d5ff;--ra-p-fg:#7e22ce;--ra-p-solid:#9333ea;--ra-ok:#16a34a;--ra-red:#dc2626;--ra-red-subtle:#fef2f2;--ra-warn-fg:#b45309;--ra-warn-bg:#fffbeb;--ra-warn-border:#fde68a;--ra-shadow:0 1px 2px rgba(0,0,0,.05);--ra-shadow-md:0 4px 12px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06)";
-const DARK = "--ra-bg:#09090b;--ra-panel:#09090b;--ra-subtle:#101014;--ra-muted:#18181b;--ra-fg:#fafafa;--ra-fg-muted:#a1a1aa;--ra-border:#27272a;--ra-p-subtle:#3b0764;--ra-p-muted:#581c87;--ra-p-fg:#d8b4fe;--ra-p-solid:#9333ea;--ra-ok:#4ade80;--ra-red:#f87171;--ra-red-subtle:#2a1215;--ra-warn-fg:#fbbf24;--ra-warn-bg:rgba(251,191,36,.08);--ra-warn-border:rgba(251,191,36,.28);--ra-shadow:0 1px 2px rgba(0,0,0,.4);--ra-shadow-md:0 4px 16px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.4);color-scheme:dark";
+const LIGHT = "--ra-bg:#faf9f5;--ra-panel:#ffffff;--ra-subtle:#f5f4ee;--ra-muted:#f0eee6;--ra-fg:#141413;--ra-fg-muted:#73726c;--ra-border:#e5e3da;--ra-p-subtle:#f7e8e1;--ra-p-muted:#efcbbd;--ra-p-fg:#b85a3a;--ra-p-solid:#d97757;--ra-user-bg:#f0eee6;--ra-link:#2b6cb0;--ra-ok:#3d8b5a;--ra-red:#b53333;--ra-red-subtle:#f9ebe9;--ra-warn-fg:#a15c07;--ra-warn-bg:#fdf6e7;--ra-warn-border:#f0d9a8;--ra-shadow:0 1px 2px rgba(31,30,29,.06);--ra-shadow-md:0 6px 20px rgba(31,30,29,.12),0 1px 3px rgba(31,30,29,.08)";
+const DARK = "--ra-bg:#262624;--ra-panel:#30302e;--ra-subtle:#2b2a28;--ra-muted:#343432;--ra-fg:#f5f4ee;--ra-fg-muted:#a3a19a;--ra-border:#3d3d3a;--ra-p-subtle:rgba(217,119,87,.14);--ra-p-muted:rgba(217,119,87,.32);--ra-p-fg:#e8957a;--ra-p-solid:#d97757;--ra-user-bg:#1f1e1d;--ra-link:#7aaeea;--ra-ok:#6bbf86;--ra-red:#e57373;--ra-red-subtle:rgba(229,115,115,.12);--ra-warn-fg:#f0b45c;--ra-warn-bg:rgba(240,180,92,.08);--ra-warn-border:rgba(240,180,92,.28);--ra-shadow:0 1px 2px rgba(0,0,0,.3);--ra-shadow-md:0 6px 20px rgba(0,0,0,.45),0 1px 3px rgba(0,0,0,.3);color-scheme:dark";
 const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace';
 const CSS = `
 .ra-chat{${LIGHT};display:flex;flex-direction:column;height:100%;min-height:0;box-sizing:border-box;background:var(--ra-bg);color:var(--ra-fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",Arial,sans-serif;position:relative;overflow:hidden;-webkit-font-smoothing:antialiased}
@@ -251,9 +251,10 @@ const CSS = `
 .ra-chat .ra-ib.on{background:var(--ra-p-subtle);color:var(--ra-p-fg)}
 .ra-edpv{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px}
 .ra-edpv img{max-width:100%;max-height:100%;border-radius:4px}
-.ra-fpdrop{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:rgba(147,51,234,.08);border:2px dashed var(--ra-p-solid);color:var(--ra-p-fg);font-weight:600;pointer-events:none}
+.ra-fpdrop{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-p-solid) 8%,transparent);border:2px dashed var(--ra-p-solid);color:var(--ra-p-fg);font-weight:600;pointer-events:none}
 .ra-fp[data-drop="1"] .ra-fpdrop{display:flex}
-.ra-md .ra-path{display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:var(--ra-p-fg);background:var(--ra-p-subtle);text-decoration:none}
+.ra-md .ra-path{display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:var(--ra-link);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--ra-link) 45%,transparent);text-underline-offset:3px}
+.ra-md .ra-path:hover{text-decoration-color:var(--ra-link)}
 .ra-md .ra-path:hover{background:var(--ra-p-muted)}
 .ra-tool .ra-tacts{display:flex;gap:10px}
 .ra-log{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
@@ -270,7 +271,7 @@ const CSS = `
 .ra-sugs button{border:1px solid var(--ra-border);border-radius:999px;padding:5px 12px;font-size:13px;color:var(--ra-fg)}
 .ra-sugs button:hover{background:var(--ra-muted)}
 .ra-user{display:flex;justify-content:flex-end}
-.ra-user .ra-bubble{max-width:85%;background:var(--ra-p-subtle);border-radius:12px;padding:8px 14px;white-space:pre-wrap;word-break:break-word;font-size:14px}
+.ra-user .ra-bubble{max-width:85%;background:var(--ra-user-bg);border-radius:16px;padding:8px 14px;white-space:pre-wrap;word-break:break-word;font-size:14px}
 .ra-user img{display:block;max-width:240px;border-radius:4px;margin-top:6px}
 .ra-user{flex-direction:column;align-items:flex-end}
 .ra-uf{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ra-fg-muted);margin-top:4px;height:22px;padding-right:2px;opacity:0;transition:opacity .15s}
@@ -282,7 +283,7 @@ const CSS = `
 .ra-modal label.ra-ck input{width:auto;accent-color:var(--ra-p-solid)}
 .ra-modal .ra-dn{font-size:12px;color:var(--ra-fg-muted);margin:-4px 0 0 24px}
 .ra-asst{display:flex;gap:10px;align-items:flex-start}
-.ra-avatar{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:var(--ra-p-subtle);color:var(--ra-p-fg);display:flex;align-items:center;justify-content:center;margin-top:2px}
+.ra-avatar{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:transparent;color:var(--ra-p-solid);display:flex;align-items:center;justify-content:center;margin-top:2px}
 .ra-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
 .ra-md{font-size:14px;line-height:1.65;word-break:break-word;overflow-wrap:anywhere}
 .ra-md>:first-child{margin-top:0}.ra-md>:last-child{margin-bottom:0}
@@ -301,7 +302,8 @@ const CSS = `
 .ra-md table{border-collapse:collapse;width:100%;font-size:.95em}
 .ra-md th,.ra-md td{padding:6px 10px;border-bottom:1px solid var(--ra-border);text-align:left}.ra-md thead{background:var(--ra-muted)}.ra-md th{font-weight:600}.ra-md tr:last-child td{border-bottom:0}
 .ra-md hr{border:0;border-top:1px solid var(--ra-border);margin:1em 0}
-.ra-md a{color:var(--ra-p-fg);text-decoration:underline;text-underline-offset:2px}
+.ra-md a{color:var(--ra-link);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--ra-link) 45%,transparent);text-underline-offset:3px}
+.ra-md a:hover{text-decoration-color:var(--ra-link)}
 .ra-md img{max-width:100%;border-radius:4px}
 .ra-cursor>:last-child::after{content:"";display:inline-block;width:7px;height:14px;background:var(--ra-fg-muted);margin-left:2px;vertical-align:-2px;animation:ra-blink 1s steps(2) infinite;border-radius:1px}
 @keyframes ra-blink{50%{opacity:0}}
@@ -373,7 +375,7 @@ const CSS = `
 .ra-queue .ra-qi button{width:18px;height:18px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--ra-fg-muted);flex-shrink:0}
 .ra-queue .ra-qi button:hover{background:var(--ra-muted);color:var(--ra-fg)}
 .ra-box{position:relative;border:1px solid var(--ra-border);border-radius:12px;padding:8px 10px 6px;background:var(--ra-panel);box-shadow:var(--ra-shadow)}
-.ra-box:focus-within{border-color:var(--ra-p-solid)}
+.ra-box:focus-within{border-color:color-mix(in srgb,var(--ra-fg) 28%,transparent)}
 .ra-box textarea{resize:none;height:96px;overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
 .ra-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;min-height:32px}
 .ra-bar .ra-hint{font-size:12px;color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.01em}
@@ -390,19 +392,19 @@ const CSS = `
 .ra-chat .ra-attach:hover{background:var(--ra-muted);color:var(--ra-fg)}
 .ra-bar .ra-left{display:flex;align-items:center;min-width:0}
 .ra-files{display:flex;flex-wrap:wrap;gap:6px;padding:0 0 6px}
-.ra-chip{display:inline-flex;align-items:center;gap:6px;max-width:min(100%,320px);border:1px solid var(--ra-border);border-radius:6px;padding:3px 6px 3px 4px;font-size:12px;background:var(--ra-subtle);white-space:nowrap}
-.ra-chip img{width:28px;height:28px;object-fit:cover;border-radius:4px}
-.ra-chip .ra-ci{width:28px;height:28px;border-radius:4px;background:var(--ra-p-subtle);color:var(--ra-p-fg);display:inline-flex;align-items:center;justify-content:center}
-.ra-chip .ra-cn{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ra-chip small{flex:none;color:var(--ra-fg-muted);font-size:11px;white-space:nowrap}
-.ra-chip img,.ra-chip .ra-ci,.ra-chip button{flex:none}
-.ra-chip button{width:18px;height:18px;border-radius:4px;color:var(--ra-fg-muted);display:inline-flex;align-items:center;justify-content:center}
+.ra-chip{display:inline-flex;align-items:center;gap:10px;max-width:min(100%,340px);height:44px;border:1px solid var(--ra-border);border-radius:12px;padding:0 12px 0 10px;font-size:14px;background:var(--ra-panel);white-space:nowrap}
+.ra-chip img{width:30px;height:30px;object-fit:cover;border-radius:6px;flex:none}
+.ra-chip .ra-ext{flex:none;font:600 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:.02em;color:var(--ra-fg-muted);border:1px solid var(--ra-border);border-radius:7px;padding:5px 6px;text-transform:uppercase;min-width:34px;text-align:center}
+.ra-chip .ra-cn{display:inline-flex;min-width:0;flex:0 1 auto;color:var(--ra-fg)}
+.ra-chip .ra-cn .st{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ra-chip .ra-cn .ex{flex:none}
+.ra-chip small{flex:none;color:var(--ra-fg-muted);font-size:13px}
+.ra-chip button{flex:none;width:20px;height:20px;border-radius:6px;color:var(--ra-fg-muted);display:inline-flex;align-items:center;justify-content:center}
 .ra-chip button:hover{background:var(--ra-muted);color:var(--ra-fg)}
-.ra-user .ra-files{justify-content:flex-end;padding:0;margin-top:6px}
-.ra-user .ra-chip{background:var(--ra-bg)}
+.ra-user .ra-files{justify-content:flex-end;padding:0;margin-top:8px}
 .ra-chip-link{cursor:pointer}
-.ra-chip-link:hover{border-color:var(--ra-p-solid)}
-.ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:rgba(147,51,234,.08);border:2px dashed var(--ra-p-solid);border-radius:8px;color:var(--ra-p-fg);font-weight:600;pointer-events:none}
+.ra-chip-link:hover{border-color:color-mix(in srgb,var(--ra-fg) 25%,transparent);background:var(--ra-subtle)}
+.ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-p-solid) 8%,transparent);border:2px dashed var(--ra-p-solid);border-radius:8px;color:var(--ra-p-fg);font-weight:600;pointer-events:none}
 .ra-chat[data-drop="1"] .ra-drop{display:flex}
 .ra-usage{display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:11px;color:var(--ra-fg-muted);margin-top:6px;min-height:16px}
 .ra-ring{display:inline-flex;cursor:default}
@@ -940,13 +942,18 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   /* --- rows --- */
   const addRow = (row: VRow) => { hideEmpty(); list.push(row); };
 
+  /** An attachment card: the file type as a small badge (or the picture), the name ellipsised in the middle so the extension stays, the size. */
   const chipEl = (name: string, size: string, preview: string | null): HTMLElement => {
     const chip = h("span", "ra-chip");
+    const dot = name.lastIndexOf(".");
+    const ext = dot > 0 && name.length - dot <= 6 ? name.slice(dot) : "";
     if (preview) { const img = h("img"); img.src = preview; img.alt = ""; chip.append(img); }
-    else { const ic = h("span", "ra-ci"); ic.innerHTML = I.file(); chip.append(ic); }
-    const n = h("span", "ra-cn", name); n.title = name;
+    else chip.append(h("span", "ra-ext", (ext.slice(1) || "file").slice(0, 4)));
+    const n = h("span", "ra-cn"); n.title = name;
+    n.append(h("span", "st", ext ? name.slice(0, dot) : name));
+    if (ext) n.append(h("span", "ex", ext));
     chip.append(n);
-    if (size) chip.append(h("small", "", size));
+    if (size) chip.append(h("small", "", size.replace(/\s+(?=[KMG]?B$)/, "")));
     return chip;
   };
   interface UserRow extends VRow { msg?: ChatMessage; text: string; update(): void }
