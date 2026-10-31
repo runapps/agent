@@ -563,6 +563,8 @@ const CSS = tokenCSS() + `
 /* Send: a quiet ↵ in the toolbar, there only while something can be sent. */
 .ra-chat .ra-send{width:30px;height:30px;border-radius:8px;color:var(--ra-fg);display:inline-flex;align-items:center;justify-content:center}
 .ra-chat .ra-send:hover{background:var(--ra-muted)}
+.ra-chat .ra-stop{width:30px;height:30px;border-radius:8px;color:var(--ra-fg);display:inline-flex;align-items:center;justify-content:center}
+.ra-chat .ra-stop:hover{background:var(--ra-muted)}
 .ra-cmds{position:absolute;left:0;right:0;bottom:calc(100% + 6px);z-index:5;background:var(--ra-panel);border:1px solid var(--ra-border);border-radius:6px;box-shadow:var(--ra-shadow-md);padding:4px;max-height:260px;overflow:auto}
 .ra-cmds button{display:flex;gap:8px;align-items:center;width:100%;text-align:left;padding:6px 8px;border-radius:4px;font-size:13px}
 .ra-cmds button:hover,.ra-cmds button.ra-cur{background:var(--ra-muted)}
@@ -1069,7 +1071,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const sendBtn = h("button", "ra-send"); sendBtn.type = "button"; sendBtn.innerHTML = I.corner(18); sendBtn.title = t.send; sendBtn.setAttribute("aria-label", t.send);
   const steerBtn = h("button", "ra-btn xs subtle"); steerBtn.type = "button"; steerBtn.innerHTML = I.corner() + escapeHTML(t.steer); steerBtn.title = t.steerTip;
   const fuBtn = h("button", "ra-btn xs subtle", t.followUp); fuBtn.type = "button"; fuBtn.title = t.followUpTip;
-  const stopBtn = h("button", "ra-btn xs red"); stopBtn.type = "button"; stopBtn.innerHTML = I.square() + escapeHTML(t.stop);
+  // While it works, the send button's place holds a stop square.
+  const stopBtn = h("button", "ra-stop"); stopBtn.type = "button"; stopBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="3" fill="currentColor"/></svg>'; stopBtn.title = t.stop; stopBtn.setAttribute("aria-label", t.stop);
   // The usage: a ring for how full the context is, its tooltip with the spending.
   const ring = h("span", "ra-ring"); ring.style.display = "none"; ring.tabIndex = 0;
   acts.append(ring, steerBtn, fuBtn, stopBtn, sendBtn);
@@ -1814,16 +1817,18 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
 
   /* --- composer --- */
-  /** The send button is there only while idle with something to send (text, a file, context). */
+  /** Send is there only while idle with something to send (text, a file, context); steer and follow-up only while busy with something to send. */
   const syncSend = () => {
-    sendBtn.style.display = root.dataset.busy !== "1" && (ta.value.trim() || pendingFiles.length || pendingContext.length) ? "" : "none";
+    const busy = root.dataset.busy === "1", any = !!(ta.value.trim() || pendingFiles.length || pendingContext.length);
+    sendBtn.style.display = !busy && any ? "" : "none";
+    steerBtn.style.display = fuBtn.style.display = busy && any ? "" : "none";
   };
   const setBusy = (busy: boolean) => {
     root.dataset.busy = busy ? "1" : "";
     ta.placeholder = busy ? fill(t.placeholderBusy) : (placeholder ?? t.placeholder);
     hint.textContent = fill(busy ? t.hintBusy : t.hintIdle);
     syncSend();
-    steerBtn.style.display = fuBtn.style.display = stopBtn.style.display = busy ? "" : "none";
+    stopBtn.style.display = busy ? "" : "none";
     renderQueue();
   };
   /** The queue above the composer: one message shows whole with its actions; several fold into "N queued · Next: …" (a click opens the list). */
