@@ -403,9 +403,13 @@ const CSS = tokenCSS() + `
 .ra-asst{min-width:0}
 .ra-body{min-width:0;display:flex;flex-direction:column;gap:8px}
 .ra-pending{font-size:13px;padding:2px 0;color:var(--ra-fg-muted)}
-.ra-pending span{background:linear-gradient(90deg,var(--ra-fg-muted) 0%,var(--ra-fg-muted) 35%,var(--ra-fg) 50%,var(--ra-fg-muted) 65%,var(--ra-fg-muted) 100%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ra-shimmer 1.8s linear infinite}
+.ra-pending .ra-lpv{font-size:12px;line-height:1.55;color:var(--ra-fg-muted);max-height:4.65em;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;margin-top:3px;padding-left:10px;border-left:2px solid var(--ra-border);-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 1.6em);mask-image:linear-gradient(to bottom,transparent 0,#000 1.6em)}
+.ra-pending .ra-lpv.head{justify-content:flex-start;-webkit-mask-image:linear-gradient(to top,transparent 0,#000 1.6em);mask-image:linear-gradient(to top,transparent 0,#000 1.6em)}
+.ra-pending .ra-lpv>div{white-space:pre-wrap;word-break:break-word;flex-shrink:0}
+.ra-pending .ra-lpv.code>div{font:11.5px/1.55 var(--ra-mono)}
+.ra-pending>span{background:linear-gradient(90deg,var(--ra-fg-muted) 0%,var(--ra-fg-muted) 35%,var(--ra-fg) 50%,var(--ra-fg-muted) 65%,var(--ra-fg-muted) 100%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ra-shimmer 1.8s linear infinite}
 @keyframes ra-shimmer{from{background-position:100% 0}to{background-position:0 0}}
-@media (prefers-reduced-motion:reduce){.ra-pending span{animation:none;color:var(--ra-fg-muted);background:none}}
+@media (prefers-reduced-motion:reduce){.ra-pending>span{animation:none;color:var(--ra-fg-muted);background:none}}
 .ra-time{text-align:center;font-size:12px;color:var(--ra-fg-muted);padding:14px 0 2px}
 .ra-work{border-bottom:1px solid var(--ra-border);padding-bottom:6px;margin-bottom:4px}
 .ra-work>summary{display:inline-flex;align-items:center;gap:4px;font-size:13px;color:var(--ra-fg-muted);cursor:pointer;list-style:none;user-select:none;padding:2px 0}
@@ -1331,13 +1335,39 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return active;
   };
   /** Shows "Thinking" at the end of the reply until the model's first output arrives. */
-  const showPending = (label = t.waiting) => {
+  /**
+   * What the agent is doing right now, at the end of the reply: a shimmering label ("Thinking", "Running
+   * code", …) and under it a few lines that scroll as they grow — the latest thinking, the code being run,
+   * a tool's progress. Text the model writes replaces it (that is visible by itself).
+   */
+  const showPending = (label = t.waiting, preview?: { text: string; code?: boolean; head?: boolean }) => {
     const act = ensureActive();
-    if (act.pending) { act.pending.firstElementChild!.textContent = label; return; }
-    act.pending = h("div", "ra-pending");
-    act.pending.append(h("span", "", label));
-    act.body.append(act.pending);
+    if (!act.pending) {
+      act.pending = h("div", "ra-pending");
+      act.pending.append(h("span", "", label));
+    }
+    const el = act.pending;
+    (el.firstElementChild as HTMLElement).textContent = label;
+    let pv = el.querySelector<HTMLElement>(".ra-lpv");
+    const text = preview?.text.trim() ?? "";
+    if (text) {
+      if (!pv) { pv = h("div", "ra-lpv"); pv.append(h("div")); el.append(pv); }
+      pv.className = "ra-lpv" + (preview!.code ? " code" : "") + (preview!.head ? " head" : "");
+      // Only the end matters for a stream (the box shows its last lines); the start for code.
+      (pv.firstElementChild as HTMLElement).textContent = preview!.head ? text.slice(0, 600) : text.slice(-600);
+    } else pv?.remove();
+    // Always the last thing in the reply.
+    if (act.body.lastElementChild !== el) act.body.append(el);
     list.schedule();
+  };
+  /** The preview of a tool call: the code it runs, the text it writes, else its arguments in short. */
+  const toolPreview = (name: string, args: unknown): { text: string; code?: boolean; head?: boolean } => {
+    const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+    if (name === "run_js" && typeof a.code === "string") return { text: a.code, code: true, head: true };
+    if (name === "write_file" && typeof a.content === "string") return { text: a.content, head: true };
+    if (name === "edit_file" && Array.isArray(a.edits)) return { text: a.edits.map((e) => (e && typeof e === "object" ? String((e as { newText?: unknown }).newText ?? "") : "")).join("\n…\n"), head: true };
+    if (name === "edit_file" && typeof a.newText === "string") return { text: a.newText, head: true };
+    return { text: summarizeArgs(name, args), head: true };
   };
   const clearPending = (act: AsstRow | null = active) => { if (act?.pending) { act.pending.remove(); act.pending = null; } };
 
@@ -1392,7 +1422,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (final) linkPaths(active.text);
     }
     if (active.thinkBody) active.thinkBody.textContent = active.reasoning;
-    if (active.think && final) (active.think.querySelector("summary span:last-child") as HTMLElement).textContent = t.thought;
+    if (active.think && final) { (active.think.querySelector("summary span:last-child") as HTMLElement).textContent = t.thought; active.think.style.display = ""; }
+    // Thinking streams into the live preview; its own folded block shows once the thought is complete.
+    else if (active.pending && active.reasoning && !active.text) showPending(t.thinking.replace(/…$/, ""), { text: active.reasoning });
     list.schedule();
   };
   const scheduleRender = () => { if (renderTimer === null) renderTimer = window.setTimeout(() => { renderTimer = null; flushActive(false); }, 100); };
@@ -2316,9 +2348,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     });
     on("reasoning_delta", (ev: { text: string }) => {
       const act = ensureActive();
-      clearPending(act);
+      if (!act.pending && !act.text) showPending();
       if (!act.think) {
         [act.think, act.thinkBody] = thinkEl("", false);
+        act.think.style.display = "none";
         // Inside the running group when the chain has started; otherwise before this turn's text.
         const last = act.body.lastElementChild;
         if (last instanceof HTMLDetailsElement && last.classList.contains("ra-tg") && !act.text) last.querySelector(".ra-tgb")!.append(act.think);
@@ -2330,11 +2363,19 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     });
     on("message_reset", () => { if (active) { active.md = ""; active.reasoning = ""; active.text?.remove(); active.text = null; active.think?.remove(); active.think = null; active.thinkBody = null; showPending(); } });
     on("message_end", () => { clearPending(); flushActive(true); lastStamp = Date.now(); });
-    on("tool_start", (ev: { id: string; name: string; args: unknown }) => { flushActive(true); clearPending(); addCard(ev.id, ev.name, ev.args, ensureActive().body); });
+    on("tool_start", (ev: { id: string; name: string; args: unknown }) => {
+      flushActive(true);
+      const card = addCard(ev.id, ev.name, ev.args, ensureActive().body);
+      // The folded group says which tool; the preview shows what it is doing.
+      const r = describeRunning({ name: ev.name, args: ev.args }, card.el);
+      // A file's name goes in the label; anything longer (code, a query) is the preview's.
+      showPending(r.title ? `${r.verb} ${r.what}` : r.verb, toolPreview(ev.name, ev.args));
+    });
     on("tool_update", (ev: { id: string; content: string }) => {
       const c = cards.get(ev.id); if (!c) return;
       if (!c.update) { c.update = h("div", "ra-tupd"); c.el.append(c.update); }
       c.update.textContent = ev.content;
+      if (active?.pending) showPending((active.pending.firstElementChild as HTMLElement).textContent ?? t.waiting, { text: ev.content });
       list.schedule();
     });
     on("tool_end", (ev: { id: string; name: string; status: ToolStatus; result: string; durationMs: number }) => {
@@ -2344,6 +2385,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       // tool_end carries no arguments: the card has them.
       const path = c?.args && typeof c.args === "object" ? (c.args as { path?: unknown }).path : undefined;
       if (ev.status === "ok" && typeof path === "string" && /^(write_file|edit_file|delete_file)$/.test(ev.name)) panel.changed(path);
+      // The last call of the batch is done: the model is asked next.
+      if (active?.pending && !active.body.querySelector(".ra-tend .ra-spin")) showPending();
     });
     // A summary being written: in a run the placeholder says so; compact() on its own also puts the chat in its busy state.
     on("compaction_start", (ev: { runId?: string }) => {
