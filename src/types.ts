@@ -250,6 +250,8 @@ export interface SessionData {
   v: 1 | 2;
   /** The agent's id (v2). */
   id?: string;
+  /** The workspace (directory) id it was saved from; set by the store. */
+  space?: string;
   /** The first user message, shortened (v2). */
   title?: string;
   model?: string;
@@ -263,6 +265,8 @@ export interface SessionData {
 /** What a workspace lists for each saved session. */
 export interface SessionSummary {
   id: string;
+  /** The workspace (directory) id the session was saved from. */
+  workspace?: string;
   title: string;
   model?: string;
   messages: number;

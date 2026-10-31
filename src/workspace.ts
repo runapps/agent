@@ -1,5 +1,6 @@
 // Workspace: the directory the agent works in — a POSIX-style tree kept
-// in IndexedDB (one database per project + id), or a directory the app
+// in IndexedDB (one database per app; `id` names a directory in it, so a
+// chat can give every session its own), or a directory the app
 // provides (`dir`: a local folder through the File System Access API,
 // any `AgentFS`), plus mount points an app fills with its own files (its
 // document, a cloud folder). Skills are ordinary folders with a SKILL.md
@@ -22,6 +23,8 @@ const DB_PREFIX = "__runapps_agent_ws";
 type Layer = "skills" | "work";
 
 interface FileRecord {
+  /** The directory (workspace id) the file belongs to. */
+  space?: string;
   path: string;
   data: string | Uint8Array;
   contentType?: string;
@@ -41,7 +44,10 @@ interface Store {
   getSession(id: string): Promise<SessionData | undefined>;
   putSession(data: SessionData): Promise<void>;
   deleteSession(id: string): Promise<void>;
+  /** Every session in the app's database, whichever directory saved it. */
   listSessions(): Promise<SessionData[]>;
+  /** Drops this directory's files, meta and sessions. */
+  clear(): Promise<void>;
   close(): void;
 }
 
@@ -63,12 +69,12 @@ export interface SessionStore {
 
 export interface WorkspaceOptions {
   /**
-   * Session id: workspaces with different ids are separate databases;
-   * the same id (default `"default"`) opens the same one, also across
-   * tabs and reloads.
+   * Which directory: ids are separate trees in the app's database (give
+   * each chat session its own id to isolate them); the same id (default
+   * `"default"`) opens the same tree, also across tabs and reloads.
    */
   id?: string;
-  /** Scopes the database to an app; `client.workspace()` fills it in. */
+  /** The app the database belongs to; `openWorkspace` fills it in from the client. */
   project?: string;
   /**
    * Skills zip(s): a path or URL fetched as is (`/skills.zip` in the
@@ -99,7 +105,9 @@ export interface WorkspaceRead {
 }
 
 export class Workspace {
+  /** The directory's id. */
   readonly id: string;
+  /** The app's database (shared by every id of the app). */
   readonly dbName: string;
   /** Where skills live (`<skillsDir>/<name>/SKILL.md`). */
   readonly skillsDir: string;
@@ -114,12 +122,17 @@ export class Workspace {
   private skillCache: Skill[] | null = null;
   private opened: Promise<void> | null = null;
 
-  /** The agent sessions saved in this workspace. */
+  /**
+   * The agent sessions saved in the app's database — every directory's,
+   * each summary naming its `workspace` (the directory id it was saved
+   * from), so a chat that gives each session its own directory can list
+   * them all from any one.
+   */
   readonly sessions: SessionStore = {
     list: async () => {
       await this.ready();
       return (await this.store.listSessions())
-        .map((d) => ({ id: d.id ?? "", title: d.title ?? titleOf(d), model: d.model, messages: d.messages.length, createdAt: d.createdAt ?? d.savedAt, savedAt: d.savedAt }))
+        .map((d) => ({ id: d.id ?? "", title: d.title ?? titleOf(d), model: d.model, messages: d.messages.length, createdAt: d.createdAt ?? d.savedAt, savedAt: d.savedAt, workspace: d.space }))
         .sort((a, b) => b.savedAt - a.savedAt);
     },
     get: async (id) => {
@@ -129,7 +142,7 @@ export class Workspace {
     save: async (data) => {
       await this.ready();
       if (!data.id) throw new Error("runapps agent: a session needs an id to be saved");
-      await this.store.putSession(data);
+      await this.store.putSession({ ...data, space: this.id });
     },
     delete: async (id) => {
       await this.ready();
@@ -140,7 +153,7 @@ export class Workspace {
   constructor(client: RunApps | null, opts: WorkspaceOptions = {}) {
     this.client = client;
     this.id = opts.id || "default";
-    this.dbName = `${DB_PREFIX}:${opts.project || "app"}:${this.id}`;
+    this.dbName = `${DB_PREFIX}:${opts.project || "app"}`;
     this.sources = opts.skills ? ([] as string[]).concat(opts.skills) : [];
     this.skillsDir = normalizePath(opts.skillsDir || DEFAULT_SKILLS_DIR);
     if (this.skillsDir === "/") throw new Error("runapps agent: skillsDir cannot be /");
@@ -161,8 +174,8 @@ export class Workspace {
   ready(): Promise<void> {
     if (!this.opened) {
       this.opened = (async () => {
-        this.store = this.idb ? await openIDBStore(this.idb, this.dbName) : memoryStore(this.dbName);
-        await withLock(`${this.dbName}:skills`, () => this.refreshSkills());
+        this.store = this.idb ? await openIDBStore(this.idb, this.dbName, this.id) : memoryStore(this.dbName, this.id);
+        await withLock(`${this.dbName}:${this.id}:skills`, () => this.refreshSkills());
       })();
     }
     return this.opened;
@@ -403,7 +416,7 @@ export class Workspace {
     }
     const before = new Set((await this.skills()).map((s) => s.name));
     const prev = await this.store.getMeta<SkillsMeta>(key);
-    await withLock(`${this.dbName}:skills`, () => this.unpackZip(bytes, key, base, prev));
+    await withLock(`${this.dbName}:${this.id}:skills`, () => this.unpackZip(bytes, key, base, prev));
     this.skillCache = null;
     const after = await this.skills();
     const written = (await this.store.getMeta<SkillsMeta>(key))?.files ?? [];
@@ -507,18 +520,11 @@ export class Workspace {
     };
   }
 
-  /** Deletes the database (tests, "reset" buttons). */
+  /** Deletes this directory: its files, its skills bookkeeping and the sessions saved from it. Other ids of the app stay. */
   async destroy(): Promise<void> {
     await this.ready();
+    await this.store.clear();
     this.store.close();
-    if (this.idb) {
-      await new Promise<void>((resolve) => {
-        const req = this.idb!.deleteDatabase(this.dbName);
-        req.onsuccess = req.onerror = req.onblocked = () => resolve();
-      });
-    } else {
-      memoryStores.delete(this.dbName);
-    }
     this.opened = null;
     this.skillCache = null;
   }
@@ -583,14 +589,23 @@ function zipBaseName(source: string): string {
 /* Stores                                                              */
 /* ------------------------------------------------------------------ */
 
-function openIDBStore(idb: IDBFactory, name: string): Promise<Store> {
+const DB_VERSION = 3;
+
+/**
+ * The app's database: `files` and `meta` keyed by [space, key] so every
+ * directory (space) is its own tree; `sessions` keyed by id with the
+ * `space` they were saved from. Version 3 (2026-10-31) is the first with
+ * spaces; earlier per-id databases are simply not opened any more.
+ */
+function openIDBStore(idb: IDBFactory, name: string, space: string): Promise<Store> {
   return new Promise((resolve, reject) => {
-    const req = idb.open(name, 2);
+    const req = idb.open(name, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains("files")) db.createObjectStore("files", { keyPath: "path" });
-      if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath: "key" });
-      if (!db.objectStoreNames.contains("sessions")) db.createObjectStore("sessions", { keyPath: "id" });
+      for (const n of ["files", "meta", "sessions"]) if (db.objectStoreNames.contains(n)) db.deleteObjectStore(n);
+      db.createObjectStore("files", { keyPath: ["space", "path"] });
+      db.createObjectStore("meta", { keyPath: ["space", "key"] });
+      db.createObjectStore("sessions", { keyPath: "id" }).createIndex("space", "space");
     };
     req.onerror = () => reject(req.error ?? new Error("indexedDB open failed"));
     req.onblocked = () => reject(new Error("indexedDB open blocked"));
@@ -603,46 +618,62 @@ function openIDBStore(idb: IDBFactory, name: string): Promise<Store> {
           r.onsuccess = () => res(r.result);
           r.onerror = () => rej(r.error ?? new Error("indexedDB request failed"));
         });
+      const range = (prefix: string) => IDBKeyRange.bound([space, prefix], [space, prefix + "\uffff"], false, false);
       resolve({
-        get: (path) => run<FileRecord | undefined>("files", "readonly", (s) => s.get(path)),
-        put: async (rec) => { await run("files", "readwrite", (s) => s.put(rec)); },
-        delete: async (path) => { await run("files", "readwrite", (s) => s.delete(path)); },
-        list: (prefix) =>
-          run<FileRecord[]>("files", "readonly", (s) =>
-            s.getAll(prefix === "/" ? undefined : IDBKeyRange.bound(prefix, prefix + "￿", false, false)),
-          ),
-        getMeta: async <T,>(key: string) => (await run<{ key: string; value: T } | undefined>("meta", "readonly", (s) => s.get(key)))?.value,
-        putMeta: async (key, value) => { await run("meta", "readwrite", (s) => s.put({ key, value })); },
+        get: (path) => run<FileRecord | undefined>("files", "readonly", (s) => s.get([space, path])),
+        put: async (rec) => { await run("files", "readwrite", (s) => s.put({ ...rec, space })); },
+        delete: async (path) => { await run("files", "readwrite", (s) => s.delete([space, path])); },
+        list: (prefix) => run<FileRecord[]>("files", "readonly", (s) => s.getAll(range(prefix))),
+        getMeta: async <T,>(key: string) => (await run<{ space: string; key: string; value: T } | undefined>("meta", "readonly", (s) => s.get([space, key])))?.value,
+        putMeta: async (key, value) => { await run("meta", "readwrite", (s) => s.put({ space, key, value })); },
         getSession: (id) => run<SessionData | undefined>("sessions", "readonly", (s) => s.get(id)),
         putSession: async (data) => { await run("sessions", "readwrite", (s) => s.put(data)); },
         deleteSession: async (id) => { await run("sessions", "readwrite", (s) => s.delete(id)); },
         listSessions: () => run<SessionData[]>("sessions", "readonly", (s) => s.getAll()),
+        clear: async () => {
+          await run("files", "readwrite", (s) => s.delete(range("/")));
+          await run("meta", "readwrite", (s) => s.delete(IDBKeyRange.bound([space, ""], [space, "\uffff"], false, false)));
+          const mine = await run<SessionData[]>("sessions", "readonly", (s) => s.index("space").getAll(space));
+          for (const d of mine) await run("sessions", "readwrite", (s) => s.delete(d.id!));
+        },
         close: () => db.close(),
       });
     };
   });
 }
 
-const memoryStores = new Map<string, { files: Map<string, FileRecord>; meta: Map<string, unknown>; sessions: Map<string, SessionData> }>();
+interface MemoryDB {
+  files: Map<string, Map<string, FileRecord>>;
+  meta: Map<string, Map<string, unknown>>;
+  sessions: Map<string, SessionData>;
+}
+const memoryStores = new Map<string, MemoryDB>();
 
-function memoryStore(name: string): Store {
+function memoryStore(name: string, space: string): Store {
   let m = memoryStores.get(name);
   if (!m) {
     m = { files: new Map(), meta: new Map(), sessions: new Map() };
     memoryStores.set(name, m);
   }
   const mem = m;
+  const files = () => { let f = mem.files.get(space); if (!f) { f = new Map(); mem.files.set(space, f); } return f; };
+  const meta = () => { let f = mem.meta.get(space); if (!f) { f = new Map(); mem.meta.set(space, f); } return f; };
   return {
-    get: async (path) => mem.files.get(path),
-    put: async (rec) => { mem.files.set(rec.path, rec); },
-    delete: async (path) => { mem.files.delete(path); },
-    list: async (prefix) => [...mem.files.values()].filter((r) => prefix === "/" || r.path.startsWith(prefix)),
-    getMeta: async <T,>(key: string) => mem.meta.get(key) as T | undefined,
-    putMeta: async (key, value) => { mem.meta.set(key, value); },
+    get: async (path) => files().get(path),
+    put: async (rec) => { files().set(rec.path, { ...rec, space }); },
+    delete: async (path) => { files().delete(path); },
+    list: async (prefix) => [...files().values()].filter((r) => prefix === "/" || r.path.startsWith(prefix)),
+    getMeta: async <T,>(key: string) => meta().get(key) as T | undefined,
+    putMeta: async (key, value) => { meta().set(key, value); },
     getSession: async (id) => mem.sessions.get(id),
     putSession: async (data) => { mem.sessions.set(data.id!, data); },
     deleteSession: async (id) => { mem.sessions.delete(id); },
     listSessions: async () => [...mem.sessions.values()],
+    clear: async () => {
+      mem.files.delete(space);
+      mem.meta.delete(space);
+      for (const [id, d] of mem.sessions) if (d.space === space) mem.sessions.delete(id);
+    },
     close: () => {},
   };
 }

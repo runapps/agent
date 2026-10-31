@@ -107,7 +107,8 @@ test("workspace — unpacks a skills zip into /.agent/skills, finds skills, pers
   const zip = makeZip(SKILLS);
   const { fetch, hits } = zipFetch(zip);
   const ws = await Workspace.open(null, { id: "s1", project: "demo", skills: "/skills.zip", fetch, inflate, indexedDB: idb });
-  assert.equal(ws.dbName, "__runapps_agent_ws:demo:s1");
+  assert.equal(ws.dbName, "__runapps_agent_ws:demo");
+  assert.equal(ws.id, "s1");
   const skills = await ws.skills();
   assert.deepEqual(skills.map((s) => s.name), ["chart", "pdf-tools", "secret"]);
   assert.equal((await ws.readText("/.agent/skills/pdf-tools/references/formats.md")), "PDF 1.7 …");
@@ -130,7 +131,8 @@ test("workspace — unpacks a skills zip into /.agent/skills, finds skills, pers
   // A different id is a different tree.
   const ws3 = await Workspace.open(null, { id: "s2", project: "demo", skills: "/skills.zip", fetch, inflate, indexedDB: idb });
   assert.equal(await ws3.exists("/notes/today.md"), false);
-  assert.equal(ws3.dbName, "__runapps_agent_ws:demo:s2");
+  assert.equal(ws3.dbName, "__runapps_agent_ws:demo");
+  assert.equal(ws3.id, "s2");
 });
 
 test("workspace — a new zip version replaces the old files, removing what is gone", async () => {
@@ -317,4 +319,29 @@ test("workspace — a skills zip unpacked under an old skills folder moves to th
   assert.equal(await b.exists("/.agent/skills/one/SKILL.md"), true);
   assert.equal(await b.exists("/skills/one/SKILL.md"), false);
   assert.equal(hits.get, 2);
+});
+
+test("workspace — ids are separate directories in one app database; sessions list across them; destroy drops one directory", async () => {
+  const idb = new IDBFactory();
+  const zip = makeZip({ "k/SKILL.md": "---\ndescription: K\n---\n" });
+  const a = await Workspace.open(null, { id: "sess-a", project: "app", skills: "/s.zip", fetch: zipFetch(zip).fetch, inflate, indexedDB: idb });
+  const b = await Workspace.open(null, { id: "sess-b", project: "app", skills: "/s.zip", fetch: zipFetch(zip).fetch, inflate, indexedDB: idb });
+  assert.equal(a.dbName, b.dbName);
+  await a.write("/notes.md", "A's notes");
+  await b.write("/notes.md", "B's notes");
+  await a.write("/.agent/skills/k/extra.txt", "only in a");
+  assert.equal(await a.readText("/notes.md"), "A's notes");
+  assert.equal(await b.readText("/notes.md"), "B's notes");
+  assert.equal(await b.exists("/.agent/skills/k/extra.txt"), false);
+  assert.deepEqual((await b.skills()).map((s) => s.name), ["k"], "each directory got the skills zip");
+  const usage = { total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 };
+  await a.sessions.save({ v: 2, id: "sess-a", messages: [{ role: "user", content: "hi from a" }], usage, droppedTurns: 0, savedAt: 2 });
+  await b.sessions.save({ v: 2, id: "sess-b", messages: [{ role: "user", content: "hi from b" }], usage, droppedTurns: 0, savedAt: 3 });
+  const listed = await a.sessions.list();
+  assert.deepEqual(listed.map((s) => [s.id, s.workspace]), [["sess-b", "sess-b"], ["sess-a", "sess-a"]], "any directory lists every session with its workspace");
+  await a.destroy();
+  const a2 = await Workspace.open(null, { id: "sess-a", project: "app", indexedDB: idb });
+  assert.equal(await a2.exists("/notes.md"), false);
+  assert.equal(await b.readText("/notes.md"), "B's notes");
+  assert.deepEqual((await b.sessions.list()).map((s) => s.id), ["sess-b"]);
 });

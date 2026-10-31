@@ -24,6 +24,7 @@
   .skill span { flex: 1; min-width: 0; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .skill button { padding: 0 6px; font-size: 11px; }
   .muted { opacity: .7; }
+  code { font-size: 11px; }
 </style>
 </head>
 <body>
@@ -36,17 +37,15 @@
     <button id="signout">退出</button>
   </div>
 
-  <h4>目录（agent 的工作区）</h4>
+  <h4>当前会话的目录</h4>
   <div class="box">
-    <div>当前：<b id="dirname">IndexedDB · lab</b></div>
-    <button id="dir-idb">IndexedDB</button>
-    <button id="dir-opfs">浏览器私有目录 (OPFS)</button>
-    <button id="dir-local">打开本地文件夹…</button>
-    <div class="muted">技能放在目录的 <code>.agent/skills/&lt;name&gt;/SKILL.md</code>；本地文件夹需要 Chrome/Edge。</div>
+    <div>会话 / 目录 id：<code id="sid">…</code></div>
+    <div class="muted">每个会话一个独立目录（IndexedDB 里的一棵树）；技能在 <code>.agent/skills/&lt;name&gt;/SKILL.md</code>，新会话从 <code>skills.zip</code> 解包。左上「历史」切换会话即切换目录。</div>
+    <button id="clear">清空这个目录（保留技能）</button>
   </div>
   <pre id="ws">…</pre>
 
-  <h4>技能</h4>
+  <h4>技能（这个会话的）</h4>
   <div id="skills" class="box">…</div>
   <div class="box">
     <input type="file" id="skillfile" accept=".zip">
@@ -102,32 +101,22 @@ $("signin").onclick = async () => { try { await client.signIn(); } catch (e) { a
 $("signout").onclick = () => { client.signOut(); showUser(); };
 if (params.get("local")) loadModels().catch((e) => console.warn("models", e)); else if (client.user) showUser();
 
-/* ---- the directory: IndexedDB (default), OPFS, or a local folder ---- */
-let workspace, chat, dirKind = "idb", dirHandle = null;
-async function openDir(kind, handle) {
-  dirKind = kind; dirHandle = handle ?? null;
-  const common = { id: kind === "idb" ? "lab" : kind === "opfs" ? "opfs" : "local:" + handle.name, skills: "./skills.zip" };
-  const dir = handle ? RunAppsAgent.directoryFS(handle, { description: kind === "opfs" ? "the browser's private folder (OPFS)" : `the local folder "${handle.name}"` }) : undefined;
-  workspace = await RunAppsAgent.openWorkspace(client, { ...common, dir });
-  workspace.mount("/doc", RunAppsAgent.memoryFS({ "/plan.md": "# Q3 plan\n- hire 2 engineers\n- ship v2\n- write the launch post\n" }, { description: "the open document" }));
-  if (!(await workspace.exists("/prompts/haiku.md"))) await workspace.write("/prompts/haiku.md", "---\ndescription: a haiku about the arguments\nargument-hint: <topic>\n---\nWrite a haiku about $@. Only the haiku.\n");
-  $("dirname").textContent = kind === "idb" ? "IndexedDB · lab" : kind === "opfs" ? "OPFS（浏览器私有目录）" : `本地文件夹 “${handle.name}”`;
-  mount();
-  await refreshPanels();
+/* ---- one directory per session: the chat opens a workspace under each session's id ---- */
+async function workspaceFor(sessionId) {
+  const ws = await RunAppsAgent.openWorkspace(client, { id: sessionId, skills: "./skills.zip" });
+  ws.mount("/doc", RunAppsAgent.memoryFS({ "/plan.md": "# Q3 plan\n- hire 2 engineers\n- ship v2\n- write the launch post\n" }, { description: "the open document" }));
+  if (!(await ws.exists("/prompts/haiku.md"))) await ws.write("/prompts/haiku.md", "---\ndescription: a haiku about the arguments\nargument-hint: <topic>\n---\nWrite a haiku about $@. Only the haiku.\n");
+  return ws;
 }
-$("dir-idb").onclick = () => openDir("idb");
-$("dir-opfs").onclick = async () => openDir("opfs", await navigator.storage.getDirectory());
-$("dir-local").onclick = async () => {
-  if (!window.showDirectoryPicker) return alert("这个浏览器没有 File System Access API（用 Chrome / Edge）");
-  try { openDir("local", await window.showDirectoryPicker({ mode: "readwrite" })); } catch (e) { if (e.name !== "AbortError") alert(e.message); }
-};
+const workspace = () => chat.agent.workspace;
 
 /* ---- the chat ---- */
-function mount() {
+let chat;
+async function mount() {
   chat?.unmount();
   chat = RunAppsAgent.renderChat($("agent"), {
     client,
-    workspace,
+    workspace: workspaceFor,
     model: $("model").value || undefined,
     theme: $("theme").value,
     locale: $("locale").value || undefined,
@@ -136,40 +125,49 @@ function mount() {
     title: "Agent Chat Lab",
     suggestions: ["17 * 23 等于多少？", "列出工作区里的文件", "把 /doc/plan.md 的第二项改成 ship v3", "/skill:unit-convert 10 lb to kg", "/haiku autumn", "帮我选一个颜色：问我喜欢冷色还是暖色"],
     onOpenFile: (path) => alert("open " + path),
+    // Each session (first, new chat, resumed from history) comes with its own agent and directory.
+    onSession: (agent) => {
+      agent.on("run_end", (r) => { $("run").textContent = JSON.stringify({ reason: r.reason, error: r.error?.message, usage: r.usage }, null, 1); refreshPanels(); });
+      agent.on("session_saved", refreshPanels);
+      refreshPanels();
+    },
   });
-  chat.agent.on("run_end", (r) => { $("run").textContent = JSON.stringify({ reason: r.reason, error: r.error?.message, usage: r.usage }, null, 1); refreshPanels(); });
-  chat.agent.on("session_saved", refreshPanels);
-  window.chat = chat; window.workspace = workspace;
+  window.chat = chat;
+  await chat.ready;
 }
+
 async function refreshPanels() {
-  const files = await workspace.list("/");
+  const ws = workspace(); if (!ws) return;
+  $("sid").textContent = chat.agent.id;
+  const files = await ws.list("/");
   $("ws").textContent = files.map((f) => `${f.path} (${f.size})`).join("\n") || "(empty)";
-  const skills = await workspace.skills();
+  const skills = await ws.skills();
   const box = $("skills"); box.replaceChildren();
   for (const s of skills) {
     const row = document.createElement("div"); row.className = "skill";
     const b = document.createElement("b"); b.textContent = s.name;
     const d = document.createElement("span"); d.textContent = s.description; d.title = s.description;
-    const x = document.createElement("button"); x.textContent = "删除"; x.onclick = async () => { await workspace.removeSkill(s.name); await chat.refresh(); refreshPanels(); };
+    const x = document.createElement("button"); x.textContent = "删除"; x.onclick = async () => { await ws.removeSkill(s.name); await chat.refresh(); refreshPanels(); };
     row.append(b, d, x); box.append(row);
   }
   if (!skills.length) box.textContent = "(没有技能)";
 }
+$("clear").onclick = async () => { await workspace().clearWork(); refreshPanels(); };
 $("skill-upload").onclick = async () => {
   const f = $("skillfile").files[0]; if (!f) return alert("先选一个 zip");
-  try { const got = await workspace.installSkill(f); await chat.refresh(); refreshPanels(); chat.ui.notify("已安装：" + got.map((s) => s.name).join(", ")); } catch (e) { alert(e.message); }
+  try { const got = await workspace().installSkill(f); await chat.refresh(); refreshPanels(); chat.ui.notify("已安装：" + got.map((s) => s.name).join(", ")); } catch (e) { alert(e.message); }
 };
 $("skill-url").onclick = async () => {
   const u = $("skillurl").value.trim(); if (!u) return;
-  try { const got = await workspace.installSkill(u); await chat.refresh(); refreshPanels(); chat.ui.notify("已安装：" + got.map((s) => s.name).join(", ")); } catch (e) { alert(e.message); }
+  try { const got = await workspace().installSkill(u); await chat.refresh(); refreshPanels(); chat.ui.notify("已安装：" + got.map((s) => s.name).join(", ")); } catch (e) { alert(e.message); }
 };
-$("skills-refresh").onclick = async () => { await workspace.refreshSkills(true); await chat.refresh(); refreshPanels(); };
-$("remount").onclick = () => { mount(); refreshPanels(); };
+$("skills-refresh").onclick = async () => { await workspace().refreshSkills(true); await chat.refresh(); refreshPanels(); };
+$("remount").onclick = () => mount();
 $("ask").onclick = () => chat.prompt("1+1=?");
 $("confirm").onclick = async () => { const ok = await chat.ui.confirm("Host question", "Delete everything?", { danger: true, ok: "Delete" }); chat.ui.notify("confirm → " + ok, ok ? "warning" : "info"); };
 $("unmount").onclick = () => chat.unmount();
 
-await openDir("idb");
+await mount();
 </script>
 </body>
 </html>

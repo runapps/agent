@@ -8,14 +8,21 @@
 import type { RunApps } from "@runappsai/sdk";
 import type { ChatMessage, ChatToolCall, ContentPart } from "@runappsai/sdk";
 import { Agent } from "./agent.js";
+import type { Workspace } from "./workspace.js";
 import { summaryOf } from "./compaction.js";
 import { escapeHTML, renderMarkdown } from "./markdown.js";
 import { listTemplates } from "./templates.js";
 import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, ToolStatus } from "./types.js";
 
-export interface ChatOptions extends AgentOptions {
+export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   /** The client the agent calls the gateway with (required unless `agent` is given). */
   client?: RunApps;
+  /**
+   * One workspace shared by every session, or a function making one per
+   * session from the session's id — `(id) => openWorkspace(client, { id, skills })`
+   * gives each conversation its own directory (files, skills, memory).
+   */
+  workspace?: Workspace | null | ((sessionId: string) => Workspace | Promise<Workspace>);
   /** An agent the host made itself; its own `ui` answers questions, and the session menu is off. */
   agent?: Agent;
   /** Header title (default `appName`, else "Assistant"); `false` hides the header. */
@@ -35,10 +42,15 @@ export interface ChatOptions extends AgentOptions {
   showUsage?: boolean;
   /** A tool card's file path becomes a link that calls this. */
   onOpenFile?: (path: string) => void;
+  /** Called with each session's agent as the chat opens it (the first one, a new chat, a resumed one). */
+  onSession?: (agent: Agent) => void;
 }
 
 export interface ChatHandle {
+  /** The current session's agent (set once `ready` resolves when the workspace is made per session). */
   readonly agent: Agent;
+  /** Resolves once the first session is open and drawn. */
+  readonly ready: Promise<void>;
   readonly element: HTMLElement;
   /** The inline dialogs; a host tool may use them too. */
   readonly ui: AgentUI;
@@ -387,7 +399,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   if (!opts.agent && !opts.client) throw new Error("runapps agent: renderChat needs a client (or an agent)");
   injectStyles();
   const t = STRINGS[pickLocale(opts.locale)];
-  const { client, agent: givenAgent, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, onOpenFile, ...agentOpts } = opts;
+  const { client, agent: givenAgent, workspace: wsOpt, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, onOpenFile, onSession, ...agentOpts } = opts;
 
   // Shell.
   const root = h("div", "ra-chat");
@@ -643,7 +655,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   const send = async (mode: "prompt" | "steer" | "followUp") => {
     const text = ta.value.trim();
-    if (!text) return;
+    if (!text || !agent) return;
     ta.value = ""; autosize(); renderCmds();
     if (!agent.busy) mode = "prompt";
     if (mode === "prompt") { addUser(text); root.dataset.sent = "1"; void agent.prompt(text).catch(() => undefined); return; }
@@ -663,14 +675,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     }
     if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
     e.preventDefault();
-    void send(agent.busy ? (e.altKey ? "followUp" : "steer") : "prompt");
+    void send(agent?.busy ? (e.altKey ? "followUp" : "steer") : "prompt");
   });
   ta.addEventListener("blur", () => { cmds.style.display = "none"; });
   ta.addEventListener("focus", () => renderCmds());
   sendBtn.addEventListener("click", () => void send("prompt"));
   steerBtn.addEventListener("click", () => void send("steer"));
   fuBtn.addEventListener("click", () => void send("followUp"));
-  stopBtn.addEventListener("click", () => { ui.cancelAll(); void agent.abort(); });
+  stopBtn.addEventListener("click", () => { ui.cancelAll(); void agent?.abort(); });
   log.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button.ra-copy");
     if (!b) return;
@@ -785,42 +797,45 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
     try { await a.ready(); } catch (err) { addError((err as Error).message); }
     if (agent !== a || !mounted) return;
+    onSession?.(a);
     renderHistory(a.messages);
     const u = a.usage;
     usageEl.textContent = u.calls ? `${fmtCost(u.total_cost)} · ${fmtTokens(u.prompt_tokens + u.completion_tokens)} tokens · ${u.calls} calls` : "";
     await refreshCommands();
   };
 
-  const makeAgent = (id?: string): Agent => new Agent(client!, { ...agentOpts, id, ui: agentOpts.ui ?? ui });
+  const newId = () => `agent_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  /** An agent for session `id`; with a workspace factory, the session's own directory (opened under the same id). */
+  const makeAgent = async (id?: string): Promise<Agent> => {
+    const sid = id ?? newId();
+    const workspace = typeof wsOpt === "function" ? await wsOpt(sid) : wsOpt ?? null;
+    return new Agent(client!, { ...agentOpts, id: sid, workspace, ui: agentOpts.ui ?? ui });
+  };
 
-  const newSession = async (): Promise<Agent> => {
-    if (givenAgent) throw new Error("runapps agent: newSession needs the chat to own its agent (pass a client, not an agent)");
+  const switchTo = async (id?: string): Promise<Agent> => {
+    if (givenAgent) throw new Error("runapps agent: newSession/resume need the chat to own its agent (pass a client, not an agent)");
     ui.cancelAll();
     await agent.abort();
-    const a = makeAgent();
+    const a = await makeAgent(id);
     await attach(a);
     return a;
   };
-  const resume = async (id: string): Promise<Agent> => {
-    if (givenAgent) throw new Error("runapps agent: resume needs the chat to own its agent (pass a client, not an agent)");
-    ui.cancelAll();
-    await agent.abort();
-    const a = makeAgent(id);
-    await attach(a);
-    return a;
-  };
+  const newSession = () => switchTo();
+  const resume = (id: string) => switchTo(id);
 
-  const first = givenAgent ?? makeAgent(agentOpts.id);
-  void attach(first);
-  setBusy(first.busy);
+  const starting = givenAgent ? Promise.resolve(givenAgent) : makeAgent(agentOpts.id);
+  const ready = starting.then((a) => attach(a));
+  void ready;
 
   // `prompt()` from the host: draw the message here, not from run_start.
-  const promptFromHost = (text: string) => {
+  const promptFromHost = async (text: string) => {
+    await ready;
     if (!agent.busy) { addUser(text); root.dataset.sent = "1"; }
     return agent.prompt(text);
   };
   return {
-    get agent() { return agent; },
+    get agent() { return agent ?? givenAgent!; },
+    get ready() { return ready; },
     element: root,
     ui,
     prompt: promptFromHost,
