@@ -1196,8 +1196,8 @@ export function titleOf(d: SessionData): string {
     if (m.role !== "user" || summaryOf(m) !== null) continue;
     const typed = (m as { typed?: unknown }).typed;
     const text = typeof typed === "string" ? typed : typeof m.content === "string" ? m.content : (m.content ?? []).find((p) => p.type === "text")?.text ?? "";
-    // An attachment list the chat put after the typed words is not part of the title.
-    const line = text.replace(/\s*\[attachments\][\s\S]*$/, "").replace(/\s+/g, " ").trim();
+    // An attachment list or context the chat put after the typed words is not part of the title.
+    const line = text.replace(/\s*\[attachments\][\s\S]*$/, "").replace(/(^|\n)\[context\] [\s\S]*$/, "").replace(/\s+/g, " ").trim();
     if (!line || isMachineTitle(line)) continue;
     return line.length > 80 ? line.slice(0, 77) + "…" : line;
   }

@@ -778,3 +778,12 @@ test("write_file — a refused overwrite after a partial read shows the rest (th
   assert.match(tools.write_file.description, /pass replace: true/);
   assert.ok(tools.write_file.parameters.properties.replace);
 });
+
+test("titleOf — the user's words only: an attachment list or the chat's context after them (also in a message kept as one string) is left out", async () => {
+  const { titleOf, UNTITLED } = await import("../dist/index.js");
+  const s = (content) => ({ messages: [{ role: "user", content }] });
+  assert.equal(titleOf(s("字体再艺术化一点.\n[context] h1\nThe user picked this element…\n{\"selector\":\"h1\"}")), "字体再艺术化一点.");
+  assert.equal(titleOf(s([{ type: "text", text: "Make it red" }, { type: "text", text: "[context] h1\n{}" }])), "Make it red");
+  assert.equal(titleOf(s("Look\n[attachments] files the user attached:\n- /a.png")), "Look");
+  assert.equal(titleOf(s("[context] h1\n{}")), UNTITLED);
+});

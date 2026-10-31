@@ -808,6 +808,28 @@ const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|toml|xml|html?|css
 const ATTACH_MARK = "[attachments]";
 /** A text part of a message that came from the host (`addContext`): its first line names it, the rest is what the model reads. */
 const CONTEXT_MARK = "[context] ";
+/**
+ * A user message's text parts. A message kept as one string (a host that
+ * saves conversations as text joins the parts with newlines) is split back
+ * where the chat's own parts begin: context items, the attachment list,
+ * inlined files.
+ */
+function textPartsOf(content: string | ContentPart[] | null | undefined): string[] {
+  if (Array.isArray(content)) return content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text").map((p) => p.text);
+  if (typeof content !== "string") return [];
+  if (!content.includes(CONTEXT_MARK) && !content.includes(ATTACH_MARK) && !content.includes("<file name=")) return [content];
+  const parts: string[] = [];
+  let cur: string[] = [], inFile = false;
+  for (const line of content.split("\n")) {
+    if (!inFile && (line.startsWith(CONTEXT_MARK) || line.startsWith(ATTACH_MARK) || line.startsWith("<file name=")) && cur.length) { parts.push(cur.join("\n")); cur = []; }
+    cur.push(line);
+    // An inlined file's own lines never start a part.
+    if (!inFile && line.startsWith("<file name=")) inFile = !line.endsWith("</file>");
+    else if (inFile && line === "</file>") inFile = false;
+  }
+  if (cur.length) parts.push(cur.join("\n"));
+  return parts;
+}
 /** One line of the attachment list: `- <path or name> (<type>, <size>)[ — note]`; the name may hold parentheses. */
 function parseAttachLine(line: string): { ref: string; type: string; size: string } | null {
   const m = /^- (.+) \(([^()]*)\)(?: — .*)?$/.exec(line);
@@ -1303,13 +1325,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
   /** The context parts of a message: its label (first line) and what the model read. */
   const contextsOf = (content: string | ContentPart[]): Array<{ label: string; text: string }> =>
-    Array.isArray(content) ? content.flatMap((p) => (p.type === "text" && p.text.startsWith(CONTEXT_MARK) ? [{ label: p.text.slice(CONTEXT_MARK.length).split("\n")[0]!, text: p.text.slice(p.text.indexOf("\n") + 1) }] : [])) : [];
+    textPartsOf(content).flatMap((p) => (p.startsWith(CONTEXT_MARK) ? [{ label: p.slice(CONTEXT_MARK.length).split("\n")[0]!, text: p.includes("\n") ? p.slice(p.indexOf("\n") + 1) : "" }] : []));
   interface UserRow extends VRow { msg?: ChatMessage; text: string; update(): void }
   const userEl = (content: string | ContentPart[], row: UserRow): HTMLElement => {
     const el = h("div", "ra-user");
     const b = h("div", "ra-bubble");
     // The attachment list (a text part of its own) is shown as chips, not as text.
-    const parts = typeof content === "string" ? [content] : Array.isArray(content) ? content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text").map((p) => p.text) : [];
+    const parts = textPartsOf(content);
     const text = row.text;
     b.textContent = text.length > 4000 ? text.slice(0, 4000) + "…" : text;
     const attached = parts.find((p) => p.startsWith(ATTACH_MARK));
@@ -1347,7 +1369,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return el;
   };
   const userRow = (content: string | ContentPart[], msg?: ChatMessage): UserRow => {
-    const parts = typeof content === "string" ? [content] : content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text").map((p) => p.text);
+    const parts = textPartsOf(content);
     // Expanded slash commands show what was typed; the expansion is for the model.
     const own = parts.filter((p) => !p.startsWith(ATTACH_MARK) && !p.startsWith(CONTEXT_MARK) && !p.startsWith("<file name="));
     const typed = typedOf(msg);
@@ -1402,8 +1424,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
   /** Puts a rewound message's context and attachments back into the composer: files from the directory, or from what the message carried inline. */
   const reattach = async (msg: ChatMessage) => {
-    if (!Array.isArray(msg.content)) return;
-    const parts = msg.content;
+    if (typeof msg.content !== "string" && !Array.isArray(msg.content)) return;
+    // A message kept as one string: its parts, split back.
+    const parts: ContentPart[] = Array.isArray(msg.content) ? msg.content : textPartsOf(msg.content).map((text) => ({ type: "text", text }));
     for (const c of contextsOf(parts).reverse()) addContext({ label: c.label, text: c.text });
     const block = parts.find((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text" && p.text.startsWith(ATTACH_MARK));
     if (!block) return;
@@ -1854,7 +1877,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     queueEl.replaceChildren();
     if (!q.length) { queueOpen = false; return; }
     const a = agent;
-    const textOf = (m: ChatMessage) => textOfContent(m.content as string | ContentPart[]).replace(/\s*\[attachments\][\s\S]*$/, "").replace(/\s+/g, " ").trim();
+    const textOf = (m: ChatMessage) => textOfContent(m.content as string | ContentPart[]).replace(/\s*\[attachments\][\s\S]*$/, "").replace(/(^|\n)\[context\] [\s\S]*$/, "").replace(/\s+/g, " ").trim();
     const btn = (icon: string, title: string, fn: () => void) => { const b = h("button"); b.type = "button"; b.innerHTML = icon; b.title = title; b.setAttribute("aria-label", title); b.addEventListener("click", (e) => { e.stopPropagation(); fn(); }); return b; };
     const actions = (item: (typeof q)[number]) => {
       const box = h("span", "ra-qa");
