@@ -100,7 +100,7 @@ A question whose run is stopped is dismissed.
 
 ### Reading lines: `lineReader`
 
-readline's own `question()` loses a line that arrives while nobody is asking — typed ahead while the agent works, or piped in. `lineReader()` queues them: each `ask(prompt)` gets the next line, whenever it came. There is one reader per input stream, so your prompt loop and `terminalUI` take turns on the same queue, and the input is paused between questions (it does not keep the process alive).
+readline's own `question()` loses a line that arrives while nobody is asking — typed ahead while the agent works, or piped in. `lineReader()` queues them: each `ask(prompt)` gets the next line, whenever it came, and questions asked at the same time (two tools asking at once) are answered in turn. There is one reader per input stream, so your prompt loop and `terminalUI` take turns on the same queue. The prompt goes through readline, so it stays on screen while the user edits the line. A terminal keeps being read between questions — Ctrl+C reaches the reader's `rl` "SIGINT" event even while the agent runs — without keeping the process alive; a pipe is paused between questions.
 
 ```js
 import { lineReader, terminalUI } from "@runappsai/agent/node";

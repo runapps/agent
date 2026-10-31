@@ -18,7 +18,7 @@ import { listZip, readZipEntry, type Inflate, MAX_ZIP_BYTES } from "./zip.js";
 import { parseSkill } from "./skills.js";
 import { applyEdits, type TextEdit } from "./edit.js";
 import { summaryOf } from "./compaction.js";
-import { parseSkillZip, skillFoldersOf, skillZipFS, subFS, zipFiles } from "./skill-zips.js";
+import { cachedSkillZip, parseSkillZip, skillFoldersOf, skillZipFS, subFS, zipFiles } from "./skill-zips.js";
 import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
 
 /** Where a workspace keeps its skills unless `skillsDir` says otherwise. */
@@ -823,13 +823,15 @@ export class Workspace {
         const m = /^\/([^/]+)\.zip$/i.exec(f.path);
         if (!m) continue;
         try {
-          // Only the zips are read (names are enough for the folders); a parsed zip of this version is reused.
-          const key = `user:${this.dbName}|${f.path}@${f.mtime}`;
-          const rec = await this.lib.get(f.path);
-          if (!rec || !(rec.data instanceof Uint8Array)) continue;
-          const name = zipBaseName(m[1]!);
-          const parsed = parseSkillZip(name, rec.data, key);
-          for (const [folder, prefix] of parsed.folders) views.set(folder, { fs: skillZipFS(parsed, prefix, f.mtime ?? rec.mtime, this.inflate), builtin: false, from: this.userSkillsDir + f.path });
+          // Only the zips are read (names are enough for the folders), and one parsed at this version already is not read again.
+          const key = `user:${this.dbName}|${f.path}@${f.mtime}:${f.size}`;
+          let parsed = f.mtime !== undefined ? cachedSkillZip(key) : undefined;
+          if (!parsed) {
+            const rec = await this.lib.get(f.path);
+            if (!rec || !(rec.data instanceof Uint8Array)) continue;
+            parsed = parseSkillZip(zipBaseName(m[1]!), rec.data, key);
+          }
+          for (const [folder, prefix] of parsed.folders) views.set(folder, { fs: skillZipFS(parsed, prefix, f.mtime ?? 0, this.inflate), builtin: false, from: this.userSkillsDir + f.path });
         } catch (err) { console.warn(`[runapps agent] skills zip "${f.path}":`, err); }
       }
       const user = this.userFS();

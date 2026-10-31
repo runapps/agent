@@ -29,6 +29,7 @@ import type {
   ToolStatus,
 } from "./types.js";
 import { askUserTool, domUI } from "./dialogs.js";
+import { fileGuard } from "./file-guard.js";
 import { isMachineTitle, titleOf, UNTITLED, type Workspace } from "./workspace.js";
 
 const DEFAULT_MAX_TURNS = 100;
@@ -118,12 +119,15 @@ export class Agent {
     this.ui = opts.ui ?? domUI();
     this.workspace = opts.workspace ?? null;
     const tools: Tool[] = [...(opts.tools ?? [])];
+    // What the model has read, for the file tools and run_js alike; forgotten when the conversation is compacted or rewound.
+    const guard = this.workspace ? fileGuard(this.workspace, { enabled: opts.readBeforeWrite !== false }) : undefined;
+    if (guard) { this.on("compaction", () => guard.clear()); this.on("rewind", () => guard.clear()); }
     if (this.workspace && opts.fileTools !== false) {
       const want = Array.isArray(opts.fileTools) ? new Set(opts.fileTools) : null;
-      tools.push(...fileTools(this.workspace, { readBeforeWrite: opts.readBeforeWrite }).filter((t) => !want || want.has(t.name)));
+      tools.push(...fileTools(this.workspace, { guard }).filter((t) => !want || want.has(t.name)));
     }
     if (opts.askUser !== false) tools.push(askUserTool());
-    if (opts.sandbox !== false) tools.push(sandboxTool(this.workspace, typeof opts.sandbox === "object" ? opts.sandbox : {}));
+    if (opts.sandbox !== false) tools.push(sandboxTool(this.workspace, { ...(typeof opts.sandbox === "object" ? opts.sandbox : {}), guard }));
     const seen = new Set<string>();
     for (const t of tools) {
       if (seen.has(t.name)) throw new Error(`runapps agent: two tools are named "${t.name}"`);

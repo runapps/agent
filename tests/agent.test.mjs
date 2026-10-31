@@ -577,6 +577,24 @@ test("agent — a lazy skill is in the prompt without loading; /skill:name loads
   assert.match(JSON.stringify(requests[1].messages), /Three lines, 5-7-5/);
 });
 
+test("agent — compaction and rewind forget what the model read: changing a file needs a fresh read", async () => {
+  const ws = await Workspace.open(null, { id: "forget", project: "forget-test", indexedDB: null, userSkills: false });
+  await ws.write("/plan.md", "- one\n");
+  const { client } = scripted([reply({ text: "a" }), reply({ text: "b" })]);
+  const agent = createAgent(client, { model: "m", workspace: ws, sandbox: false, askUser: false, persist: false, compaction: async () => "SUM" });
+  const t = Object.fromEntries(agent.tools.map((x) => [x.name, x]));
+  const ctx = { signal: new AbortController().signal, ui: agent.ui, workspace: ws, agent, update() {} };
+  await t.read_file.execute({ path: "/plan.md" }, ctx);
+  await t.edit_file.execute({ path: "/plan.md", oldText: "one", newText: "1" }, ctx);
+  await agent.prompt("x " + "y".repeat(400));
+  await agent.prompt("z " + "y".repeat(400));
+  assert.equal(await agent.compact(), true);
+  await assert.rejects(t.edit_file.execute({ path: "/plan.md", oldText: "1", newText: "2" }, ctx), /not read it/);
+  await t.read_file.execute({ path: "/plan.md" }, ctx);
+  await agent.rewind(0);
+  await assert.rejects(t.write_file.execute({ path: "/plan.md", content: "new" }, ctx), /not read it/);
+});
+
 test("agent — a follow-up whose preface fails settles with an error; leftover steering goes before the next prompt", async () => {
   const { client, requests } = scripted([reply({ calls: [{ name: "get_weather", args: { city: "Rome" } }] }), reply({ text: "after" })]);
   const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false, maxTurns: 1 });

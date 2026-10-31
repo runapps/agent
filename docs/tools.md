@@ -113,7 +113,14 @@ Under `permissions: "ask"` (the default) a tool with `destructive: true` or a `c
 
 ### Read before write
 
-`write_file` and `edit_file` refuse to change an existing file that the model has not read in this conversation, or that changed since it last read it — because the user edited it in the files panel, your app changed a mounted document, or another tab wrote it. The model is told why and reads the file again, so its change is made on the current content and nobody's edits are overwritten from a stale copy. New files can always be written, and the model's own writes count as read (it can edit a file several times in a row). A file's version is its modified time and size, or a fingerprint of its content for mounts that give no time. Turn it off with `readBeforeWrite: false`.
+The agent does not change a file from a stale or partial view of it — the user may be editing files while it works:
+
+- **Overwrite** (`write_file`, `fs.write` in `run_js`) of an existing file needs the model to have read all of it in this conversation. After a partial read (`read_file` shows 2000 lines at a time), it is told to read the rest (`offset=…`) or use `edit_file`.
+- **Edit** (`edit_file`) needs it to have read the file — part is enough, since an edit only replaces the text it quotes.
+- **Delete** (`delete_file`, `fs.remove`) of a file it read is refused if the file changed since; a file it never read can be deleted.
+- Any of them is refused when the file **changed since the model read it** — the user edited it in the files panel, your app changed a mounted document, another tab wrote it. The model is told why and reads the file again.
+
+New files can always be written, and the model's own writes count as read. `fs.read` in `run_js` counts as reading. A file's version is its modified time, size and a fingerprint of its content (files over 4 MB: time and size), so even a same-size change in the same instant shows. What the model has read is forgotten when the conversation is compacted or rewound, since it no longer has those contents. Turn it all off with `readBeforeWrite: false`.
 
 The file tools come with a workspace; `fileTools: ["read_file", "list_files", "search_files"]` gives a read-only agent, `fileTools: false` none.
 

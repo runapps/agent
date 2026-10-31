@@ -57,6 +57,11 @@ export function zipFiles(bytes: Uint8Array): Map<string, ZipEntry> {
   return entries;
 }
 
+/** A zip already parsed under `key` (this zip, this version), without its bytes. */
+export function cachedSkillZip(key: string): Parsed | undefined {
+  return parsedCache.get(key);
+}
+
 /** The zip, parsed; `key` names this zip and version (the same key reuses the parse and its decoded entries). */
 export function parseSkillZip(name: string, bytes: Uint8Array, key: string): Parsed {
   const hit = parsedCache.get(key);

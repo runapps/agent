@@ -50,12 +50,13 @@ Options: see [the options table](agent.md#options). Events: see [Events](agent.m
 | Export | |
 |---|---|
 | `defineTool({ name, description, parameters?, execute, destructive?, confirm?, guidelines?, maxResultChars? })` | A tool. |
-| `fileTools(workspace, { readBeforeWrite? })` | The file tools for a workspace. |
+| `fileTools(workspace, { readBeforeWrite?, guard? })` | The file tools for a workspace. |
+| `fileGuard(workspace, { enabled? })` → `FileGuard` | What the model has read (`saw`, `wrote`, `edited`, `check`, `forget`, `clear`); the agent shares one between the file tools and `run_js` (`sandboxTool(ws, { guard })`). |
 | `sandboxTool(workspace, options)`, `runInSandbox(workspace, code, input, options)` | The `run_js` sandbox. |
 | `askUserTool()` | The `ask_user` tool. |
 | `normalizeResult(value)` | How a tool's return value becomes the model's result. |
 | `validateSchema(schema, value)` → `string[]` | The JSON Schema check used on arguments (the errors, empty when valid). |
-| types | `Tool`, `ToolDefinition`, `ToolContext`, `ToolResultValue`, `ToolStatus`, `JSONSchema`, `FileToolsOptions` |
+| types | `Tool`, `ToolDefinition`, `ToolContext`, `ToolResultValue`, `ToolStatus`, `JSONSchema`, `FileToolsOptions`, `FileGuard` |
 
 ## Dialogs
 

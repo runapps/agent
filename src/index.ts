@@ -39,6 +39,7 @@ export { defineTool, normalizeResult } from "./tool.js";
 export { domUI, nullUI, askUserTool } from "./dialogs.js";
 export { configurePdf, extractPdfText, formatPdfText, isPdf, type PdfLib } from "./pdf.js";
 export { fileTools, type FileToolsOptions } from "./file-tools.js";
+export { fileGuard, type FileGuard } from "./file-guard.js";
 export { sandboxTool, runInSandbox, type SandboxOptions, type SandboxResult } from "./sandbox.js";
 export { parseSkill, parseFrontmatter } from "./skills.js";
 export { collectCompletion, type CollectedCompletion } from "./completion.js";

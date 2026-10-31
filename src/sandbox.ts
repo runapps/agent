@@ -6,13 +6,16 @@
 
 import { defineTool } from "./tool.js";
 import type { Tool } from "./types.js";
-import type { Workspace } from "./workspace.js";
+import { normalizePath, type Workspace } from "./workspace.js";
+import type { FileGuard } from "./file-guard.js";
 
 /**
  * Isolation is best effort: the code runs in a Worker of the page's origin with network and storage
  * globals removed. Code that can be trusted with nothing should run in a sandboxed iframe of its own.
  */
 export interface SandboxOptions {
+  /** The agent's read-before-write guard: `fs.read` counts as reading, `fs.write` and `fs.remove` are checked like the file tools. */
+  guard?: FileGuard;
   /** Kill the run after this long (default 10 s, max 60 s). */
   timeoutMs?: number;
   /** Leave fetch/WebSocket available inside the sandbox (default false). */
@@ -178,18 +181,29 @@ export async function runInSandbox(
           switch (m.op) {
             case "read": {
               // Text files as they are; a PDF as the text of its pages.
-              const doc = await ws.readAsText(String(args[0]));
-              if (!doc) throw new Error(`${String(args[0])} is a binary file`);
+              const p = normalizePath(String(args[0]));
+              const doc = await ws.readAsText(p);
+              if (!doc) throw new Error(`${p} is a binary file`);
+              await opts.guard?.saw(p, { text: doc.kind === "text" ? doc.text : undefined });
               value = doc.text;
               break;
             }
-            case "write": await ws.write(String(args[0]), String(args[1] ?? "")); value = true; break;
+            case "write": {
+              const p = normalizePath(String(args[0]));
+              await opts.guard?.check(p, "overwrite");
+              await ws.write(p, String(args[1] ?? ""));
+              await opts.guard?.wrote(p);
+              value = true;
+              break;
+            }
             case "list": value = (await ws.list(String(args[0] ?? "/"))).map((f) => ({ path: f.path, size: f.size })); break;
             case "exists": value = await ws.exists(String(args[0])); break;
             case "delete": {
-              const path = String(args[0]);
+              const path = normalizePath(String(args[0]));
+              await opts.guard?.check(path, "delete");
               if (opts.confirmDelete && !(await opts.confirmDelete(path))) throw new Error(`the user declined deleting ${path}`);
               await ws.delete(path);
+              opts.guard?.forget(path);
               value = true;
               break;
             }

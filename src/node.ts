@@ -252,39 +252,61 @@ const readers = new WeakMap<object, LineReader>();
 /**
  * Lines of `input`, queued: a line that arrives while nobody asks (typed
  * ahead, or piped in) waits for the next question instead of being lost,
- * as it is with readline's own `question()`. One reader per input stream —
- * a program's prompt loop and `terminalUI` share it. The input is paused
- * between questions, so it does not keep the process alive.
+ * as it is with readline's own `question()`; questions asked at once are
+ * answered in turn. One reader per input stream — a program's prompt loop
+ * and `terminalUI` share it. The prompt goes through readline, so editing
+ * the line keeps it on screen. A terminal is read all the time (Ctrl+C
+ * reaches readline's "SIGINT" even while no question is open) but does not
+ * keep the process alive between questions; a pipe is paused between them.
  */
 export function lineReader(opts: { input?: Readable; output?: Writable & { isTTY?: boolean } } = {}): LineReader {
   const input = opts.input ?? process.stdin;
   const output = opts.output ?? process.stdout;
   const known = readers.get(input);
   if (known) return known;
-  const rl = createInterface({ input, output, terminal: !!(input as { isTTY?: boolean }).isTTY });
+  const tty = !!(input as { isTTY?: boolean }).isTTY;
+  const rl = createInterface({ input, output, terminal: tty });
   const queue: string[] = [];
-  let waiting: ((line: string | null) => void) | null = null;
+  type Waiter = { prompt: string; done: (line: string | null) => void };
+  const waiters: Waiter[] = [];
   let closed = false;
+  const handle = input as unknown as { ref?: () => void; unref?: () => void };
+  // Between questions: a terminal stays in flowing raw mode (so Ctrl+C is read) but stops holding the process; a pipe pauses.
+  const idle = () => { rl.setPrompt(""); if (tty) handle.unref?.(); else rl.pause(); };
+  const activate = () => {
+    const w = waiters[0];
+    if (!w) return idle();
+    if (tty) handle.ref?.();
+    rl.setPrompt(w.prompt);
+    rl.prompt(true);   // writes the prompt and resumes reading
+  };
   rl.on("line", (line) => {
-    if (waiting) { const w = waiting; waiting = null; w(line); } else queue.push(line);
-    if (!waiting) rl.pause();
+    const w = waiters.shift();
+    if (w) { w.done(line); activate(); }
+    else { queue.push(line); idle(); }
   });
   rl.on("close", () => {
     closed = true;
     readers.delete(input);
-    if (waiting) { const w = waiting; waiting = null; w(null); }
+    for (const w of waiters.splice(0)) w.done(null);
   });
-  rl.pause();
+  idle();
   const reader: LineReader = {
     rl,
     ask(prompt, signal) {
       return new Promise((done) => {
-        output.write(prompt);
-        if (queue.length) return done(queue.shift()!);
+        if (!waiters.length && queue.length) { output.write(prompt); return done(queue.shift()!); }
         if (closed || signal?.aborted) return done(null);
-        waiting = done;
-        rl.resume();
-        signal?.addEventListener("abort", () => { if (waiting === done) { waiting = null; rl.pause(); done(null); } }, { once: true });
+        const w: Waiter = { prompt, done };
+        waiters.push(w);
+        if (waiters.length === 1) activate();
+        signal?.addEventListener("abort", () => {
+          const i = waiters.indexOf(w);
+          if (i < 0) return;
+          waiters.splice(i, 1);
+          if (i === 0) { output.write("\n"); activate(); }
+          done(null);
+        }, { once: true });
       });
     },
     close() { rl.close(); },

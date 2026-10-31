@@ -7,54 +7,29 @@ import type { TextEdit } from "./edit.js";
 import { defineTool } from "./tool.js";
 import type { Tool } from "./types.js";
 import { normalizePath, type Workspace } from "./workspace.js";
+import { fileGuard, type FileGuard } from "./file-guard.js";
 
 const MAX_LIST = 500;
 const MAX_READ_LINES = 2000;
 const MAX_READ_BYTES = 50 * 1024;
 const MAX_SEARCH_HITS = 100;
 
-/** FNV-1a over a file's content: its version where the file has no modified time. */
-function fingerprint(data: string | Uint8Array): string {
-  let h = 0x811c9dc5;
-  if (typeof data === "string") for (let i = 0; i < data.length; i++) { h ^= data.charCodeAt(i); h = Math.imul(h, 0x01000193); }
-  else for (const b of data) { h ^= b; h = Math.imul(h, 0x01000193); }
-  return (h >>> 0).toString(36);
-}
-
 export interface FileToolsOptions {
   /**
    * Refuse to overwrite or edit an existing file the model has not read in
-   * this conversation, or that changed since it last read it — by the user,
-   * the host or another process — and tell it to read the file again
-   * (default true). A new file can always be written.
+   * this conversation (or, to overwrite it, read only in part), or that
+   * changed since it last read it — by the user, the host or another
+   * process — and tell it to read the file again (default true). A new
+   * file can always be written.
    */
   readBeforeWrite?: boolean;
+  /** The agent's guard, shared with run_js (made here when not given). */
+  guard?: FileGuard;
 }
 
 export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
-  const guard = opts.readBeforeWrite !== false;
-  // The version of each file as the model last saw it (read it, or wrote it itself).
-  const seen = new Map<string, string>();
-  const versionOf = async (p: string): Promise<string | null> => {
-    const st = await ws.stat(p);
-    if (!st) return null;
-    if (typeof st.mtime === "number") return `t${st.mtime}:${st.size}`;
-    // No modified time (some mounts): the content itself says whether it changed.
-    return `h${fingerprint((await ws.read(p)).data)}:${st.size}`;
-  };
-  const remember = async (p: string) => {
-    if (!guard) return;
-    const v = await versionOf(p).catch(() => null);
-    if (v) seen.set(p, v); else seen.delete(p);
-  };
-  const checkFresh = async (p: string, verb: string) => {
-    if (!guard) return;
-    const now = await versionOf(p);
-    if (now === null) return;   // a new file
-    const was = seen.get(p);
-    if (was === undefined) throw new Error(`${p} already exists and you have not read it in this conversation: read it with read_file first, then ${verb} it.`);
-    if (was !== now) throw new Error(`${p} has changed since you last read it (the user or another process edited it): read it again with read_file, then make your change on the current content.`);
-  };
+  const files = opts.guard ?? fileGuard(ws, { enabled: opts.readBeforeWrite !== false });
+  const guard = files.enabled;
 
   return [
     defineTool<{ path?: string }>({
@@ -95,16 +70,16 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
           return `${normalizePath(path)} is a folder with ${files.length} file${files.length === 1 ? "" : "s"}:\n` +
             files.slice(0, MAX_LIST).map((f) => `${f.path}  (${f.size} B)`).join("\n");
         }
-        let doc: { text: string } | null;
+        let doc: { text: string; kind: "text" | "pdf" } | null;
         try {
           doc = await ws.readAsText(path);
-          await remember(normalizePath(path));
         } catch (err) {
           const st = await ws.stat(path);
           if (st && /\.pdf$/i.test(path)) return `Could not read the PDF ${normalizePath(path)}: ${(err as Error).message}`;
           throw err;
         }
         if (!doc) {
+          await files.saw(normalizePath(path));
           const st = await ws.stat(path);
           return `${normalizePath(path)} is a binary file (${st?.contentType ?? "unknown type"}, ${st?.size ?? 0} bytes).`;
         }
@@ -112,7 +87,7 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
         const lines = text.split("\n");
         const total = lines.length;
         const start = Math.max(1, offset ?? 1);
-        if (start > total) return `Offset ${start} is beyond end of file (${total} lines total)`;
+        if (start > total) { await files.saw(normalizePath(path), { start: total + 1, end: total, total }); return `Offset ${start} is beyond end of file (${total} lines total)`; }
         const want = limit !== undefined ? Math.min(limit, MAX_READ_LINES) : MAX_READ_LINES;
         const out: string[] = [];
         let bytes = 0;
@@ -124,6 +99,8 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
           bytes += b;
           end = i + 1;
         }
+        // What it has now seen of the file (a PDF's text is not its content: no fingerprint from it).
+        await files.saw(normalizePath(path), { start, end, total, text: doc.kind === "text" ? text : undefined });
         let notice = "";
         if (end < total) {
           const next = end + 1;
@@ -148,9 +125,9 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
       async execute({ path, content }) {
         const p = normalizePath(path);
         const existed = await ws.exists(p);
-        if (existed) await checkFresh(p, "overwrite");
+        if (existed) await files.check(p, "overwrite");
         await ws.write(p, content);
-        await remember(p);
+        await files.wrote(p);
         return `${existed ? "Updated" : "Created"} ${p} (${new TextEncoder().encode(content).byteLength} bytes).`;
       },
     }),
@@ -193,10 +170,10 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
         // The schema allows `edits` (an array) and the `oldText`/`newText` shorthand; nothing else gets this far.
         const edits: TextEdit[] = Array.isArray(args.edits) ? [...args.edits] : [];
         if (args.oldText !== undefined) edits.push({ oldText: args.oldText, newText: args.newText ?? "" });
-        await checkFresh(p, "edit");
+        await files.check(p, "edit");
         // The workspace applies them: a mount with its own edit() gets them as they are, anything else is read, edited and written back.
         await ws.edit(p, edits);
-        await remember(p);
+        await files.edited(p);
         return `Successfully replaced ${edits.length} block(s) in ${p}.`;
       },
     }),
@@ -213,8 +190,11 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
       destructive: true,
       confirm: ({ path }) => `Delete ${normalizePath(path)}?`,
       async execute({ path }) {
-        await ws.delete(path);
-        return `Deleted ${normalizePath(path)}.`;
+        const p = normalizePath(path);
+        await files.check(p, "delete");
+        await ws.delete(p);
+        files.forget(p);
+        return `Deleted ${p}.`;
       },
     }),
 

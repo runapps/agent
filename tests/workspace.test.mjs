@@ -8,7 +8,7 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 
 import { SyncEngine, SDKEvents } from "@runappsai/sdk";
-import { Workspace, memoryFS, parseSkill, listZip, readZipEntry, fileTools, runInSandbox, sandboxTool, nullUI } from "../dist/index.js";
+import { Workspace, memoryFS, parseSkill, listZip, readZipEntry, fileTools, runInSandbox, sandboxTool, nullUI, fileGuard } from "../dist/index.js";
 
 const inflate = (b) => new Uint8Array(zlib.inflateRawSync(b));
 
@@ -318,6 +318,46 @@ test("file tools — read before write: an unread or since-changed file is not o
   const loose = Object.fromEntries(fileTools(ws, { readBeforeWrite: false }).map((t) => [t.name, t]));
   await loose.write_file.execute({ path: "/plan.md", content: "overwritten" }, ctx);
   assert.equal(await ws.readText("/plan.md"), "overwritten");
+});
+
+test("file guard — a partial read allows edits but not an overwrite until the rest is read; delete checks freshness; a same-size change with an unchanged time is caught; run_js reads and writes go through the same guard; no-mtime mounts are read once", async () => {
+  const ws = await Workspace.open(null, { id: "guard2", project: "guard2-test", indexedDB: null, userSkills: false });
+  const guard = fileGuard(ws);
+  const tools = Object.fromEntries([...fileTools(ws, { guard }), sandboxTool(ws, { guard })].map((t) => [t.name, t]));
+  const ctx = { signal: new AbortController().signal, ui: nullUI(), workspace: ws, update() {} };
+  // 2500 lines: one read_file shows 2000.
+  await ws.write("/big.log", Array.from({ length: 2500 }, (_, i) => `line ${i + 1}`).join("\n"));
+  await tools.read_file.execute({ path: "/big.log" }, ctx);
+  await assert.rejects(tools.write_file.execute({ path: "/big.log", content: "short" }, ctx), /read only lines 1-2000 .*offset=2001/);
+  await tools.edit_file.execute({ path: "/big.log", oldText: "line 7\n", newText: "line seven\n" }, ctx);
+  await tools.read_file.execute({ path: "/big.log", offset: 2001 }, ctx);
+  await tools.write_file.execute({ path: "/big.log", content: "rewritten" }, ctx);
+  // delete: never read → allowed; read, then changed → refused.
+  await ws.write("/tmp.txt", "scratch");
+  await tools.delete_file.execute({ path: "/tmp.txt" }, ctx);
+  await ws.write("/draft.md", "empty");
+  await tools.read_file.execute({ path: "/draft.md" }, ctx);
+  await ws.write("/draft.md", "the user wrote here");
+  await assert.rejects(tools.delete_file.execute({ path: "/draft.md" }, ctx), /changed since you last read it.*decide whether to delete/);
+  // A mount whose time never moves: the content still tells.
+  let text = "abc", reads = 0;
+  ws.mount("/m", { list: async () => [{ path: "/f.txt", size: 3, mtime: 1000 }], stat: async (p) => (p === "/f.txt" ? { path: p, size: 3, mtime: 1000 } : null), read: async () => { reads++; return text; }, write: async (_p, c) => { text = String(c); } });
+  await tools.read_file.execute({ path: "/m/f.txt" }, ctx);
+  assert.equal(reads, 1, "read once: the fingerprint comes from what read_file read");
+  text = "xyz";   // same size, same time
+  await assert.rejects(tools.edit_file.execute({ path: "/m/f.txt", oldText: "abc", newText: "a" }, ctx), /changed since/);
+  // run_js: fs.write to an unread existing file is refused; fs.read counts as reading.
+  await ws.write("/data.csv", "a,b\n1,2");
+  const w = await tools.run_js.execute({ code: 'await fs.write("/data.csv", "x"); return 1;' }, ctx);
+  assert.match(w.content, /not read it in this conversation/);
+  assert.equal(await ws.readText("/data.csv"), "a,b\n1,2");
+  await tools.run_js.execute({ code: 'return (await fs.read("/data.csv")).length;' }, ctx);
+  await tools.edit_file.execute({ path: "/data.csv", oldText: "1,2", newText: "3,4" }, ctx);
+  const ok = await tools.run_js.execute({ code: 'await fs.write("/data.csv", "c,d"); return "ok";' }, ctx);
+  assert.match(ok.content, /Returned: "ok"/);
+  // clear() (compaction, rewind) forgets everything.
+  guard.clear();
+  await assert.rejects(tools.edit_file.execute({ path: "/data.csv", oldText: "c,d", newText: "e" }, ctx), /not read it/);
 });
 
 test("workspace — reading a folder says so and read_file lists it", async () => {

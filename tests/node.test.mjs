@@ -176,3 +176,20 @@ test("nodePdf — read_file reads a PDF with the pdfjs-dist package in Node", as
   const out = await read.execute({ path: "/doc.pdf" }, { signal: new AbortController().signal });
   assert.match(typeof out === "string" ? out : out.content, /--- page 1 ---\nHello PDF/);
 });
+
+test("lineReader — questions asked at once are answered in turn; an aborted one gives way to the next", async () => {
+  const { lineReader } = await import("../dist/node.js");
+  const input = new PassThrough();
+  const output = new PassThrough();
+  output.resume();
+  const r = lineReader({ input, output });
+  const ctl = new AbortController();
+  const a = r.ask("first? ");
+  const b = r.ask("second? ", ctl.signal);
+  const c = r.ask("third? ");
+  ctl.abort();
+  input.write("one\n");
+  input.write("two\n");
+  assert.deepEqual(await Promise.all([a, b, c]), ["one", null, "two"]);
+  r.close();
+});
