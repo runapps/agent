@@ -61,10 +61,10 @@ interface Queued {
  * loop (DeepSeek), and older reasoning is just tokens.
  */
 function toWire(m: ChatMessage, older: boolean): ChatMessage {
-  const meta = "ts" in m;
+  const meta = "ts" in m || "typed" in m;
   const dropReasoning = older && m.role === "assistant" && m.reasoning_content !== undefined;
   if (!meta && !dropReasoning) return m;
-  const { ts: _ts, ...rest } = m as ChatMessage & { ts?: number };
+  const { ts: _ts, typed: _typed, ...rest } = m as ChatMessage & { ts?: number; typed?: string };
   if (dropReasoning) delete (rest as ChatMessage).reasoning_content;
   return rest as ChatMessage;
 }
@@ -411,8 +411,7 @@ export class Agent {
     let truncatedRounds = 0;
 
     // Steering left over from a run that ended (turn limit, error) goes in before the new message, in the order it was typed.
-    for (const q of this.queue.filter((q) => q.kind === "steer")) this.history.push(q.message);
-    this.queue = this.queue.filter((q) => q.kind !== "steer");
+    this.applySteering(runId);
 
     let prefaced: ChatMessage | null = null;
     let prefaceError: Error | undefined;
@@ -439,8 +438,7 @@ export class Agent {
         this.emit("turn_start", { runId, turn });
 
         // Steering arrives between tool batches.
-        for (const q of this.queue.filter((q) => q.kind === "steer")) this.history.push(q.message);
-        this.queue = this.queue.filter((q) => q.kind !== "steer");
+        this.applySteering(runId);
 
         const system = await this.systemPrompt();
         // Context management, pi-style: summarise older turns when the
@@ -557,6 +555,15 @@ export class Agent {
     return result;
   }
 
+  /** Moves queued steering into the history and says so (`steered`), so a UI draws each message once, when it lands. */
+  private applySteering(runId: string): void {
+    const steer = this.queue.filter((q) => q.kind === "steer").map((q) => q.message);
+    if (!steer.length) return;
+    this.queue = this.queue.filter((q) => q.kind !== "steer");
+    this.history.push(...steer);
+    this.emit("steered", { runId, messages: steer });
+  }
+
   private toWireHistory(): ChatMessage[] {
     let lastUser = -1;
     for (let i = this.history.length - 1; i >= 0; i--) if (this.history[i]!.role === "user") { lastUser = i; break; }
@@ -650,9 +657,17 @@ export class Agent {
 
   /** `/skill:name args` and `/template args` in a user message. */
   private async expandSlashes(message: ChatMessage): Promise<ChatMessage> {
-    if (!this.workspace || typeof message.content !== "string" || !message.content.startsWith("/")) return message;
-    const expanded = await expandSlash(this.workspace, message.content);
-    return expanded === message.content ? message : { ...message, content: expanded };
+    if (!this.workspace) return message;
+    // The typed text is the content, or the first text part of a message with attachments.
+    const parts = Array.isArray(message.content) ? message.content : null;
+    const first = parts?.[0];
+    const typed = typeof message.content === "string" ? message.content : first?.type === "text" ? first.text : "";
+    if (!typed.startsWith("/")) return message;
+    const expanded = await expandSlash(this.workspace, typed);
+    if (expanded === typed) return message;
+    // `typed` (what the user wrote) rides along for the transcript and rewind; the model gets the expansion.
+    const content = parts ? [{ type: "text" as const, text: expanded }, ...parts.slice(1)] : expanded;
+    return { ...message, content, typed } as ChatMessage;
   }
 
   /** One model call with retries for transient failures. */
@@ -885,7 +900,8 @@ export class Agent {
       parts.push({ type: "text", text: `[The user invoked the skill "${skill.name}" (${skill.path}). Follow these instructions for the request below.]\n\n${body}` });
     }
     const own: ContentPart[] = typeof message.content === "string" ? [{ type: "text", text: message.content }] : (message.content ?? []);
-    return { ...message, role: "user", content: [...parts, ...own] };
+    const typed = (message as { typed?: string }).typed ?? (typeof message.content === "string" ? message.content : undefined);
+    return { ...message, role: "user", content: [...parts, ...own], ...(typed !== undefined ? { typed } : {}) } as ChatMessage;
   }
 
   /** Tokens of the transcript alone (estimate, no system prompt); `context()` gives the full figure and the window. */

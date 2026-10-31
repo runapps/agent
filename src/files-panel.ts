@@ -11,7 +11,7 @@ import { buildZip } from "./zip.js";
 
 export interface FilesStrings {
   files: string; upload: string; newFile: string; refresh: string; close: string; save: string; download: string; delete: string; cancel: string; ok: string;
-  confirmDeleteFile: string; newFilePath: string; noPreview: string; changedByAgent: string; noFiles: string; discard: string; saved: string; pickFile: string; folder: string; downloadZip: string; zipping: string; wrap: string; preview: string; edit: string; tooBig: string; conflict: string; readOnly: string; autoSaved: string;
+  confirmDeleteFile: string; newFilePath: string; noPreview: string; changedByAgent: string; noFiles: string; discard: string; saved: string; downloadZip: string; zipping: string; wrap: string; preview: string; edit: string; tooBig: string; conflict: string; readOnly: string; autoSaved: string;
 }
 
 export interface FilesPanelOptions {

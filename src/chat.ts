@@ -17,11 +17,11 @@ import type { ChatMessage, ContentPart } from "@runappsai/sdk";
 import { Agent } from "./agent.js";
 import type { Workspace } from "./workspace.js";
 import { summaryOf } from "./compaction.js";
-import { escapeHTML, renderMarkdown } from "./markdown.js";
+import { escapeHTML } from "./markdown.js";
 import { listTemplates } from "./templates.js";
 import { VirtualList, type VRow } from "./vlist.js";
-import { h, I, modalConfirm, downloadBlob, renderMD } from "./dom.js";
-import { filesPanel, freePath, type FilesPanel } from "./files-panel.js";
+import { h, I, modal, modalConfirm, renderMD } from "./dom.js";
+import { filesPanel, freePath } from "./files-panel.js";
 import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, ToolStatus } from "./types.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
@@ -117,14 +117,14 @@ const STRINGS = {
     other: "Other…", typeAnswer: "Type your answer", args: "Arguments", result: "Result", error: "Error", declined: "declined", blocked: "blocked", skipped: "skipped",
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Paused at the turn limit ({n})", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
-    attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove", attachments: "Attachments",
-    sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
+    attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove",
+    jumpEnd: "Jump to the latest", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     settings: "Settings", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
     apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue from here.",
     files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", tooBig: "Too large to edit here; download it.", conflict: "The file changed since you opened it. Overwrite it?", readOnly: "Read-only", autoSaved: "Unsaved edits saved", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
-    noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
+    noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved",
   },
   zh: {
     assistant: "助手", placeholder: "让 agent 做点什么…  输入 / 查看命令", placeholderBusy: "↵ 插入当前任务，{mod}↵ 排队到之后",
@@ -135,14 +135,14 @@ const STRINGS = {
     other: "其他…", typeAnswer: "请输入", args: "参数", result: "结果", error: "错误", declined: "已拒绝", blocked: "已拦截", skipped: "已跳过",
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "已达最大轮数 {n}，暂停", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
-    attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除", attachments: "附件",
-    sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
+    attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除",
+    jumpEnd: "回到最新", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     settings: "设置", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
     apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续从这里接着跑",
     files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", tooBig: "文件太大，无法在这里编辑，可以下载。", conflict: "文件在你打开后被改过，要覆盖吗？", readOnly: "只读", autoSaved: "未保存的修改已自动保存", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
-    noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存", pickFile: "选择文件", folder: "文件夹",
+    noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存",
   },
 };
 type Strings = typeof STRINGS.en;
@@ -253,6 +253,12 @@ const CSS = `
 .ra-md .ra-path:hover{background:var(--ra-p-muted)}
 .ra-tool .ra-tacts{display:flex;gap:10px}
 .ra-log{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.ra-jumpwrap{position:relative;height:0;flex-shrink:0;z-index:2}
+.ra-chat .ra-jump{position:absolute;left:50%;bottom:10px;width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb,var(--ra-panel) 82%,transparent);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid var(--ra-border);color:var(--ra-fg-muted);box-shadow:var(--ra-shadow);
+  opacity:0;transform:translate(-50%,6px);pointer-events:none;transition:opacity .18s,transform .18s,color .15s,border-color .15s}
+.ra-chat .ra-jump.show{opacity:.7;transform:translate(-50%,0);pointer-events:auto}
+.ra-chat .ra-jump:hover,.ra-chat .ra-jump:focus-visible{opacity:1;color:var(--ra-fg);border-color:var(--ra-p-muted)}
 .ra-log .ra-col{padding-top:6px;padding-bottom:6px}
 .ra-row{padding:10px 0}
 .ra-empty{padding:48px 0 24px;text-align:center;color:var(--ra-fg-muted)}
@@ -448,6 +454,15 @@ function summarizeArgs(name: string, args: unknown): string {
   return first === undefined ? "" : (typeof first === "string" ? first : JSON.stringify(first)).slice(0, 80);
 }
 
+/** The status a saved tool result stands for, as the live card showed it. */
+function statusOfResult(text: string): ToolStatus {
+  if (text.startsWith("Skipped")) return "skipped";
+  if (text.startsWith("The user declined")) return "declined";
+  if (text.includes("Do not retry it another way")) return "blocked";
+  if (/^Error|^Tool call "[^"]*" was not executed/.test(text)) return "error";
+  return "ok";
+}
+
 function fmtCost(usd: number): string {
   if (usd === 0) return "$0";
   if (usd < 0.001) return `$${usd.toFixed(5)}`;
@@ -479,27 +494,47 @@ function clockTime(ts: number): string {
 const tsOf = (m: ChatMessage | undefined): number | undefined => (m as (ChatMessage & { ts?: number }) | undefined)?.ts;
 
 /** The directory's work files at one moment (what rewinding restores): skills and mounts are left out, big files too. */
-interface Checkpoint { at: number; files: Array<{ path: string; contentType?: string; data: string | Uint8Array }>; partial: boolean }
+interface Checkpoint {
+  at: number;
+  files: Array<{ path: string; contentType?: string; data: string | Uint8Array }>;
+  partial: boolean;
+  /** Files that existed but were too big for the snapshot: a restore leaves them alone. */
+  skipped?: string[];
+}
 const CKPT_FILE_MAX = 2 * 1024 * 1024;
 const CKPT_TOTAL_MAX = 32 * 1024 * 1024;
+/** Snapshots kept per directory (the newest user messages); older ones are deleted. */
+const CKPT_KEEP = 30;
 const ckptKey = (ts: number) => `ckpt:${ts}`;
+const CKPT_INDEX = "ckpt:index";
 async function takeCheckpoint(ws: Workspace, ts: number): Promise<void> {
   const files: Checkpoint["files"] = [];
-  let total = 0, partial = false;
+  const skipped: string[] = [];
+  let total = 0;
   for (const f of await ws.list("/")) {
     if (ws.isSkillPath(f.path) || ws.mountOf(f.path)) continue;
-    if (f.size > CKPT_FILE_MAX || total + f.size > CKPT_TOTAL_MAX) { partial = true; continue; }
+    if (f.size > CKPT_FILE_MAX || total + f.size > CKPT_TOTAL_MAX) { skipped.push(f.path); continue; }
     const r = await ws.read(f.path);
     files.push({ path: f.path, contentType: r.contentType, data: r.data });
     total += f.size;
   }
-  await ws.putData(ckptKey(ts), { at: ts, files, partial } satisfies Checkpoint);
+  await ws.putData(ckptKey(ts), { at: ts, files, partial: skipped.length > 0, skipped } satisfies Checkpoint);
+  const index = [...((await ws.getData<number[]>(CKPT_INDEX)) ?? []).filter((t) => t !== ts), ts].sort((a, b) => a - b);
+  for (const old of index.splice(0, Math.max(0, index.length - CKPT_KEEP))) await ws.deleteData(ckptKey(old));
+  await ws.putData(CKPT_INDEX, index);
+}
+/** Drops the snapshots of messages sent after `ts` (they were rewound away). */
+async function dropCheckpointsAfter(ws: Workspace, ts: number): Promise<void> {
+  const index = (await ws.getData<number[]>(CKPT_INDEX)) ?? [];
+  for (const t of index.filter((t) => t > ts)) await ws.deleteData(ckptKey(t));
+  await ws.putData(CKPT_INDEX, index.filter((t) => t <= ts));
 }
 async function restoreCheckpoint(ws: Workspace, c: Checkpoint): Promise<void> {
-  const keep = new Set(c.files.map((f) => f.path));
+  const keep = new Set([...c.files.map((f) => f.path), ...(c.skipped ?? [])]);
   for (const f of await ws.list("/")) {
     if (ws.isSkillPath(f.path) || ws.mountOf(f.path) || keep.has(f.path)) continue;
-    if (f.size > CKPT_FILE_MAX && c.partial) continue; // a big file was not in the snapshot; leave it
+    // Snapshots from before `skipped` was recorded: a big file may not have been in it; leave it.
+    if (!c.skipped && c.partial && f.size > CKPT_FILE_MAX) continue;
     await ws.delete(f.path);
   }
   for (const f of c.files) await ws.write(f.path, f.data, f.contentType);
@@ -510,8 +545,17 @@ const MAX_IMAGE_PART = 8 * 1024 * 1024;
 const MAX_INLINE_TEXT = 64 * 1024;
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|toml|xml|html?|css|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|h|cpp|hpp|cs|sh|bash|zsh|sql|ini|cfg|conf|log|env|svg|tex|rst)$/i;
 const ATTACH_MARK = "[attachments]";
+/** One line of the attachment list: `- <path or name> (<type>, <size>)[ — note]`; the name may hold parentheses. */
+function parseAttachLine(line: string): { ref: string; type: string; size: string } | null {
+  const m = /^- (.+) \(([^()]*)\)(?: — .*)?$/.exec(line);
+  if (!m) return null;
+  const [type = "", size = ""] = m[2]!.split(/,\s*/);
+  return { ref: m[1]!, type, size };
+}
+/** What the user typed for a message: the slash command as written, not its expansion. */
+const typedOf = (m: ChatMessage | undefined): string | undefined => (m as { typed?: string } | undefined)?.typed;
 /** Added to the agent's instructions when it has a directory: how to hand a file to the user. */
-const FILES_HINT = "The user can browse, edit and download every file of the directory from the chat's Files panel. When you create or change a file for the user, name its absolute path in backticks (for example `/uploads/report.csv`); in the chat that path becomes a link that opens the file, with a download button. Files the user attaches arrive under /uploads.";
+const filesHint = (uploads: string) => `The user can browse, edit and download every file of the directory from the chat's Files panel. When you create or change a file for the user, name its absolute path in backticks (for example \`${uploads}/report.csv\`); in the chat that path becomes a link that opens the file, with a download button. Files the user attaches arrive under ${uploads}.`;
 
 /** A file the user attached: read once, saved to the directory (or inlined) when the message is sent. */
 interface Attachment { file: File; name: string; bytes: Uint8Array; text: string | null; image: boolean; preview: string | null; chip: HTMLElement; /** Already in the directory at this path (re-attached by a rewind): reused, not copied. */ path?: string }
@@ -669,6 +713,9 @@ interface AsstRow extends VRow {
   thinkBody: HTMLElement | null;
   md: string;
   reasoning: string;
+  /** The Markdown last drawn and whether it was drawn final, so repeated flushes do no work. */
+  drawn?: string;
+  drawnFinal?: boolean;
 }
 
 const LAST_KEY = (project: string) => `__runapps_agent_chat:${project}:last`;
@@ -684,7 +731,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   if (!opts.agent && !opts.client) throw new Error("runapps agent: renderChat needs a client (or an agent)");
   injectStyles();
   const t = STRINGS[pickLocale(opts.locale)];
-  const { client, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
+  const { client, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, settings: _settingsOpt, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const project = (client as unknown as { projectName?: string } | undefined)?.projectName ?? agentOpts.appName ?? "app";
 
@@ -748,21 +795,34 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const statusCol = h("div", "ra-col"); statusCol.append(statusEl);
   const main = h("div", "ra-main");
   const chatCol = h("div", "ra-chatcol");
-  chatCol.append(log, askArea, statusCol, comp);
+  // Back to the end: shown while the transcript is scrolled away from it.
+  const jumpWrap = h("div", "ra-jumpwrap");
+  const jumpBtn = h("button", "ra-jump"); jumpBtn.type = "button"; jumpBtn.innerHTML = I.arrowDown(); jumpBtn.title = t.jumpEnd; jumpBtn.setAttribute("aria-label", t.jumpEnd); jumpBtn.tabIndex = -1;
+  jumpWrap.append(jumpBtn);
+  chatCol.append(log, jumpWrap, askArea, statusCol, comp);
   main.append(chatCol);
   root.append(head, main, toasts, drop);
   target.replaceChildren(root);
 
   // State.
   let agent: Agent;
-  const list = new VirtualList(log, inner, { estimate: 96, overscan: 400, rowClass: "ra-row" });
+  const list = new VirtualList(log, inner, {
+    estimate: 96, overscan: 400, rowClass: "ra-row",
+    onFollow: (following) => {
+      const show = !following && log.scrollHeight - log.clientHeight > 40;
+      jumpBtn.classList.toggle("show", show);
+      jumpBtn.tabIndex = show ? 0 : -1;
+    },
+  });
+  jumpBtn.addEventListener("click", () => list.scrollToBottom());
   let active: AsstRow | null = null;
   let renderTimer: number | null = null;
   const cards = new Map<string, ToolCard>();
+  /** Calls of the drawn history still waiting for a result (a resumed run): tool_end fills them in before their row is built. */
+  const histCalls = new Map<string, { result?: string; status?: ToolStatus }>();
   let commands: Command[] = [];
   let cmdIndex = 0;
   let cmdFrame: number | null = null;
-  let queuedShown = new Set<ChatMessage>();
   let unsub: Array<() => void> = [];
   let menu: HTMLElement | null = null;
   let mounted = true;
@@ -775,23 +835,37 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const parked = new Map<string, HTMLElement[]>();
   /** Background sessions whose question waits for the user to come back. */
   const waiting = new Set<string>();
-  const waiters = new Map<string, Array<() => void>>();
-  const whenCurrent = (id: string) => new Promise<void>((res) => { if (agent?.id === id) res(); else { waiting.add(id); const w = waiters.get(id) ?? []; w.push(res); waiters.set(id, w); markBackground(); } });
-  const wake = (id: string) => { const w = waiters.get(id); waiters.delete(id); waiting.delete(id); w?.forEach((f) => f()); };
-  /** The chat's dialogs for one session: a question from a session that is not on screen waits until it is. */
+  const waiters = new Map<string, Array<(shown: boolean) => void>>();
+  /** Resolves true once session `id` is on screen; false when its run stops (or the session goes away) first. */
+  const whenCurrent = (id: string, signal?: AbortSignal) => new Promise<boolean>((res) => {
+    if (agent?.id === id) { res(true); return; }
+    if (signal?.aborted) { res(false); return; }
+    waiting.add(id);
+    const w = waiters.get(id) ?? [];
+    const settle = (shown: boolean) => { signal?.removeEventListener("abort", onAbort); res(shown); };
+    const onAbort = () => { const list = waiters.get(id); if (list) { const k = list.indexOf(settle); if (k >= 0) list.splice(k, 1); if (!list.length) { waiters.delete(id); waiting.delete(id); } } settle(false); markBackground(); };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    w.push(settle);
+    waiters.set(id, w);
+    markBackground();
+  });
+  const wake = (id: string, shown = true) => { const w = waiters.get(id); waiters.delete(id); waiting.delete(id); w?.forEach((f) => f(shown)); };
+  /** The chat's dialogs for one session: a question from a session that is not on screen waits until it is (or its run stops). */
   const uiFor = (id: string): AgentUI => ({
-    confirm: async (...a) => { await whenCurrent(id); return ui.confirm(...a); },
-    select: async (...a) => { await whenCurrent(id); return ui.select(...a); },
-    input: async (...a) => { await whenCurrent(id); return ui.input(...a); },
+    confirm: async (title, message, o) => ((await whenCurrent(id, o?.signal)) ? ui.confirm(title, message, o) : false),
+    select: async (title, options, o) => ((await whenCurrent(id, o?.signal)) ? ui.select(title, options, o) : null),
+    input: async (title, o) => ((await whenCurrent(id, o?.signal)) ? ui.input(title, o) : null),
     notify: (m, l) => ui.notify(m, l),
   });
+  /** Whether rewinding may restore files: only a directory of the session's own, kept in IndexedDB (not a folder on disk, not shared). */
+  const restorable = (a: Agent) => !!a.workspace && typeof wsOpt === "function" && !a.workspace.root;
   const background = () => [...live.values()].filter((a) => a !== agent && (a.busy || a.queued.length > 0 || waiting.has(a.id)));
   const titleOfAgent = (a: Agent) => { const m = a.messages.find((x) => x.role === "user"); const text = m ? textOfContent(m.content as string | ContentPart[]).replace(/\s+/g, " ").trim() : ""; return text.length > 40 ? text.slice(0, 37) + "…" : text || t.untitled; };
   const markBackground = () => histBtn.classList.toggle("ra-bg", background().length > 0);
   /** The work files as they are when a message is sent, so a rewind to it can put them back. */
   const checkpoint = async (a: Agent, msg: ChatMessage) => {
     const ts = tsOf(msg);
-    if (!a.workspace || !ts) return;
+    if (!a.workspace || !ts || !restorable(a)) return;
     try { await takeCheckpoint(a.workspace, ts); } catch (err) { console.warn("runapps agent: checkpoint failed", err); }
   };
   /** Keeps an eye on a session running in the background: a notice when it ends, dropped once idle. */
@@ -854,17 +928,17 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const b = h("div", "ra-bubble");
     // The attachment list (a text part of its own) is shown as chips, not as text.
     const parts = typeof content === "string" ? [content] : Array.isArray(content) ? content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text").map((p) => p.text) : [];
-    const text = parts.filter((p) => !p.startsWith(ATTACH_MARK)).join("\n");
+    const text = row.text;
     b.textContent = text.length > 4000 ? text.slice(0, 4000) + "…" : text;
     const attached = parts.find((p) => p.startsWith(ATTACH_MARK));
     if (attached) {
       const chips = h("div", "ra-files");
       for (const line of attached.split("\n").slice(1)) {
-        const m = /^- (.+?) \(([^)]*)\)/.exec(line);
-        if (!m) continue;
-        const chip = chipEl(m[1]!.replace(/^.*\//, ""), m[2]!.replace(/^.*, /, ""), null);
+        const a = parseAttachLine(line);
+        if (!a) continue;
+        const chip = chipEl(a.ref.replace(/^.*\//, ""), a.size, null);
         // A file saved in the directory: click to find it in the files panel.
-        if (m[1]!.startsWith("/")) { const path = m[1]!; chip.classList.add("ra-chip-link"); chip.title = `${t.open} ${path}`; chip.setAttribute("role", "button"); chip.tabIndex = 0; chip.addEventListener("click", () => void openIfExists(path)); chip.addEventListener("keydown", (e) => { if (e.key === "Enter") void openIfExists(path); }); }
+        if (a.ref.startsWith("/")) { const path = a.ref; chip.classList.add("ra-chip-link"); chip.title = `${t.open} ${path}`; chip.setAttribute("role", "button"); chip.tabIndex = 0; chip.addEventListener("click", () => void openIfExists(path)); chip.addEventListener("keydown", (e) => { if (e.key === "Enter") void openIfExists(path); }); }
         chips.append(chip);
       }
       if (chips.childElementCount) b.append(chips);
@@ -890,58 +964,57 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
   const userRow = (content: string | ContentPart[], msg?: ChatMessage): UserRow => {
     const parts = typeof content === "string" ? [content] : content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text").map((p) => p.text);
-    const row: UserRow = { msg, text: parts.filter((p) => !p.startsWith(ATTACH_MARK)).join("\n"), update: () => undefined, render: () => userEl(content, row) };
+    // Expanded slash commands show what was typed; the expansion is for the model.
+    const own = parts.filter((p) => !p.startsWith(ATTACH_MARK) && !p.startsWith("<file name="));
+    const typed = typedOf(msg);
+    const row: UserRow = { msg, text: typed ?? own.join("\n"), update: () => undefined, render: () => userEl(content, row) };
     return row;
   };
-  let lastUserRow: UserRow | null = null;
-  const addUser = (content: string | ContentPart[], msg?: ChatMessage) => { const row = userRow(content, msg); lastUserRow = row; addRow(row); list.scrollToBottom(); return row; };
+  /** The row drawn for a message this chat sent, until the agent's run_start hands over the message object. */
+  let awaitingRow: UserRow | null = null;
+  const addUser = (content: string | ContentPart[], msg?: ChatMessage) => { const row = userRow(content, msg); addRow(row); list.scrollToBottom(); return row; };
 
   /** A dialog for rewinding: drop what follows the message, optionally put the files back as they were. */
-  const rewindDialog = (ckpt: Checkpoint | undefined): Promise<{ files: boolean } | null> => new Promise((resolve) => {
-    const hasFiles = !!ckpt;
-    const overlay = h("div", "ra-modal");
-    const dlg = h("div", "ra-dlg"); dlg.setAttribute("role", "dialog"); dlg.setAttribute("aria-modal", "true");
-    dlg.append(h("div", "ra-dt", t.rewindTitle), h("div", "ra-dm", t.rewindMsg));
-    const ck = h("input"); ck.type = "checkbox"; ck.checked = hasFiles;
-    // The file option only when there is a snapshot to restore (what it holds is said under it).
+  /** Asks before rewinding; the file option shows only when there is a snapshot to restore (and says what it holds). */
+  const rewindDialog = async (ckpt: Checkpoint | undefined): Promise<{ files: boolean } | null> => {
+    const ck = h("input"); ck.type = "checkbox"; ck.checked = !!ckpt;
+    const body: HTMLElement[] = [];
     if (ckpt) {
       const lab = h("label", "ra-ck"); lab.append(ck, h("span", "", t.rewindFiles));
-      dlg.append(lab);
       const size = ckpt.files.reduce((n, f) => n + (typeof f.data === "string" ? new TextEncoder().encode(f.data).length : f.data.byteLength), 0);
-      dlg.append(h("div", "ra-dn", t.rewindSnapshot.replace("{n}", String(ckpt.files.length)).replace("{size}", fmtSize(size)).replace("{time}", clockTime(ckpt.at)) + (ckpt.partial ? ` ${t.rewindPartial}` : "")));
+      body.push(lab, h("div", "ra-dn", t.rewindSnapshot.replace("{n}", String(ckpt.files.length)).replace("{size}", fmtSize(size)).replace("{time}", clockTime(ckpt.at)) + (ckpt.partial ? ` ${t.rewindPartial}` : "")));
     }
-    const done = (v: { files: boolean } | null) => { overlay.remove(); resolve(v); };
-    const rowB = h("div", "ra-btns");
-    const cancel = h("button", "ra-btn", t.cancel); cancel.type = "button"; cancel.addEventListener("click", () => done(null));
-    const ok = h("button", "ra-btn solid", t.rewind); ok.type = "button"; ok.addEventListener("click", () => done({ files: ck.checked && hasFiles }));
-    rowB.append(cancel, ok);
-    dlg.append(rowB);
-    overlay.append(dlg);
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) done(null); });
-    overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(null); } });
-    root.append(overlay);
-    queueMicrotask(() => ok.focus());
-  });
+    const ok = await modal(root, { title: t.rewindTitle, message: t.rewindMsg, body, ok: t.rewind, cancel: t.cancel, focus: "ok" });
+    return ok ? { files: !!ckpt && ck.checked } : null;
+  };
   const rewindTo = async (row: UserRow) => {
     if (!row.msg || !agent) return;
-    const index = agent.messages.indexOf(row.msg);
+    const a = agent;
+    const index = a.messages.indexOf(row.msg);
     if (index < 0) { ui.notify(t.rewindGone, "warning"); return; }
-    const ws = agent.workspace;
+    const ws = a.workspace;
     const ts = tsOf(row.msg);
-    const ckpt = ws && ts ? await ws.getData<Checkpoint>(ckptKey(ts)) : undefined;
+    const ckpt = ws && ts && restorable(a) ? await ws.getData<Checkpoint>(ckptKey(ts)) : undefined;
     const choice = await rewindDialog(ckpt);
-    if (!choice) return;
+    if (!choice || agent !== a) return;
+    let rewound = false;
     try {
-      if (agent.busy) { ui.cancelAll(); await agent.abort(); }
-      await agent.rewind(index);
-      if (choice.files && ws && ckpt) await restoreCheckpoint(ws, ckpt);
-      renderHistory(agent.messages);
-      showUsage_(agent);
-      void panel.refresh();
-      void refreshCommands();
-      ta.value = row.text; ta.focus(); renderCmds();
-      await reattach(row.msg);
-    } catch (err) { ui.notify((err as Error).message, "error"); }
+      if (a.busy) { ui.cancelAll(); await a.abort(); }
+      await a.rewind(index);
+      rewound = true;
+      if (choice.files && ws && ckpt) {
+        try { await restoreCheckpoint(ws, ckpt); } catch (err) { ui.notify((err as Error).message, "error"); }
+      }
+      if (ws && ts) void dropCheckpointsAfter(ws, ts).catch(() => undefined);
+    } catch (err) {
+      ui.notify((err as Error).message, "error");
+    } finally {
+      // Whatever happened, the transcript shows what the agent has.
+      if (agent === a) { renderHistory(a.messages); showUsage_(a); void panel.refresh(); void refreshCommands(); }
+    }
+    if (!rewound || agent !== a) return;
+    ta.value = row.text; ta.focus(); renderCmds();
+    await reattach(row.msg);
   };
   /** Puts a rewound message's attachments back into the composer: from the directory, or from what the message carried inline. */
   const reattach = async (msg: ChatMessage) => {
@@ -955,9 +1028,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const images = parts.flatMap((p) => (p.type === "image_url" && p.image_url.url.startsWith("data:") ? [p.image_url.url] : []));
     const files: File[] = [], paths: Array<string | undefined> = [], missing: string[] = [];
     for (const line of block.text.split("\n").slice(1)) {
-      const m = /^- (.+?) \(([^,)]*)(?:, [^)]*)?\)/.exec(line);
-      if (!m) continue;
-      const ref = m[1]!, type = m[2]!;
+      const a = parseAttachLine(line);
+      if (!a) continue;
+      const { ref, type } = a;
       const name = ref.replace(/^.*\//, "");
       if (ref.startsWith("/") && ws) {
         try { const r = await ws.read(ref); files.push(new File([r.data as BlobPart], name, { type: r.contentType || type })); paths.push(ref); } catch { missing.push(ref); }
@@ -1007,7 +1080,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const flushActive = (final: boolean) => {
     if (renderTimer !== null) { clearTimeout(renderTimer); renderTimer = null; }
     if (!active) return;
-    if (active.text) { renderMD(active.text, active.md, !final); if (final) linkPaths(active.text); }
+    if (active.text && (active.drawn !== active.md || active.drawnFinal !== final)) {
+      renderMD(active.text, active.md, !final);
+      active.drawn = active.md; active.drawnFinal = final;
+      if (final) linkPaths(active.text);
+    }
     if (active.thinkBody) active.thinkBody.textContent = active.reasoning;
     if (active.think && final) (active.think.querySelector("summary span:last-child") as HTMLElement).textContent = t.thought;
     list.schedule();
@@ -1107,6 +1184,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const renderHistory = (messages: ChatMessage[]) => {
     list.clear();
     cards.clear();
+    histCalls.clear();
     active = null;
     let last: { text: string; reasoning: string; calls: Array<{ id: string; name: string; args: unknown; result?: string; status?: ToolStatus }> } | null = null;
     const flush = () => {
@@ -1117,7 +1195,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
           const r = asstRow();
           if (m.reasoning) { const [d] = thinkEl(m.reasoning, true); r.body.append(d); }
           if (m.text) { const el = h("div", "ra-md"); renderFinal(el, m.text); r.body.append(el); }
-          for (const c of m.calls) { const card = makeCard(c.name, c.args); r.body.append(card.el); if (c.status) finishCard(card, c.status, c.result ?? ""); }
+          // A call still running (the session is mid-run) gets its card registered, so its tool_end lands.
+          for (const c of m.calls) { const card = makeCard(c.name, c.args); r.body.append(card.el); if (c.status) finishCard(card, c.status, c.result ?? ""); else if (c.id) cards.set(c.id, card); }
           return r.el!;
         },
       });
@@ -1127,6 +1206,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         flush();
         const s = typeof m.content === "string" ? summaryOf(m) : null;
         if (s !== null) { addNote(t.compacted, s); continue; }
+        // The agent's own notes to the model (a loop warning) are not the user's messages.
+        if (typeof m.content === "string" && m.content.startsWith("[environment]")) continue;
         addRow(userRow(m.content as string | ContentPart[], m));
       } else if (m.role === "assistant") {
         const text = textOfContent(m.content);
@@ -1136,12 +1217,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         for (const c of m.tool_calls ?? []) {
           let args: unknown = c.function.arguments;
           try { args = JSON.parse(c.function.arguments); } catch { /* keep the string */ }
-          last.calls.push({ id: c.id ?? "", name: c.function.name, args });
+          const call = { id: c.id ?? "", name: c.function.name, args } as { id: string; name: string; args: unknown; result?: string; status?: ToolStatus };
+          last.calls.push(call);
+          if (call.id) histCalls.set(call.id, call);
         }
       } else if (m.role === "tool") {
         const text = textOfContent(m.content);
         const call = last?.calls.find((c) => c.id === (m.tool_call_id ?? ""));
-        if (call) { call.result = text; call.status = text.startsWith("Skipped") ? "skipped" : /^Error/.test(text) ? "error" : "ok"; }
+        if (call) { call.result = text; call.status = statusOfResult(text); histCalls.delete(call.id); }
       }
     }
     flush();
@@ -1166,13 +1249,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const hd = h("div", "ra-qh");
     hd.append(h("span", "", t.queued));
     const clear = h("button"); clear.type = "button"; clear.innerHTML = I.x(); clear.title = t.clear; clear.setAttribute("aria-label", t.clear);
-    clear.addEventListener("click", () => { agent.clearQueue(); queuedShown.clear(); renderQueue(); });
+    clear.addEventListener("click", () => { agent.clearQueue(); renderQueue(); });
     hd.append(clear);
     queueEl.append(hd);
     for (const item of q) {
       const l = h("div", "ra-qi");
       const x = h("button"); x.type = "button"; x.innerHTML = I.x(11); x.title = t.remove; x.setAttribute("aria-label", t.remove);
-      x.addEventListener("click", () => { agent.dequeue(item.message); queuedShown.delete(item.message); renderQueue(); });
+      x.addEventListener("click", () => { agent.dequeue(item.message); renderQueue(); });
       l.append(h("span", "ra-badge", item.kind === "steer" ? "steer" : "follow-up"), h("span", "", textOfContent(item.message.content)), x);
       queueEl.append(l);
     }
@@ -1190,9 +1273,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       ];
     } catch { commands = []; }
   };
+  let cmdsDismissed = false;
   const currentSuggestions = (): Command[] => {
     const v = ta.value;
-    if (!v.startsWith("/") || /\s/.test(v)) return [];
+    if (cmdsDismissed || !v.startsWith("/") || /\s/.test(v)) return [];
     return commands.filter((c) => `/${c.name}`.startsWith(v)).slice(0, 8);
   };
   const renderCmds = () => {
@@ -1237,7 +1321,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   fileInput.addEventListener("change", () => { void addFiles(fileInput.files); fileInput.value = ""; });
   ta.addEventListener("paste", (e) => {
     const items = Array.from(e.clipboardData?.files ?? []);
-    if (items.length) { e.preventDefault(); void addFiles(items); }
+    // Office apps put a picture of the selection next to its text: the text is what was meant.
+    if (!items.length || e.clipboardData?.getData("text/plain")) return;
+    e.preventDefault();
+    void addFiles(items);
   });
   let dragDepth = 0;
   root.addEventListener("dragenter", (e) => { if (attachOpt === false || !e.dataTransfer?.types.includes("Files")) return; e.preventDefault(); dragDepth++; root.dataset.drop = "1"; });
@@ -1246,12 +1333,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   root.addEventListener("drop", (e) => { if (!root.dataset.drop) return; e.preventDefault(); dragDepth = 0; delete root.dataset.drop; void addFiles(e.dataTransfer?.files); });
 
   /** The message to send: the text, the attachment list (saved to the directory, or inlined), and pictures for the model. */
-  const buildContent = async (text: string): Promise<string | ContentPart[]> => {
-    if (!pendingFiles.length) return text;
-    const ws = agent.workspace;
+  const buildContent = async (text: string, taken: Attachment[], target: Agent): Promise<string | ContentPart[]> => {
+    if (!taken.length) return text;
+    const ws = target.workspace;
     const lines: string[] = [];
     const parts: ContentPart[] = [];
-    for (const a of pendingFiles) {
+    for (const a of taken) {
       const type = a.file.type || (a.text !== null ? "text/plain" : "application/octet-stream");
       if (ws) {
         const path = a.path && (await ws.exists(a.path)) ? a.path : await freePath(ws, uploadsDir, a.name);
@@ -1272,34 +1359,61 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (text) content.push({ type: "text", text });
     content.push({ type: "text", text: `${note}\n${lines.join("\n")}` });
     content.push(...parts);
-    for (const a of [...pendingFiles]) removeFile(a);
     return content;
   };
 
+  let sending = false;
   const send = async (mode: "prompt" | "steer" | "followUp") => {
     const text = ta.value.trim();
-    if ((!text && !pendingFiles.length) || !agent) return;
+    if ((!text && !pendingFiles.length) || !agent || sending) return;
+    const a = agent;
+    // The files are taken now, so a second Enter while they are being written cannot send them again.
+    const taken = pendingFiles.splice(0);
+    for (const f of taken) f.chip.remove();
+    renderFiles();
     ta.value = ""; renderCmds(); setAlert();
-    if (!agent.busy) mode = "prompt";
+    sending = true;
+    let content: string | ContentPart[];
     try {
-      const content = await buildContent(text);
-      if (mode === "prompt") { addUser(content); root.dataset.sent = "1"; await agent.prompt(content); return; }
-      if (mode === "steer") agent.steer(content);
-      else void agent.followUp(content).catch(() => undefined);
+      content = await buildContent(text, taken, a);
+    } catch (err) {
+      // Nothing was sent: the text and the files go back where they were.
+      ta.value = text;
+      pendingFiles.unshift(...taken);
+      for (const f of taken.slice().reverse()) files.prepend(f.chip);
+      renderFiles();
+      setAlert((err as Error).message);
+      return;
+    } finally {
+      sending = false;
+    }
+    for (const f of taken) if (f.preview) URL.revokeObjectURL(f.preview);
+    if (!a.busy) mode = "prompt";
+    try {
+      if (mode === "prompt") {
+        // Drawn now; the agent's run_start hands this row its message.
+        if (agent === a && !a.busy) awaitingRow = addUser(content);
+        await a.prompt(content);
+        return;
+      }
+      if (mode === "steer") a.steer(content);
+      else void a.followUp(content).catch(() => undefined);
       renderQueue();
-    } catch (err) { setAlert((err as Error).message); }
+    } catch (err) { awaitingRow = null; setAlert((err as Error).message); }
   };
 
-  ta.addEventListener("input", scheduleCmds);
+  ta.addEventListener("input", () => { cmdsDismissed = false; scheduleCmds(); });
   ta.addEventListener("keydown", (e) => {
+    // Confirming a word in an input method is not sending (Safari reports it with keyCode 229).
+    if (e.isComposing || e.keyCode === 229) return;
     const found = currentSuggestions();
     if (found.length) {
       if (e.key === "ArrowDown") { e.preventDefault(); cmdIndex = (cmdIndex + 1) % found.length; renderCmds(); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); cmdIndex = (cmdIndex - 1 + found.length) % found.length; renderCmds(); return; }
       if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); ta.value = `/${found[cmdIndex]!.name} `; renderCmds(); return; }
-      if (e.key === "Escape") { cmds.style.display = "none"; return; }
+      if (e.key === "Escape") { cmdsDismissed = true; cmds.style.display = "none"; return; }
     }
-    if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+    if (e.key !== "Enter" || e.shiftKey) return;
     e.preventDefault();
     // ⌘↵ on a Mac, Ctrl+↵ elsewhere queues a follow-up while the agent runs. Both modifiers are accepted
     // everywhere (⊞↵ too, when Windows lets the browser see it — the OS binds Win+Enter to Narrator); Alt+↵ still works.
@@ -1344,9 +1458,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const kTok = (n?: number) => (typeof n === "number" ? (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)) : "?");
   const openSettings = async () => {
     if (menu) { closeMenu(); return; }
+    if (!agent) return;
     const a = agent;
-    menu = h("div", "ra-menu ra-set");
-    root.append(menu);
+    // This menu's own reference: another menu opened while the catalogue loads replaces it.
+    const mine = h("div", "ra-menu ra-set");
+    menu = mine;
+    root.append(mine);
     const cur = a.settings;
     const modelSel = h("select");
     modelSel.append(new Option(t.sDefault, ""));
@@ -1370,12 +1487,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     modelSel.addEventListener("change", showLim);
     if (client) {
       try { modelsCache ??= (await client.models.list({ capability: "text" })) as unknown as NonNullable<typeof modelsCache>; } catch { /* no catalogue */ }
-      if (!menu) return;
+      if (menu !== mine) return;
       for (const m of modelsCache ?? []) modelSel.append(new Option(`${m.id}${m.is_default ? " ★" : ""} · ${kTok(m.max_input_tokens)} / ${kTok(m.max_tokens)}`, m.id));
     }
     if (cur.model && !Array.from(modelSel.options).some((o) => o.value === cur.model)) modelSel.append(new Option(cur.model, cur.model));
     modelSel.value = cur.model ?? "";
-    effortSel.value = cur.reasoningEffort ?? "";
     showLim();
     if (cur.reasoningEffort && Array.from(effortSel.options).some((o) => o.value === cur.reasoningEffort)) effortSel.value = cur.reasoningEffort;
     const turns = h("input"); turns.type = "number"; turns.min = "1"; turns.max = "1000"; turns.step = "1"; turns.value = String(cur.maxTurns);
@@ -1418,13 +1534,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const closeMenu = () => { menu?.remove(); menu = null; };
   const openMenu = async () => {
     if (menu) { closeMenu(); return; }
-    menu = h("div", "ra-menu");
-    root.append(menu);
-    const ws = agent.workspace!;
+    if (!agent?.workspace) return;
+    const ws = agent.workspace;
+    const mine = h("div", "ra-menu");
+    menu = mine;
+    root.append(mine);
     let found: SessionSummary[] = [];
     try { found = await ws.sessions.list(); } catch { /* none */ }
-    if (!menu) return;
-    if (!found.length) menu.append(h("div", "ra-none", t.noSessions));
+    if (menu !== mine) return;
+    if (!found.length) mine.append(h("div", "ra-none", t.noSessions));
     for (const s of found) {
       const row = h("div", "ra-mi" + (s.id === agent.id ? " ra-cur" : ""));
       const b = h("button"); b.type = "button";
@@ -1433,15 +1551,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const name = h("span", "", s.title || t.untitled);
       if (state && !waiting.has(s.id)) name.prepend(h("span", "ra-spin"));
       b.append(name, h("small", "", `${s.messages} ${t.messages} · ${new Date(s.savedAt).toLocaleString()}${state}`));
-      b.addEventListener("click", () => { closeMenu(); void resume(s.id); });
+      b.addEventListener("click", () => { closeMenu(); void resume(s.id).catch((err) => ui.notify((err as Error).message, "error")); });
       const x = h("button", "ra-x"); x.type = "button"; x.innerHTML = I.trash(); x.title = t.delete; x.setAttribute("aria-label", t.delete);
       x.addEventListener("click", async (e) => {
         e.stopPropagation();
         closeMenu();
-        if (await modalConfirm(root, t.delete, t.confirmDelete, { danger: true, ok: t.delete, cancel: t.cancel })) await deleteSession(s.id);
+        if (await modalConfirm(root, t.delete, t.confirmDelete, { danger: true, ok: t.delete, cancel: t.cancel })) await deleteSession(s.id, false, s.workspace).catch((err) => ui.notify((err as Error).message, "error"));
       });
       row.append(b, x);
-      menu.append(row);
+      mine.append(row);
     }
     if (found.length) {
       const foot = h("div", "ra-mf");
@@ -1449,15 +1567,17 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       all.addEventListener("click", async () => {
         closeMenu();
         if (!(await modalConfirm(root, t.deleteAll, t.confirmDeleteAll, { danger: true, ok: t.deleteAll, cancel: t.cancel }))) return;
-        for (const s of found) await deleteSession(s.id, true);
-        await newSession();
+        try {
+          for (const s of found) await deleteSession(s.id, true, s.workspace);
+          await newSession();
+        } catch (err) { ui.notify((err as Error).message, "error"); }
       });
       foot.append(all);
-      menu.append(foot);
+      mine.append(foot);
     }
   };
   histBtn.addEventListener("click", () => void openMenu());
-  newBtn.addEventListener("click", () => { closeMenu(); void newSession(); });
+  newBtn.addEventListener("click", () => { closeMenu(); void newSession().catch((err) => ui.notify((err as Error).message, "error")); });
   document.addEventListener("click", onDocClick, true);
   function onDocClick(e: Event) { if (menu && !menu.contains(e.target as Node) && !histBtn.contains(e.target as Node) && !setBtn.contains(e.target as Node)) closeMenu(); }
 
@@ -1493,10 +1613,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     markBackground();
     cards.clear();
     active = null;
-    queuedShown = new Set();
+    awaitingRow = null;
     modelEl.textContent = a.model ?? "";
     modelEl.style.display = a.model ? "" : "none";
-    const hasSessions = sessions ?? (!!a.workspace && !givenAgent);
+    // A host's own agent has no sessions to switch between: the chat cannot make a new one.
+    const hasSessions = !givenAgent && (sessions ?? !!a.workspace);
     histBtn.style.display = newBtn.style.display = hasSessions && a.workspace ? "" : "none";
     filesBtn.style.display = a.workspace ? "" : "none";
     panel.setWorkspace(a.workspace);
@@ -1509,14 +1630,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const on = (name: string, fn: (ev: any) => void) => unsub.push(a.on(name as never, fn as never));
     on("run_start", (ev: { message: ChatMessage | null }) => {
-      // A prompt sent from here was drawn then; one from a queued follow-up (or the host's agent) is drawn now; continue() has none.
+      // A prompt sent from here was drawn then (awaitingRow); one from a queued follow-up or the host is drawn now; continue() has none.
       if (ev.message) {
-        if (!root.dataset.sent) addUser(ev.message.content as string | ContentPart[], ev.message);
-        else if (lastUserRow) { lastUserRow.msg = ev.message; lastUserRow.update(); }
+        if (awaitingRow && !awaitingRow.msg) { awaitingRow.msg = ev.message; awaitingRow.update(); }
+        else addUser(ev.message.content as string | ContentPart[], ev.message);
         void checkpoint(a, ev.message);
       }
-      delete root.dataset.sent;
-      queuedShown = new Set(a.queued.map((q) => q.message));
+      awaitingRow = null;
       active = null;
       setBusy(true);
     });
@@ -1524,11 +1644,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       flushActive(true);
       // A turn that was only tool calls keeps its group, so a chain of calls reads as one step.
       if (active?.text || active?.think) active = null;
-      // Queued steering joins this turn (the agent takes it right after this event): draw it now.
-      for (const q of a.queued) if (q.kind === "steer" && queuedShown.delete(q.message)) addUser(q.message.content as string | ContentPart[], q.message);
       queueMicrotask(renderQueue);
     });
-    on("queued", (ev: { message: ChatMessage }) => { queuedShown.add(ev.message); renderQueue(); });
+    // Steering is drawn when it lands in the history (at a turn, or before the next prompt), once.
+    on("steered", (ev: { messages: ChatMessage[] }) => { for (const m of ev.messages) addUser(m.content as string | ContentPart[], m); renderQueue(); });
+    on("queued", () => renderQueue());
+    // The host rewound the agent itself: show what it has now.
+    on("rewind", () => { if (agent === a) { renderHistory(a.messages); showUsage_(a); } });
     on("text_delta", (ev: { text: string }) => {
       const act = ensureActive();
       if (!act.text) { act.text = h("div", "ra-md"); act.body.append(act.text); }
@@ -1553,10 +1675,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       c.update.textContent = ev.content;
       list.schedule();
     });
-    on("tool_end", (ev: { id: string; name: string; args: unknown; status: ToolStatus; result: string; durationMs: number }) => {
-      const c = cards.get(ev.id); if (c) finishCard(c, ev.status, ev.result, ev.durationMs);
-      const path = ev.args && typeof ev.args === "object" ? (ev.args as { path?: unknown }).path : undefined;
-      if (ev.status === "ok" && typeof path === "string" && /^(write_file|edit_file|delete_file)$/.test(c?.name ?? ev.name ?? "")) panel.changed(path);
+    on("tool_end", (ev: { id: string; name: string; status: ToolStatus; result: string; durationMs: number }) => {
+      const c = cards.get(ev.id);
+      if (c) finishCard(c, ev.status, ev.result, ev.durationMs);
+      else { const hc = histCalls.get(ev.id); if (hc) { hc.status = ev.status; hc.result = ev.result; histCalls.delete(ev.id); } }
+      // tool_end carries no arguments: the card has them.
+      const path = c?.args && typeof c.args === "object" ? (c.args as { path?: unknown }).path : undefined;
+      if (ev.status === "ok" && typeof path === "string" && /^(write_file|edit_file|delete_file)$/.test(ev.name)) panel.changed(path);
     });
     on("compaction", (ev: { summary: boolean }) => {
       const first = a.messages[0];
@@ -1589,7 +1714,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const makeAgent = async (id?: string): Promise<Agent> => {
     const sid = id ?? newId();
     const workspace = typeof wsOpt === "function" ? await wsOpt(sid) : wsOpt ?? null;
-    const instructions = workspace ? [agentOpts.instructions, FILES_HINT].filter(Boolean).join("\n\n") : agentOpts.instructions;
+    const instructions = workspace ? [agentOpts.instructions, filesHint(uploadsDir)].filter(Boolean).join("\n\n") : agentOpts.instructions;
     const over: Partial<AgentOptions> = {};
     if (userSettings.model) over.model = userSettings.model;
     if (userSettings.maxTurns) over.maxTurns = userSettings.maxTurns;
@@ -1599,36 +1724,53 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return new Agent(client!, { ...agentOpts, ...over, instructions, id: sid, workspace, ui: agentOpts.ui ?? uiFor(sid) });
   };
 
-  const switchTo = async (id?: string): Promise<Agent> => {
-    if (givenAgent) throw new Error("runapps agent: newSession/resume need the chat to own its agent (pass a client, not an agent)");
-    if (id && id === agent?.id) return agent;
-    const prev = agent;
-    if (prev) {
-      const stays = prev.busy || prev.queued.length > 0;
-      if (stays) {
-        if (background().length >= MAX_BACKGROUND) { ui.notify(t.bgLimit.replace("{n}", String(background().length)), "warning"); return prev; }
-        watchBackground(prev);  // keeps running; its questions wait for the user to come back
-      } else live.delete(prev.id);  // idle and saved: rebuilt from storage when resumed
-    }
-    const a = (id && live.get(id)) || await makeAgent(id);
-    await attach(a);
-    return a;
+  /** Closes the workspace the chat opened for a session it no longer holds (it reopens on resume). */
+  const release = (a: Agent) => { if (typeof wsOpt === "function") a.workspace?.close(); };
+  let switching: Promise<Agent> | null = null;
+  const switchTo = (id?: string): Promise<Agent> => {
+    if (givenAgent) return Promise.reject(new Error("runapps agent: newSession/resume need the chat to own its agent (pass a client, not an agent)"));
+    // One switch at a time: a double click on New chat makes one new session, not two.
+    if (switching) return switching;
+    const run = (async () => {
+      if (id && id === agent?.id) return agent;
+      const prev = agent;
+      if (prev) {
+        if (prev.busy || prev.queued.length > 0) {
+          if (background().length >= MAX_BACKGROUND) { ui.notify(t.bgLimit.replace("{n}", String(background().length)), "warning"); return prev; }
+          watchBackground(prev);  // keeps running; its questions wait for the user to come back
+        } else { live.delete(prev.id); release(prev); }  // idle and saved: rebuilt from storage when resumed
+      }
+      const a = (id && live.get(id)) || await makeAgent(id);
+      await attach(a);
+      return a;
+    })();
+    switching = run;
+    void run.finally(() => { if (switching === run) switching = null; }).catch(() => undefined);
+    return run;
   };
   const newSession = () => switchTo();
   const resume = (id: string) => switchTo(id);
-  const deleteSession = async (id: string, keepOpen = false) => {
+  const deleteSession = async (id: string, keepOpen = false, space?: string) => {
     await ready;
+    if (givenAgent) throw new Error("runapps agent: deleteSession needs the chat to own its agent (pass a client, not an agent)");
     const ws = agent.workspace;
     if (!ws) return;
     if (id !== agent.id) {
       const bg = live.get(id);
-      if (bg) { await bg.abort(); live.delete(id); unwatchBackground(bg); wake(id); parked.delete(id); markBackground(); }
-      await ws.sessions.delete(id);
+      if (bg) {
+        // Its questions are answered "no" first, so the abort does not wait on a dialog nobody will see.
+        wake(id, false);
+        parked.delete(id);
+        await bg.abort();
+        live.delete(id); unwatchBackground(bg); release(bg); markBackground();
+      }
+      await ws.sessions.delete(id, space);
       return;
     }
     // The open session: stop it, drop its directory (files, skills, the saved session) and start afresh.
+    ui.cancelAll();
     await agent.abort();
-    if (typeof wsOpt === "function") await ws.destroy(); else await ws.sessions.delete(id);
+    if (typeof wsOpt === "function") await ws.destroy(); else await ws.sessions.delete(id, ws.id);
     writeLast(project, null);
     if (!keepOpen) await newSession();
   };
@@ -1637,12 +1779,16 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const firstId = agentOpts.id ?? (typeof resumeOpt === "string" ? resumeOpt : resumeOpt === false ? undefined : readLast(project) ?? undefined);
   const starting = givenAgent ? Promise.resolve(givenAgent) : makeAgent(firstId);
   const ready = starting.then((a) => attach(a));
-  void ready;
+  ready.catch((err) => {
+    // No session could be opened (the workspace factory or the agent threw): say so instead of a dead chat.
+    addError(`${(err as Error).message}`);
+    setBusy(false);
+  });
 
   // `prompt()` from the host: draw the message here, not from run_start.
   const promptFromHost = async (text: string) => {
     await ready;
-    if (!agent.busy) { addUser(text); root.dataset.sent = "1"; }
+    if (!agent.busy) awaitingRow = addUser(text);
     return agent.prompt(text);
   };
   return {
@@ -1667,7 +1813,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (cmdFrame !== null) cancelAnimationFrame(cmdFrame);
       list.dispose();
       panel.dispose();
-      if (!givenAgent) for (const a of live.values()) { unwatchBackground(a); void a.abort(); }
+      for (const f of pendingFiles) if (f.preview) URL.revokeObjectURL(f.preview);
+      for (const id of [...waiters.keys()]) wake(id, false);
+      if (!givenAgent) for (const a of live.values()) { unwatchBackground(a); void a.abort().finally(() => release(a)); }
       root.remove();
     },
   };

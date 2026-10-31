@@ -103,7 +103,7 @@ export function fileTools(ws: Workspace): Tool[] {
       },
     }),
 
-    defineTool<{ path: string; edits?: TextEdit[] | string; oldText?: string; newText?: string; old_text?: string; new_text?: string }>({
+    defineTool<{ path: string; edits?: TextEdit[]; oldText?: string; newText?: string }>({
       name: "edit_file",
       description:
         "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",

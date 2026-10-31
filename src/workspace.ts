@@ -41,6 +41,7 @@ interface Store {
   list(prefix: string): Promise<FileRecord[]>;
   getMeta<T>(key: string): Promise<T | undefined>;
   putMeta(key: string, value: unknown): Promise<void>;
+  deleteMeta(key: string): Promise<void>;
   getSession(space: string, id: string): Promise<SessionData | undefined>;
   /** Saved under `data.space`. */
   putSession(data: SessionData): Promise<void>;
@@ -123,7 +124,8 @@ export class Workspace {
   readonly dbName: string;
   /** Where skills live (`<skillsDir>/<name>/SKILL.md`). */
   readonly skillsDir: string;
-  private readonly root: AgentFS | null;
+  /** The folder the directory lives in when opened with `dir` (null: IndexedDB). */
+  readonly root: AgentFS | null;
   private store!: Store;
   private readonly mounts = new Map<string, AgentFS>();
   private readonly changeListeners = new Set<(c: WorkspaceChange) => void>();
@@ -457,7 +459,12 @@ export class Workspace {
   }
   async putData(key: string, value: unknown): Promise<void> {
     await this.ready();
-    await this.store.putMeta("data:" + key, value);
+    if (value === null || value === undefined) await this.store.deleteMeta("data:" + key);
+    else await this.store.putMeta("data:" + key, value);
+  }
+  async deleteData(key: string): Promise<void> {
+    await this.ready();
+    await this.store.deleteMeta("data:" + key);
   }
 
   /** Removes every file outside the skills folder (mounts and skills stay). */
@@ -758,6 +765,7 @@ function openIDBStore(idb: IDBFactory, name: string, space: string): Promise<Sto
         list: (prefix) => run<FileRecord[]>("files", "readonly", (s) => s.getAll(range(space, prefix))),
         getMeta: async <T,>(key: string) => (await run<{ space: string; key: string; value: T } | undefined>("meta", "readonly", (s) => s.get([space, key])))?.value,
         putMeta: async (key, value) => { await run("meta", "readwrite", (s) => s.put({ space, key, value })); },
+        deleteMeta: async (key) => { await run("meta", "readwrite", (s) => s.delete([space, key])); },
         getSession: (which, id) => run<SessionData | undefined>("sessions", "readonly", (s) => s.get([which, id])),
         putSession: async (data) => { await run("sessions", "readwrite", (s) => s.put(data)); },
         deleteSession: async (which, id) => { await run("sessions", "readwrite", (s) => s.delete([which, id])); },
@@ -796,6 +804,7 @@ function memoryStore(name: string, space: string): Store {
     list: async (prefix) => [...files().values()].filter((r) => prefix === "/" || r.path.startsWith(prefix)),
     getMeta: async <T,>(key: string) => meta().get(key) as T | undefined,
     putMeta: async (key, value) => { meta().set(key, value); },
+    deleteMeta: async (key) => { meta().delete(key); },
     getSession: async (which, id) => mem.sessions.get(`${which}\u0000${id}`),
     putSession: async (data) => { mem.sessions.set(`${data.space ?? space}\u0000${data.id}`, data); },
     deleteSession: async (which, id) => { mem.sessions.delete(`${which}\u0000${id}`); },

@@ -44,6 +44,7 @@ export const I = {
   eye: (s = 14) => svg(s, '<path d="M2.1 12.4a1 1 0 0 1 0-.8 10.5 10.5 0 0 1 19.8 0 1 1 0 0 1 0 .8 10.5 10.5 0 0 1-19.8 0"/><circle cx="12" cy="12" r="3"/>'),
   pen: (s = 14) => svg(s, '<path d="M21.2 6.4a2 2 0 0 0 0-2.8l-.8-.8a2 2 0 0 0-2.8 0L4 16.4V20h3.6z"/><path d="m15 5 4 4"/>'),
   alert: (s = 14) => svg(s, '<path d="m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
+  arrowDown: (s = 15) => svg(s, '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>'),
   copy: (s = 14) => svg(s, '<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'),
   fileText: (s = 13) => svg(s, '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8M16 13H8M16 17H8"/>'),
   filePlus: (s = 13) => svg(s, '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6M12 18v-6"/>'),
@@ -55,49 +56,46 @@ export const I = {
   wrench: (s = 13) => svg(s, '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'),
 };
 
-/** A confirmation of the chat's own (deleting a session): a dialog over the chat, Escape or the backdrop declines. */
-export function modalConfirm(root: HTMLElement, title: string, message: string, opts: { ok: string; cancel: string; danger?: boolean }): Promise<boolean> {
+/**
+ * The chat's own dialog over `root`: title, message, optional extra
+ * content, Cancel / OK. Resolves true for OK; Escape and the backdrop
+ * cancel. `submitOnEnter` makes Enter (not while composing) press OK.
+ */
+export function modal(root: HTMLElement, o: { title: string; message?: string; body?: HTMLElement[]; ok: string; cancel: string; danger?: boolean; focus?: "ok" | "cancel" | HTMLElement; submitOnEnter?: boolean }): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const overlay = h("div", "ra-modal");
-    const dlg = h("div", "ra-dlg"); dlg.setAttribute("role", "dialog"); dlg.setAttribute("aria-modal", "true"); dlg.setAttribute("aria-label", title);
-    dlg.append(h("div", "ra-dt", title), h("div", "ra-dm", message));
+    const dlg = h("div", "ra-dlg"); dlg.setAttribute("role", "dialog"); dlg.setAttribute("aria-modal", "true"); dlg.setAttribute("aria-label", o.title);
+    dlg.append(h("div", "ra-dt", o.title));
+    if (o.message) dlg.append(h("div", "ra-dm", o.message));
+    if (o.body) dlg.append(...o.body);
     const row = h("div", "ra-btns");
     const done = (v: boolean) => { overlay.remove(); resolve(v); };
-    const cancel = h("button", "ra-btn", opts.cancel); cancel.type = "button"; cancel.addEventListener("click", () => done(false));
-    const ok = h("button", "ra-btn " + (opts.danger ? "red" : "solid"), opts.ok); ok.type = "button"; ok.addEventListener("click", () => done(true));
+    const cancel = h("button", "ra-btn", o.cancel); cancel.type = "button"; cancel.addEventListener("click", () => done(false));
+    const ok = h("button", "ra-btn " + (o.danger ? "red" : "solid"), o.ok); ok.type = "button"; ok.addEventListener("click", () => done(true));
     row.append(cancel, ok);
     dlg.append(row);
     overlay.append(dlg);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) done(false); });
-    overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); } });
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); }
+      if (o.submitOnEnter && e.key === "Enter" && !(e as KeyboardEvent).isComposing && (e as KeyboardEvent).keyCode !== 229) { e.preventDefault(); done(true); }
+    });
     root.append(overlay);
-    queueMicrotask(() => cancel.focus());
+    const f = o.focus === "ok" ? ok : o.focus instanceof HTMLElement ? o.focus : cancel;
+    queueMicrotask(() => { f.focus(); if (f instanceof HTMLInputElement) f.select(); });
   });
 }
 
+/** A yes/no question of the chat's own (deleting a session). */
+export function modalConfirm(root: HTMLElement, title: string, message: string, opts: { ok: string; cancel: string; danger?: boolean }): Promise<boolean> {
+  return modal(root, { title, message, ...opts });
+}
 
-/** A one-line question of the chat's own (a new file's path): a dialog over the chat; Escape or the backdrop answers null. */
-export function modalInput(root: HTMLElement, title: string, opts: { ok: string; cancel: string; initial?: string; placeholder?: string }): Promise<string | null> {
-  return new Promise<string | null>((resolve) => {
-    const overlay = h("div", "ra-modal");
-    const dlg = h("div", "ra-dlg"); dlg.setAttribute("role", "dialog"); dlg.setAttribute("aria-modal", "true"); dlg.setAttribute("aria-label", title);
-    const field = h("input", "ra-field"); field.type = "text"; field.value = opts.initial ?? ""; if (opts.placeholder) field.placeholder = opts.placeholder;
-    dlg.append(h("div", "ra-dt", title), field);
-    const row = h("div", "ra-btns");
-    const done = (v: string | null) => { overlay.remove(); resolve(v); };
-    const cancel = h("button", "ra-btn", opts.cancel); cancel.type = "button"; cancel.addEventListener("click", () => done(null));
-    const ok = h("button", "ra-btn solid", opts.ok); ok.type = "button"; ok.addEventListener("click", () => done(field.value.trim() || null));
-    row.append(cancel, ok);
-    dlg.append(row);
-    overlay.append(dlg);
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) done(null); });
-    overlay.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(null); }
-      if (e.key === "Enter" && !(e as KeyboardEvent).isComposing) { e.preventDefault(); done(field.value.trim() || null); }
-    });
-    root.append(overlay);
-    queueMicrotask(() => { field.focus(); field.select(); });
-  });
+/** A one-line question of the chat's own (a new file's path); null when cancelled or empty. */
+export async function modalInput(root: HTMLElement, title: string, opts: { ok: string; cancel: string; initial?: string; placeholder?: string }): Promise<string | null> {
+  const field = h("input", "ra-field"); field.type = "text"; field.value = opts.initial ?? ""; if (opts.placeholder) field.placeholder = opts.placeholder;
+  const ok = await modal(root, { title, body: [field], ok: opts.ok, cancel: opts.cancel, focus: field, submitOnEnter: true });
+  return ok ? field.value.trim() || null : null;
 }
 
 /** Hands the browser a file to save. */

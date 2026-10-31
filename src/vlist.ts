@@ -22,12 +22,17 @@ export interface VListOptions {
   rowClass?: string;
   /** Within this distance of the bottom (after the user scrolls) the list follows new output again. Default 2. */
   followWithin?: number;
+  /** Called when the list starts or stops following the bottom (a "jump to the end" button shows while it does not). */
+  onFollow?: (following: boolean) => void;
 }
 
 export class VirtualList {
   readonly rows: VRow[] = [];
+  private _follow = true;
+  private readonly onFollow?: (following: boolean) => void;
   /** Whether the list sticks to the bottom as rows grow (true until the user scrolls up). */
-  follow = true;
+  get follow(): boolean { return this._follow; }
+  set follow(v: boolean) { if (v === this._follow) return; this._follow = v; this.onFollow?.(v); }
   private readonly top: HTMLElement;
   private readonly win: HTMLElement;
   private readonly bottom: HTMLElement;
@@ -51,6 +56,7 @@ export class VirtualList {
     this.overscan = opts.overscan ?? 400;
     this.rowClass = opts.rowClass ?? "";
     this.followWithin = opts.followWithin ?? 2;
+    this.onFollow = opts.onFollow;
     this.top = document.createElement("div");
     this.win = document.createElement("div");
     this.bottom = document.createElement("div");
