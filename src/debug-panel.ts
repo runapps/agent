@@ -42,7 +42,7 @@ export interface DebugPanel {
   dispose(): void;
 }
 
-export function debugPanel(opts: { t: DebugStrings; root: HTMLElement }): DebugPanel {
+export function debugPanel(opts: { t: DebugStrings; root: HTMLElement; onShow?: (visible: boolean) => void }): DebugPanel {
   const { t, root } = opts;
   const traces = new WeakMap<Agent, Trace>();
   const subs: Array<() => void> = [];
@@ -219,8 +219,8 @@ export function debugPanel(opts: { t: DebugStrings; root: HTMLElement }): DebugP
     }));
   };
 
-  const open = () => { visible = true; el.style.display = ""; root.classList.add("ra-files-open"); draw(); };
-  function close(): void { visible = false; el.style.display = "none"; root.classList.remove("ra-files-open"); }
+  const open = () => { visible = true; el.style.display = ""; root.classList.add("ra-files-open"); opts.onShow?.(true); draw(); };
+  function close(): void { if (!visible) return; visible = false; el.style.display = "none"; root.classList.remove("ra-files-open"); opts.onShow?.(false); }
 
   return {
     el,

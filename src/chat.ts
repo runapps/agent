@@ -259,6 +259,8 @@ const CSS = tokenCSS() + `
 @container (max-width:560px){.ra-head .ra-btn span{display:none}.ra-head .ra-btn{padding:0 7px}.ra-head{padding:8px 10px}.ra-badge{display:none}.ra-col{padding:0 12px}}
 @container (min-width:761px){.ra-dp{width:460px}}
 .ra-chat .ra-btn.on{background:var(--ra-muted);color:var(--ra-fg)}
+.ra-chat button:focus{outline:none}
+.ra-chat button:focus-visible{outline:2px solid var(--ra-accent-muted);outline-offset:1px}
 .ra-dtabs{display:flex;gap:2px;min-width:0;overflow-x:auto}
 .ra-chat .ra-dtab{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;border-radius:6px;font-size:12.5px;color:var(--ra-fg-muted);white-space:nowrap}
 .ra-chat .ra-dtab:hover{background:var(--ra-muted);color:var(--ra-fg)}
@@ -1007,16 +1009,16 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     markBackground();
   };
   const unwatchBackground = (a: Agent) => { bgSubs.get(a.id)?.forEach((u) => u()); bgSubs.delete(a.id); };
-  const panel = filesPanel({ t, root, editorHost: chatCol, notify: (m, l) => ui.notify(m, l), onChange: () => void refreshCommands() });
+  // The header buttons of the two side panels show which one is open, however it was opened or closed.
+  const panel = filesPanel({ t, root, editorHost: chatCol, notify: (m, l) => ui.notify(m, l), onChange: () => void refreshCommands(), onShow: (v) => filesBtn.classList.toggle("on", v) });
   main.append(panel.el);
-  const dpanel = debugPanel({ t, root });
+  const dpanel = debugPanel({ t, root, onShow: (v) => debugBtn.classList.toggle("on", v) });
   main.append(dpanel.el);
   let debugOn = !!debugOpt;
   const applyDebug = () => {
     debugBtn.style.display = debugOn ? "" : "none";
     root.dataset.debug = debugOn ? "1" : "";
     if (!debugOn) dpanel.close();
-    debugBtn.classList.toggle("on", debugOn && dpanel.visible);
   };
   applyDebug();
   filesBtn.addEventListener("click", () => { if (dpanel.visible) { dpanel.close(); applyDebug(); } void panel.toggle(); });

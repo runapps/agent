@@ -23,6 +23,8 @@ export interface FilesPanelOptions {
   notify(message: string, level?: "info" | "warning" | "error"): void;
   /** Called after the panel changed the directory (a save, upload or delete). */
   onChange?: () => void;
+  /** Called when the panel shows or hides, from wherever (its own close button, a link that opens a file). */
+  onShow?: (visible: boolean) => void;
 }
 
 export interface FilesPanel {
@@ -366,6 +368,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     visible = true;
     el.style.display = "";
     root.classList.add("ra-files-open");
+    opts.onShow?.(true);
     await refresh();
     if (path) await openFile(path);
   };
@@ -375,6 +378,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     visible = false;
     el.style.display = "none";
     root.classList.remove("ra-files-open");
+    opts.onShow?.(false);
   };
 
   return {
