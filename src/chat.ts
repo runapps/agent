@@ -1286,9 +1286,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     }
     if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
     e.preventDefault();
-    // ⌘↵ (Mac) / Ctrl↵ (elsewhere) queues a follow-up while the agent runs; Alt↵ still works.
-    const queueKey = isMac ? e.metaKey : e.ctrlKey;
-    void send(agent?.busy ? (queueKey || e.altKey ? "followUp" : "steer") : "prompt");
+    // ⌘↵ on a Mac, Ctrl+↵ elsewhere queues a follow-up while the agent runs. Both modifiers are accepted
+    // everywhere (⊞↵ too, when Windows lets the browser see it — the OS binds Win+Enter to Narrator); Alt+↵ still works.
+    const queueKey = e.metaKey || e.ctrlKey || e.altKey;
+    void send(agent?.busy ? (queueKey ? "followUp" : "steer") : "prompt");
   });
   ta.addEventListener("blur", () => { cmds.style.display = "none"; });
   ta.addEventListener("focus", () => renderCmds());
