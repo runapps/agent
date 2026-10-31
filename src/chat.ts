@@ -20,6 +20,8 @@ import { summaryOf } from "./compaction.js";
 import { escapeHTML, renderMarkdown } from "./markdown.js";
 import { listTemplates } from "./templates.js";
 import { VirtualList, type VRow } from "./vlist.js";
+import { h, I, modalConfirm, downloadBlob } from "./dom.js";
+import { filesPanel, freePath, type FilesPanel } from "./files-panel.js";
 import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, ToolStatus } from "./types.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
@@ -109,6 +111,8 @@ const STRINGS = {
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Stopped after the maximum number of turns.", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove", attachments: "Attachments",
+    files: "Files", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
+    noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
   },
   zh: {
     assistant: "助手", placeholder: "让 agent 做点什么…  输入 / 查看命令", placeholderBusy: "运行中：Enter 插入指令 (steer)，Alt+Enter 排队 (follow-up)",
@@ -120,6 +124,8 @@ const STRINGS = {
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "达到最大轮数，已停止。", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除", attachments: "附件",
+    files: "文件", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
+    noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存", pickFile: "选择文件", folder: "文件夹",
   },
 };
 type Strings = typeof STRINGS.en;
@@ -177,6 +183,42 @@ const CSS = `
 .ra-menu .ra-x:hover{background:var(--ra-red-subtle);color:var(--ra-red)}
 .ra-menu .ra-none{padding:8px 10px;color:var(--ra-fg-muted);font-size:13px}
 .ra-menu .ra-mf{border-top:1px solid var(--ra-border);margin-top:4px;padding-top:4px;display:flex;justify-content:flex-end}
+.ra-main{flex:1;min-height:0;display:flex;position:relative}
+.ra-chat{container-type:inline-size}
+.ra-chatcol{flex:1;min-width:0;display:flex;flex-direction:column}
+.ra-fp{flex:0 0 380px;width:380px;min-width:0;border-left:1px solid var(--ra-border);background:var(--ra-subtle);display:flex;flex-direction:column;position:relative}
+@container (max-width:760px){.ra-fp{position:absolute;inset:0;width:auto;flex:none;border-left:0;z-index:4}}
+.ra-fph{display:flex;align-items:center;gap:2px;padding:6px 8px 6px 12px;border-bottom:1px solid var(--ra-border);flex-shrink:0}
+.ra-fph .ra-fpt{font-size:12px;font-weight:600;color:var(--ra-fg-muted);text-transform:uppercase;letter-spacing:.04em}
+.ra-fph .ra-sp{flex:1}
+.ra-chat .ra-ib{width:26px;height:26px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--ra-fg-muted)}
+.ra-chat .ra-ib:hover{background:var(--ra-muted);color:var(--ra-fg)}
+.ra-tree{flex:1;min-height:0;overflow:auto;padding:4px}
+.ra-fp.ra-editing .ra-tree{flex:0 1 auto;max-height:40%;border-bottom:1px solid var(--ra-border)}
+.ra-fr{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;cursor:pointer;font-size:13px;min-height:26px}
+.ra-fr:hover{background:var(--ra-panel)}
+.ra-fr.ra-cur{background:var(--ra-p-subtle)}
+.ra-fr .ra-frc{width:12px;display:inline-flex;color:var(--ra-fg-muted);flex-shrink:0}
+.ra-fr .ra-fri{display:inline-flex;color:var(--ra-fg-muted);flex-shrink:0}
+.ra-fr .ra-frn{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra-dot{width:6px;height:6px;border-radius:50%;background:#f97316;flex-shrink:0}
+.ra-fr .ra-fra{display:none;gap:0;flex-shrink:0}
+.ra-fr:hover .ra-fra{display:inline-flex}
+.ra-fr .ra-fra .ra-ib{width:22px;height:22px}
+.ra-fpe{padding:8px 10px;font-size:12px;color:var(--ra-fg-muted)}
+.ra-ed{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--ra-bg)}
+.ra-edh{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;border-bottom:1px solid var(--ra-border);flex-shrink:0}
+.ra-edh .ra-edp{flex:1;min-width:0;font:12px ${MONO};color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra-edh .ra-eda{display:inline-flex;align-items:center;gap:2px}
+.ra-edb{flex:1;min-height:0;display:flex;flex-direction:column}
+.ra-edta{flex:1;min-height:0;resize:none;padding:10px 12px;font:13px/1.55 ${MONO};tab-size:2;white-space:pre;overflow:auto}
+.ra-edpv{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px}
+.ra-edpv img{max-width:100%;max-height:100%;border-radius:4px}
+.ra-fpdrop{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:rgba(147,51,234,.08);border:2px dashed var(--ra-p-solid);color:var(--ra-p-fg);font-weight:600;pointer-events:none}
+.ra-fp[data-drop="1"] .ra-fpdrop{display:flex}
+.ra-md .ra-path{display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:var(--ra-p-fg);background:var(--ra-p-subtle);text-decoration:none}
+.ra-md .ra-path:hover{background:var(--ra-p-muted)}
+.ra-tool .ra-tacts{display:flex;gap:10px}
 .ra-log{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .ra-log .ra-col{padding-top:6px;padding-bottom:6px}
 .ra-row{padding:10px 0}
@@ -266,6 +308,9 @@ const CSS = `
 .ra-queue .ra-qh button:hover{background:var(--ra-muted)}
 .ra-queue .ra-qi{display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:1px 0}
 .ra-queue .ra-qi span{overflow:hidden;text-overflow:ellipsis}
+.ra-queue .ra-qi>span:nth-child(2){flex:1;min-width:0}
+.ra-queue .ra-qi button{width:18px;height:18px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--ra-fg-muted);flex-shrink:0}
+.ra-queue .ra-qi button:hover{background:var(--ra-muted);color:var(--ra-fg)}
 .ra-box{position:relative;border:1px solid var(--ra-border);border-radius:12px;padding:8px 10px 6px;background:var(--ra-panel);box-shadow:var(--ra-shadow)}
 .ra-box:focus-within{border-color:var(--ra-p-solid)}
 .ra-box textarea{resize:none;height:96px;overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
@@ -318,45 +363,8 @@ function injectStyles(): void {
 /* DOM helpers and icons (lucide outlines, inline)                     */
 /* ------------------------------------------------------------------ */
 
-function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-}
-
-const svg = (size: number, body: string, stroke = 2) =>
-  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
-const I = {
-  spark: (s = 14) => svg(s, '<path d="M9.9 2.1a1 1 0 0 1 1.9 0l1.3 4.1a4 4 0 0 0 2.6 2.6l4.1 1.3a1 1 0 0 1 0 1.9l-4.1 1.3a4 4 0 0 0-2.6 2.6l-1.3 4.1a1 1 0 0 1-1.9 0l-1.3-4.1a4 4 0 0 0-2.6-2.6L2.1 12a1 1 0 0 1 0-1.9l4.1-1.3a4 4 0 0 0 2.6-2.6z"/><path d="M20 3v4M22 5h-4"/>'),
-  send: (s = 16) => svg(s, '<path d="M14.5 9.5 22 2M22 2l-7 20-4-9-9-4z"/>'),
-  hist: (s = 14) => svg(s, '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 3"/>'),
-  plus: (s = 14) => svg(s, '<path d="M12 5v14M5 12h14"/>'),
-  chev: (s = 14) => svg(s, '<path d="m9 18 6-6-6-6"/>'),
-  brain: (s = 13) => svg(s, '<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.6 6.5a3 3 0 0 0 .4 1M6.4 6.5a3 3 0 0 1-.4 1M12 18v-5"/>'),
-  layers: (s = 14) => svg(s, '<path d="m12.8 2.2 8.5 4a1 1 0 0 1 0 1.6l-8.5 4a2 2 0 0 1-1.6 0l-8.5-4a1 1 0 0 1 0-1.6l8.5-4a2 2 0 0 1 1.6 0"/><path d="m2.4 11.9 8.8 4.1a2 2 0 0 0 1.6 0l8.8-4.1"/><path d="m2.4 16.9 8.8 4.1a2 2 0 0 0 1.6 0l8.8-4.1"/>'),
-  check: (s = 15) => svg(s, '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>'),
-  xcircle: (s = 15) => svg(s, '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/>'),
-  ban: (s = 15) => svg(s, '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>'),
-  square: (s = 12) => svg(s, '<rect x="3" y="3" width="18" height="18" rx="2"/>'),
-  corner: (s = 14) => svg(s, '<path d="M20 4v7a4 4 0 0 1-4 4H4"/><path d="m9 10-5 5 5 5"/>'),
-  x: (s = 12) => svg(s, '<path d="M18 6 6 18M6 6l12 12"/>'),
-  trash: (s = 13) => svg(s, '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'),
-  clip: (s = 16) => svg(s, '<path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>'),
-  file: (s = 14) => svg(s, '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>'),
-  copy: (s = 14) => svg(s, '<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'),
-  fileText: (s = 13) => svg(s, '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8M16 13H8M16 17H8"/>'),
-  filePlus: (s = 13) => svg(s, '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6M12 18v-6"/>'),
-  filePen: (s = 13) => svg(s, '<path d="M12.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v9.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M13.4 20.3a1 1 0 0 0 .5-.3l6.9-6.9a1.4 1.4 0 0 0-2-2l-6.9 6.9a1 1 0 0 0-.3.5l-.4 1.8z"/>'),
-  fileX: (s = 13) => svg(s, '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m14.5 12.5-5 5M9.5 12.5l5 5"/>'),
-  folder: (s = 13) => svg(s, '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.2 10H20a2 2 0 0 1 1.9 2.7l-1.7 5A2 2 0 0 1 18.3 19H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7.9l.8 1.2a2 2 0 0 0 1.7.9H18a2 2 0 0 1 2 2v2"/>'),
-  search: (s = 13) => svg(s, '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
-  braces: (s = 13) => svg(s, '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/>'),
-  message: (s = 13) => svg(s, '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>'),
-  wrench: (s = 13) => svg(s, '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'),
-};
 const TOOL_ICON: Record<string, () => string> = {
-  read_file: I.fileText, write_file: I.filePlus, edit_file: I.filePen, delete_file: I.fileX, list_files: I.folder,
+  read_file: I.fileText, write_file: I.filePlus, edit_file: I.filePen, delete_file: I.fileX, list_files: I.folderOpen,
   search_files: I.search, run_js: I.braces, ask_user: I.message,
 };
 
@@ -403,6 +411,8 @@ const MAX_IMAGE_PART = 8 * 1024 * 1024;
 const MAX_INLINE_TEXT = 64 * 1024;
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|toml|xml|html?|css|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|h|cpp|hpp|cs|sh|bash|zsh|sql|ini|cfg|conf|log|env|svg|tex|rst)$/i;
 const ATTACH_MARK = "[attachments]";
+/** Added to the agent's instructions when it has a directory: how to hand a file to the user. */
+const FILES_HINT = "The user can browse, edit and download every file of the directory from the chat's Files panel. When you create or change a file for the user, name its absolute path in backticks (for example `/uploads/report.csv`); in the chat that path becomes a link that opens the file, with a download button. Files the user attaches arrive under /uploads.";
 
 /** A file the user attached: read once, saved to the directory (or inlined) when the message is sent. */
 interface Attachment { file: File; name: string; bytes: Uint8Array; text: string | null; image: boolean; preview: string | null; chip: HTMLElement }
@@ -550,26 +560,6 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
   };
 }
 
-/** A confirmation of the chat's own (deleting a session): a dialog over the chat, Escape or the backdrop declines. */
-function modalConfirm(root: HTMLElement, title: string, message: string, opts: { ok: string; cancel: string; danger?: boolean }): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const overlay = h("div", "ra-modal");
-    const dlg = h("div", "ra-dlg"); dlg.setAttribute("role", "dialog"); dlg.setAttribute("aria-modal", "true"); dlg.setAttribute("aria-label", title);
-    dlg.append(h("div", "ra-dt", title), h("div", "ra-dm", message));
-    const row = h("div", "ra-btns");
-    const done = (v: boolean) => { overlay.remove(); resolve(v); };
-    const cancel = h("button", "ra-btn", opts.cancel); cancel.type = "button"; cancel.addEventListener("click", () => done(false));
-    const ok = h("button", "ra-btn " + (opts.danger ? "red" : "solid"), opts.ok); ok.type = "button"; ok.addEventListener("click", () => done(true));
-    row.append(cancel, ok);
-    dlg.append(row);
-    overlay.append(dlg);
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) done(false); });
-    overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); } });
-    root.append(overlay);
-    queueMicrotask(() => cancel.focus());
-  });
-}
-
 /* ------------------------------------------------------------------ */
 /* Transcript rows                                                     */
 /* ------------------------------------------------------------------ */
@@ -611,9 +601,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const head = h("div", "ra-head");
   const titleEl = h("div", "ra-title", title === false ? "" : title || agentOpts.appName || t.assistant);
   const modelEl = h("span", "ra-badge");
+  const filesBtn = h("button", "ra-btn ghost"); filesBtn.type = "button"; filesBtn.innerHTML = I.folder() + `<span>${escapeHTML(t.files)}</span>`;
   const histBtn = h("button", "ra-btn ghost"); histBtn.type = "button"; histBtn.innerHTML = I.hist() + `<span>${escapeHTML(t.history)}</span>`;
   const newBtn = h("button", "ra-btn ghost"); newBtn.type = "button"; newBtn.innerHTML = I.plus() + `<span>${escapeHTML(t.newChat)}</span>`;
-  head.append(titleEl, modelEl, h("span", "ra-sp"), histBtn, newBtn);
+  head.append(titleEl, modelEl, h("span", "ra-sp"), filesBtn, histBtn, newBtn);
   if (title === false) head.style.display = "none";
   const log = h("div", "ra-log");
   const inner = h("div", "ra-col");
@@ -653,7 +644,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   comp.append(compCol);
   const toasts = h("div", "ra-toasts");
   const statusCol = h("div", "ra-col"); statusCol.append(statusEl);
-  root.append(head, log, askArea, statusCol, comp, toasts, drop);
+  const main = h("div", "ra-main");
+  const chatCol = h("div", "ra-chatcol");
+  chatCol.append(log, askArea, statusCol, comp);
+  main.append(chatCol);
+  root.append(head, main, toasts, drop);
   target.replaceChildren(root);
 
   // State.
@@ -671,6 +666,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   let mounted = true;
 
   const ui = inlineUI(askCol, toasts, t, () => list.schedule());
+  const panel = filesPanel({ t, root, notify: (m, l) => ui.notify(m, l), onChange: () => void refreshCommands() });
+  main.append(panel.el);
+  filesBtn.addEventListener("click", () => void panel.toggle());
+  /** Opens a path: the host's editor when it has one, else the files panel. */
+  const openPath = (path: string) => { if (onOpenFile) onOpenFile(path); else void panel.open(path); };
   const emptyEl = h("div", "ra-empty");
   const emptyRow: VRow = { render: () => emptyEl };
 
@@ -744,10 +744,23 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return [d, body];
   };
 
+  /** `code` spans naming a file of the directory become links that open it (checked against the directory, so prose paths stay plain). */
+  const linkPaths = (el: HTMLElement) => {
+    const ws = agent?.workspace;
+    if (!ws) return;
+    for (const code of Array.from(el.querySelectorAll("code"))) {
+      if (code.closest("pre") || code.classList.contains("ra-path")) continue;
+      const text = code.textContent?.trim() ?? "";
+      if (!/^\/[^\s`'"<>]+$/.test(text) || text.length > 200) continue;
+      void ws.exists(text).then((ok) => { if (ok && !code.classList.contains("ra-path")) { code.classList.add("ra-path"); code.dataset.path = text; code.title = t.open; code.insertAdjacentHTML("beforeend", I.download(11)); } });
+    }
+  };
+  const renderFinal = (el: HTMLElement, md: string) => { renderMD(el, md, false); linkPaths(el); };
+
   const flushActive = (final: boolean) => {
     if (renderTimer !== null) { clearTimeout(renderTimer); renderTimer = null; }
     if (!active) return;
-    if (active.text) renderMD(active.text, active.md, !final);
+    if (active.text) { renderMD(active.text, active.md, !final); if (final) linkPaths(active.text); }
     if (active.thinkBody) active.thinkBody.textContent = active.reasoning;
     if (active.think && final) (active.think.querySelector("summary span:last-child") as HTMLElement).textContent = t.thought;
     list.schedule();
@@ -766,7 +779,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const argsPre = h("pre", "", name === "run_js" && args && typeof args === "object" && typeof (args as { code?: unknown }).code === "string" ? (args as { code: string }).code : typeof args === "string" ? args : JSON.stringify(args, null, 2));
     tb.append(h("div", "ra-tlabel", t.args), argsPre);
     const path = args && typeof args === "object" && typeof (args as { path?: unknown }).path === "string" ? (args as { path: string }).path : null;
-    if (onOpenFile && path) { const b = h("button", "ra-open", `${t.open} ${path}`); b.type = "button"; b.addEventListener("click", () => onOpenFile(path)); tb.append(b); }
+    if (path && name !== "delete_file" && name !== "list_files" && name !== "search_files") {
+      const acts = h("div", "ra-tacts");
+      const o = h("button", "ra-open", `${t.open} ${path}`); o.type = "button"; o.addEventListener("click", () => openPath(path));
+      const d = h("button", "ra-open", t.download); d.type = "button"; d.addEventListener("click", () => void panel.download(path));
+      acts.append(o, d);
+      tb.append(acts);
+    }
     el.append(sum, tb);
     return { el, name, args, end, body: tb, update: null, result: null };
   };
@@ -835,7 +854,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         render: () => {
           const r = asstRow();
           if (m.reasoning) { const [d] = thinkEl(m.reasoning, true); r.body.append(d); }
-          if (m.text) { const el = h("div", "ra-md"); renderMD(el, m.text, false); r.body.append(el); }
+          if (m.text) { const el = h("div", "ra-md"); renderFinal(el, m.text); r.body.append(el); }
           for (const c of m.calls) { const card = makeCard(c.name, c.args); r.body.append(card.el); if (c.status) finishCard(card, c.status, c.result ?? ""); }
           return r.el!;
         },
@@ -887,7 +906,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     clear.addEventListener("click", () => { agent.clearQueue(); queuedShown.clear(); renderQueue(); });
     hd.append(clear);
     queueEl.append(hd);
-    for (const item of q) { const l = h("div", "ra-qi"); l.append(h("span", "ra-badge", item.kind === "steer" ? "steer" : "follow-up"), h("span", "", textOfContent(item.message.content))); queueEl.append(l); }
+    for (const item of q) {
+      const l = h("div", "ra-qi");
+      const x = h("button"); x.type = "button"; x.innerHTML = I.x(11); x.title = t.remove; x.setAttribute("aria-label", t.remove);
+      x.addEventListener("click", () => { agent.dequeue(item.message); queuedShown.delete(item.message); renderQueue(); });
+      l.append(h("span", "ra-badge", item.kind === "steer" ? "steer" : "follow-up"), h("span", "", textOfContent(item.message.content)), x);
+      queueEl.append(l);
+    }
   };
   const setAlert = (message?: string) => { alertEl.style.display = message ? "" : "none"; alertEl.textContent = message ?? ""; };
 
@@ -957,17 +982,6 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   root.addEventListener("dragleave", () => { if (root.dataset.drop && --dragDepth <= 0) { dragDepth = 0; delete root.dataset.drop; } });
   root.addEventListener("drop", (e) => { if (!root.dataset.drop) return; e.preventDefault(); dragDepth = 0; delete root.dataset.drop; void addFiles(e.dataTransfer?.files); });
 
-  /** A free path under `uploadsDir` for a name (`-2`, `-3`… when taken). */
-  const freePath = async (ws: Workspace, name: string): Promise<string> => {
-    const dot = name.lastIndexOf(".");
-    const stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
-    for (let i = 1; i < 1000; i++) {
-      const p = `${uploadsDir}/${i === 1 ? name : `${stem}-${i}${ext}`}`;
-      if (!(await ws.exists(p))) return p;
-    }
-    return `${uploadsDir}/${Date.now()}-${name}`;
-  };
-
   /** The message to send: the text, the attachment list (saved to the directory, or inlined), and pictures for the model. */
   const buildContent = async (text: string): Promise<string | ContentPart[]> => {
     if (!pendingFiles.length) return text;
@@ -977,9 +991,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     for (const a of pendingFiles) {
       const type = a.file.type || (a.text !== null ? "text/plain" : "application/octet-stream");
       if (ws) {
-        const path = await freePath(ws, a.name);
+        const path = await freePath(ws, uploadsDir, a.name);
         await ws.write(path, a.text ?? a.bytes, type);
         lines.push(`- ${path} (${type}, ${fmtSize(a.file.size)})`);
+        void panel.refresh();
       } else if (a.text !== null && a.text.length <= MAX_INLINE_TEXT) {
         lines.push(`- ${a.name} (${type}, ${fmtSize(a.file.size)}) — contents below`);
         parts.push({ type: "text", text: `<file name="${a.name}">\n${a.text}\n</file>` });
@@ -1032,7 +1047,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   fuBtn.addEventListener("click", () => void send("followUp"));
   stopBtn.addEventListener("click", () => { ui.cancelAll(); void agent?.abort(); });
   log.addEventListener("click", (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button.ra-copy");
+    const target = e.target as HTMLElement;
+    const pathEl = target.closest<HTMLElement>(".ra-path");
+    if (pathEl?.dataset.path) { e.preventDefault(); openPath(pathEl.dataset.path); return; }
+    const a = target.closest<HTMLAnchorElement>(".ra-md a[href]");
+    if (a && agent?.workspace) {
+      const href = a.getAttribute("href") ?? "";
+      if (href.startsWith("/") && !href.startsWith("//")) { e.preventDefault(); const ws = agent.workspace; void ws.exists(href).then((ok) => { if (ok) openPath(href); else window.open(a.href, "_blank", "noopener"); }); return; }
+    }
+    const b = target.closest<HTMLButtonElement>("button.ra-copy");
     if (!b) return;
     const code = b.closest(".ra-cb")?.querySelector("code")?.textContent ?? "";
     void navigator.clipboard?.writeText(code.replace(/\n$/, "")).then(() => { b.innerHTML = I.check(14); setTimeout(() => { b.innerHTML = I.copy(); }, 1200); });
@@ -1099,6 +1122,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     modelEl.style.display = a.model ? "" : "none";
     const hasSessions = sessions ?? (!!a.workspace && !givenAgent);
     histBtn.style.display = newBtn.style.display = hasSessions && a.workspace ? "" : "none";
+    filesBtn.style.display = a.workspace ? "" : "none";
+    panel.setWorkspace(a.workspace);
     list.clear();
     showEmpty();
     setBusy(a.busy);
@@ -1148,7 +1173,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       c.update.textContent = ev.content;
       list.schedule();
     });
-    on("tool_end", (ev: { id: string; status: ToolStatus; result: string; durationMs: number }) => { const c = cards.get(ev.id); if (c) finishCard(c, ev.status, ev.result, ev.durationMs); });
+    on("tool_end", (ev: { id: string; name: string; args: unknown; status: ToolStatus; result: string; durationMs: number }) => {
+      const c = cards.get(ev.id); if (c) finishCard(c, ev.status, ev.result, ev.durationMs);
+      const path = ev.args && typeof ev.args === "object" ? (ev.args as { path?: unknown }).path : undefined;
+      if (ev.status === "ok" && typeof path === "string" && /^(write_file|edit_file|delete_file)$/.test(c?.name ?? ev.name ?? "")) panel.changed(path);
+    });
     on("compaction", (ev: { summary: boolean }) => {
       const first = a.messages[0];
       const s = first && typeof first.content === "string" ? summaryOf(first) : null;
@@ -1164,6 +1193,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       setBusy(false);
       showUsage_(a);
       void refreshCommands();
+      void panel.refresh();
     });
 
     try { await a.ready(); } catch (err) { addError((err as Error).message); }
@@ -1179,7 +1209,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const makeAgent = async (id?: string): Promise<Agent> => {
     const sid = id ?? newId();
     const workspace = typeof wsOpt === "function" ? await wsOpt(sid) : wsOpt ?? null;
-    return new Agent(client!, { ...agentOpts, id: sid, workspace, ui: agentOpts.ui ?? ui });
+    const instructions = workspace ? [agentOpts.instructions, FILES_HINT].filter(Boolean).join("\n\n") : agentOpts.instructions;
+    return new Agent(client!, { ...agentOpts, instructions, id: sid, workspace, ui: agentOpts.ui ?? ui });
   };
 
   const switchTo = async (id?: string): Promise<Agent> => {
@@ -1237,6 +1268,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (renderTimer !== null) clearTimeout(renderTimer);
       if (cmdFrame !== null) cancelAnimationFrame(cmdFrame);
       list.dispose();
+      panel.dispose();
       if (!givenAgent && agent) void agent.abort();
       root.remove();
     },

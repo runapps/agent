@@ -256,6 +256,14 @@ export class Agent {
   get queued(): Array<{ kind: "steer" | "followUp"; message: ChatMessage }> {
     return this.queue.map((q) => ({ kind: q.kind, message: q.message }));
   }
+  /** Drops one queued message (by the object `queued` lists); a waiting `followUp()` resolves as aborted. */
+  dequeue(message: ChatMessage): boolean {
+    const q = this.queue.find((q) => q.message === message);
+    if (!q) return false;
+    this.queue = this.queue.filter((x) => x !== q);
+    q.resolve?.({ runId: "", reason: "aborted", text: "", usage: { total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 } });
+    return true;
+  }
   /** Drops everything queued; a waiting `followUp()` resolves as aborted. */
   clearQueue(): void {
     const dropped = this.queue;
@@ -570,11 +578,24 @@ export class Agent {
       ? await Promise.all(calls.map((c) => run(c)))
       : await (async () => {
           const out: Array<{ message: ChatMessage; fingerprint: string }> = [];
-          for (const c of calls) out.push(await run(c));
+          let interrupted = false;
+          for (const c of calls) {
+            if (interrupted) { out.push(this.skipTool(c, runId, "Skipped: the user sent a new instruction; the following tool calls were not run.")); continue; }
+            out.push(await run(c));
+            // pi: steering is checked after each tool; when some arrived, the rest of the batch is skipped so the model sees it at once.
+            if (this.queue.some((q) => q.kind === "steer")) interrupted = true;
+          }
           return out;
         })();
     for (const o of outcomes) this.history.push(o.message);
     return outcomes.map((o) => o.fingerprint);
+  }
+
+  private skipTool(call: ChatToolCall, runId: string, why: string): { message: ChatMessage; fingerprint: string } {
+    const id = call.id ?? "", name = call.function.name;
+    this.emit("tool_start", { runId, id, name, args: call.function.arguments });
+    this.emit("tool_end", { runId, id, name, status: "skipped", result: why, durationMs: 0 });
+    return { message: { role: "tool", tool_call_id: id, content: why }, fingerprint: `${name}|${call.function.arguments}|skipped|${why}` };
   }
 
   private async runTool(call: ChatToolCall, runId: string, signal: AbortSignal, truncated: boolean): Promise<{ message: ChatMessage; fingerprint: string }> {

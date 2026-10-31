@@ -357,3 +357,39 @@ test("agent — steering that arrives during the final reply gets its own turn; 
   assert.equal((await queued).reason, "aborted");
   assert.equal((await run).text, "slow");
 });
+
+test("agent — steer + follow-up queued mid-batch: the rest of the batch is skipped (pi), the steer joins the next turn, the follow-up runs only after the run ends; dequeue drops one", async () => {
+  let release;
+  const slow = defineTool({ name: "slow", description: "slow", parameters: { type: "object", properties: {}, additionalProperties: false }, execute: () => new Promise((r) => { release = () => r("slow done"); }) });
+  const fast = defineTool({ name: "fast", description: "fast", parameters: { type: "object", properties: {}, additionalProperties: false }, execute: () => "fast done" });
+  const { client, requests } = scripted([
+    reply({ text: "working", calls: [{ id: "c1", name: "slow", args: {} }, { id: "c2", name: "fast", args: {} }] }),
+    reply({ text: "answer after steer" }),
+    reply({ text: "follow-up answered" }),
+  ]);
+  const agent = createAgent(client, { model: "m", tools: [slow, fast], sandbox: false, askUser: false });
+  const log = [];
+  agent.on("run_start", () => log.push("run_start"));
+  agent.on("run_end", (r) => log.push("run_end:" + r.text));
+  agent.on("tool_end", (e) => log.push(`tool_end:${e.name}:${e.status}`));
+  const first = agent.prompt("go");
+  await new Promise((r) => setTimeout(r, 20));
+  agent.steer("change course");
+  const fu = agent.followUp("and then this");
+  const dropped = agent.followUp("never mind");
+  assert.equal(agent.queued.length, 3);
+  assert.equal(agent.dequeue(agent.queued[2].message), true);
+  assert.equal((await dropped).reason, "aborted");
+  assert.deepEqual(agent.queued.map((q) => q.kind), ["steer", "followUp"]);
+  release();
+  const r1 = await first;
+  assert.equal(r1.text, "answer after steer");
+  const r2 = await fu;
+  assert.equal(r2.text, "follow-up answered");
+  assert.deepEqual(log, ["run_start", "tool_end:slow:ok", "tool_end:fast:skipped", "run_end:answer after steer", "run_start", "run_end:follow-up answered"]);
+  // The steer is in the second request, before the model's reply; the follow-up only in the third.
+  const texts = (r) => r.messages.filter((m) => m.role === "user").map((m) => typeof m.content === "string" ? m.content : m.content.map((p) => p.text ?? "").join(""));
+  assert.deepEqual(texts(requests[1]), ["go", "change course"]);
+  assert.deepEqual(texts(requests[2]), ["go", "change course", "and then this"]);
+  assert.ok(requests[1].messages.some((m) => m.role === "tool" && /Skipped: the user sent a new instruction/.test(m.content)));
+});
