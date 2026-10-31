@@ -16,6 +16,7 @@ import { toProvider, type ModelProvider, type RunAppsClientLike } from "./provid
 import type { AgentFS, FileStat, SessionData, SessionSummary, Skill } from "./types.js";
 import { listZip, readZipEntry, type Inflate, MAX_ZIP_BYTES } from "./zip.js";
 import { parseSkill } from "./skills.js";
+import { applyEdits, type TextEdit } from "./edit.js";
 import { summaryOf } from "./compaction.js";
 import { parseSkillZip, skillFoldersOf, skillZipFS, subFS, zipFiles } from "./skill-zips.js";
 import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
@@ -554,6 +555,25 @@ export class Workspace {
       return;
     }
     await this.putFile(p, content, contentType, "work");
+  }
+
+  /**
+   * Replaces each `oldText` (found once, in the original) by its `newText`.
+   * A mount (or `dir`) that implements `edit` gets the edits as they are;
+   * otherwise the file is read, edited (`applyEdits`: exact, then tolerant
+   * of quotes, dashes and trailing spaces) and written back whole.
+   */
+  async edit(path: string, edits: TextEdit[]): Promise<void> {
+    await this.ready();
+    const p = normalizePath(path);
+    const r = this.route(p);
+    if (r?.fs.edit) {
+      await r.fs.edit(r.rel, edits);
+      this.emitChange(p, "write");
+      return;
+    }
+    if (r && !r.fs.write) throw new Error(`${r.prefix || "/"} is read-only`);
+    await this.write(p, applyEdits(p, await this.readText(p), edits));
   }
 
   async delete(path: string): Promise<void> {

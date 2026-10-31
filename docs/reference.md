@@ -75,7 +75,7 @@ Options: `id`, `project`, `dir`, `store`, `skills`, `skillsDir`, `userSkills`, `
 |---|---|
 | `list(prefix)`, `stat(path)`, `exists(path)`, `isFolder(path)` | Look. |
 | `read(path)` → `{ data, size, contentType }`, `readText(path)`, `readAsText(path)` | Read (PDFs as text). |
-| `write(path, content, contentType?)`, `delete(path)`, `clearWork()`, `destroy()` | Change. |
+| `write(path, content, contentType?)`, `edit(path, edits)`, `delete(path)`, `clearWork()`, `destroy()` | Change (`edit`: `{ oldText, newText }` replacements; a mount's own `edit()` gets them). |
 | `mount(prefix, fs)`, `unmount(prefix)`, `mountOf(path)`, `isReadOnly(path)`, `isSkillPath(path)` | Mounts. |
 | `onChange(fn)` | `{ path, kind, remote }` for every write and delete. |
 | `getData(key)`, `putData(key, value)`, `deleteData(key)` | Your data kept with the directory. |
@@ -95,7 +95,7 @@ Options: `id`, `project`, `dir`, `store`, `skills`, `skillsDir`, `userSkills`, `
 | `titleOf(session)`, `UNTITLED` | A session's title (the user's first words). |
 | `configurePdf({ url?, workerUrl?, load? })`, `extractPdfText(bytes)`, `formatPdfText(path, result)`, `isPdf(path, type?, data?)` | PDFs. |
 | `DEFAULT_SKILLS_DIR`, `DEFAULT_USER_SKILLS_DIR` | `/.agent/skills`, `/skills`. |
-| types | `AgentFS`, `FileStat`, `Skill`, `SkillSource`, `LazySkill`, `WorkspaceOptions`, `WorkspaceRead`, `WorkspaceChange`, `SessionStore`, `SessionData`, `SessionSummary`, `RunEnd`, `WorkspaceStore`, `WorkspaceStoreFactory`, `FileRecord` (for a `store` of your own) |
+| types | `AgentFS` (`list`, `read`; optional `write`, `edit`, `delete`, `stat`), `TextEdit`, `FileStat`, `Skill`, `SkillSource`, `LazySkill`, `WorkspaceOptions`, `WorkspaceRead`, `WorkspaceChange`, `SessionStore`, `SessionData`, `SessionSummary`, `RunEnd`, `WorkspaceStore`, `WorkspaceStoreFactory`, `FileRecord` (for a `store` of your own) |
 
 ## Lower level
 

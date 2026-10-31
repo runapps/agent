@@ -244,6 +244,45 @@ test("sandbox — computes, logs, reaches the workspace, has no network, times o
   assert.match(out.content, /Returned: 2/);
 });
 
+test("workspace — edit_file hands a mount with edit() the replacements as they are; without it the file is read, edited and written back whole", async () => {
+  const doc = { "/page.xml": "<p>hello</p><p>world</p>" };
+  const calls = [];
+  const ws = await Workspace.open(null, { id: "edits", project: "edits-test", indexedDB: null, userSkills: false });
+  ws.mount("/doc", {
+    list: async () => Object.keys(doc).map((path) => ({ path, size: doc[path].length })),
+    read: async (path) => { if (!(path in doc)) throw new Error(`No such file: ${path}`); return doc[path]; },
+    write: async (path, content) => { calls.push(["write", path]); doc[path] = String(content); },
+    edit: async (path, edits) => {
+      calls.push(["edit", path, edits.length]);
+      for (const { oldText, newText } of edits) {
+        if (doc[path].split(oldText).length !== 2) throw new Error(`"${oldText}" is not in ${path} exactly once`);
+        doc[path] = doc[path].replace(oldText, newText);
+      }
+    },
+  });
+  const seen = [];
+  ws.onChange((c) => seen.push(c.path));
+  const tools = Object.fromEntries(fileTools(ws).map((t) => [t.name, t]));
+  const ctx = { signal: new AbortController().signal, ui: nullUI(), workspace: ws, update() {} };
+  await tools.edit_file.execute({ path: "/doc/page.xml", edits: [{ oldText: "hello", newText: "hi" }, { oldText: "world", newText: "there" }] }, ctx);
+  assert.equal(doc["/page.xml"], "<p>hi</p><p>there</p>");
+  assert.deepEqual(calls, [["edit", "/page.xml", 2]], "edit() only — no whole-file write");
+  assert.ok(seen.includes("/doc/page.xml"), "the change is reported");
+  // The mount's own error goes back to the model.
+  await assert.rejects(tools.edit_file.execute({ path: "/doc/page.xml", oldText: "nope", newText: "x" }, ctx), /not in \/page.xml exactly once/);
+
+  // No edit(): read, applyEdits, write back.
+  ws.mount("/plain", memoryFS({ "/a.md": "one\ntwo\n" }));
+  await tools.edit_file.execute({ path: "/plain/a.md", oldText: "two", newText: "2" }, ctx);
+  assert.equal(await ws.readText("/plain/a.md"), "one\n2\n");
+  // The directory itself, and read-only places.
+  await ws.write("/notes.md", "draft");
+  await ws.edit("/notes.md", [{ oldText: "draft", newText: "final" }]);
+  assert.equal(await ws.readText("/notes.md"), "final");
+  ws.mount("/ro", memoryFS({ "/r.md": "x" }, { readonly: true }));
+  await assert.rejects(ws.edit("/ro/r.md", [{ oldText: "x", newText: "y" }]), /read-only/);
+});
+
 test("workspace — reading a folder says so and read_file lists it", async () => {
   const ws = await Workspace.open(null, { id: "folder", indexedDB: null });
   await ws.write("/docs/a.md", "a");

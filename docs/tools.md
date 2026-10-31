@@ -107,7 +107,7 @@ Under `permissions: "ask"` (the default) a tool with `destructive: true` or a `c
 | `list_files` | Files under a folder, with sizes. | with a workspace |
 | `read_file` | A file, 2000 lines / 50 KB per call, `offset` and `limit` to continue; a PDF as text. | |
 | `write_file` | Create or replace a file. | |
-| `edit_file` | One or more exact replacements; tolerant of curly quotes, dashes and trailing spaces. | |
+| `edit_file` | One or more exact replacements — the model sends only the changed pieces; tolerant of curly quotes, dashes and trailing spaces. A mount with its own `edit()` applies them itself ([Workspace](workspace.md#mounting-your-apps-data)). | |
 | `delete_file` | Delete a file (asks). | |
 | `search_files` | Search file contents. | |
 

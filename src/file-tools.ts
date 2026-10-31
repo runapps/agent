@@ -3,7 +3,7 @@
 // descriptions are what the model reads, so they say what each does and
 // what comes back.
 
-import { applyEdits, type TextEdit } from "./edit.js";
+import type { TextEdit } from "./edit.js";
 import { defineTool } from "./tool.js";
 import type { Tool } from "./types.js";
 import { normalizePath, type Workspace } from "./workspace.js";
@@ -145,9 +145,8 @@ export function fileTools(ws: Workspace): Tool[] {
         // The schema allows `edits` (an array) and the `oldText`/`newText` shorthand; nothing else gets this far.
         const edits: TextEdit[] = Array.isArray(args.edits) ? [...args.edits] : [];
         if (args.oldText !== undefined) edits.push({ oldText: args.oldText, newText: args.newText ?? "" });
-        const text = await ws.readText(p);
-        const next = applyEdits(p, text, edits);
-        await ws.write(p, next);
+        // The workspace applies them: a mount with its own edit() gets them as they are, anything else is read, edited and written back.
+        await ws.edit(p, edits);
         return `Successfully replaced ${edits.length} block(s) in ${p}.`;
       },
     }),

@@ -10,6 +10,7 @@ import type { Usage } from "./llm.js";
 import type { Agent } from "./agent.js";
 import type { CompactionSettings, CutPlan } from "./compaction.js";
 import type { Workspace } from "./workspace.js";
+import type { TextEdit } from "./edit.js";
 
 /** A JSON Schema object (draft 7 / 2020-12 subset — see json-schema.ts). */
 export type JSONSchema = Record<string, unknown>;
@@ -151,6 +152,17 @@ export interface AgentFS {
   write?(path: string, content: string | Uint8Array, contentType?: string): Promise<void>;
   delete?(path: string): Promise<void>;
   stat?(path: string): Promise<FileStat | null>;
+  /**
+   * Applies the agent's `edit_file` replacements itself (optional): each
+   * `oldText` is to be found once in the file and replaced by its `newText`
+   * — all of them against the original, none overlapping. Implement it to
+   * change your data in place (one node of a document, a range of a text
+   * buffer) instead of receiving the whole file. Throw an Error with a
+   * message for the model when an edit does not apply. Without it, the
+   * workspace reads the file, applies the edits (`applyEdits`) and writes
+   * the whole result back.
+   */
+  edit?(path: string, edits: TextEdit[]): Promise<void>;
   /** Shown to the model in the workspace description. */
   description?: string;
 }

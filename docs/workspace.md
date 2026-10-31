@@ -107,13 +107,31 @@ const pagesFS = {
     const page = diagram.getPage(idOf(path));
     return page ? fileOf(page) : null;
   },
+
+  // Optional: apply edit_file's replacements yourself, in place.
+  async edit(path, edits) {
+    const page = diagram.getPage(idOf(path));
+    if (!page) throw new Error(`No such file: ${path}`);
+    diagram.transaction(() => {                       // one undo step, other users' changes kept
+      for (const { oldText, newText } of edits) {
+        const at = page.xml.indexOf(oldText);
+        if (at < 0 || page.xml.indexOf(oldText, at + 1) >= 0) throw new Error(`"${oldText}" must appear exactly once in ${path}`);
+        page.replaceRange(at, at + oldText.length, newText);
+      }
+    });
+  },
 };
 
 workspace.mount("/diagram", pagesFS);
 // The agent sees /diagram/page-1.xml, … and its description in the system prompt.
 ```
 
-There is no edit method to write: **editing is `read` then `write`**. The agent's `edit_file` reads the file, applies its replacements and writes the result back, so a mount with `read` and `write` supports `read_file`, `write_file` and `edit_file` alike; `delete` adds `delete_file` (and the files panel's delete). Without `write`/`delete` those are refused as read-only, and the files panel shows the mount with a lock.
+**Editing.** The agent's `edit_file` sends only the replacements — `{ oldText, newText }` pairs, each `oldText` found once in the original — never the whole file. What happens next is up to the mount:
+
+- **With `edit(path, edits)`**, the mount gets those replacements as they are and changes its data in place: one node of a document, a range in an editor's buffer, a transaction that keeps other users' concurrent changes and makes one undo step. Throw an Error with a readable message when an edit does not apply; the model sees it and tries again. Use the exported `applyEdits(path, text, edits)` if you want the workspace's own matching (exact first, then tolerant of curly quotes, dashes and trailing spaces).
+- **Without it**, the workspace reads the file, applies the replacements and writes the whole result back with `write` — fine for files; a mount whose `write` has to rebuild a large structure from the whole text should implement `edit`.
+
+So a mount with `read` and `write` supports `read_file`, `write_file` and `edit_file`; `edit` makes edits precise; `delete` adds `delete_file` (and the files panel's delete). Without `write`, `edit` and `delete` the mount is read-only, and the files panel shows it with a lock. `workspace.edit(path, edits)` does the same from your code.
 
 Paths given to the mount are relative to it (`/page-1.xml`). A mount is your live data, not storage: nothing of it is saved by the workspace. `memoryFS({ "/a.md": "…" }, { description, readonly })` is a ready-made in-memory one (its `files` map is the content). `workspace.unmount("/diagram")` removes it.
 
