@@ -112,7 +112,7 @@ const STRINGS = {
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove", attachments: "Attachments",
     sent: "sent", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
-    rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindGoneFile: "{path} is no longer in the directory.",
+    rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindNoSnapshot: "No file snapshot was taken when this message was sent (it predates snapshots, or the session had no directory), so only the conversation can be rewound.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     files: "Files", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
@@ -128,7 +128,7 @@ const STRINGS = {
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除", attachments: "附件",
     sent: "已发送", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
-    rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindGoneFile: "{path} 已不在目录里。",
+    rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindNoSnapshot: "这条消息发出时没有记录文件快照（早于快照功能，或会话没有目录），所以只能回退对话。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     files: "文件", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存", pickFile: "选择文件", folder: "文件夹",
@@ -244,6 +244,8 @@ const CSS = `
 .ra-uf .ra-ib:hover{opacity:1}
 .ra-modal label.ra-ck{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
 .ra-modal label.ra-ck input{width:auto;accent-color:var(--ra-p-solid)}
+.ra-modal label.ra-ck.off{color:var(--ra-fg-muted);cursor:default}
+.ra-modal .ra-dn{font-size:12px;color:var(--ra-fg-muted);margin:-4px 0 0 24px}
 .ra-asst{display:flex;gap:10px;align-items:flex-start}
 .ra-avatar{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:var(--ra-p-subtle);color:var(--ra-p-fg);display:flex;align-items:center;justify-content:center;margin-top:2px}
 .ra-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
@@ -861,13 +863,20 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const addUser = (content: string | ContentPart[], msg?: ChatMessage) => { const row = userRow(content, msg); lastUserRow = row; addRow(row); list.scrollToBottom(); return row; };
 
   /** A dialog for rewinding: drop what follows the message, optionally put the files back as they were. */
-  const rewindDialog = (hasFiles: boolean): Promise<{ files: boolean } | null> => new Promise((resolve) => {
+  const rewindDialog = (ckpt: Checkpoint | undefined): Promise<{ files: boolean } | null> => new Promise((resolve) => {
+    const hasFiles = !!ckpt;
     const overlay = h("div", "ra-modal");
     const dlg = h("div", "ra-dlg"); dlg.setAttribute("role", "dialog"); dlg.setAttribute("aria-modal", "true");
     dlg.append(h("div", "ra-dt", t.rewindTitle), h("div", "ra-dm", t.rewindMsg));
     const ck = h("input"); ck.type = "checkbox"; ck.checked = hasFiles; ck.disabled = !hasFiles;
-    const lab = h("label", "ra-ck"); lab.append(ck, h("span", "", t.rewindFiles));
+    const lab = h("label", "ra-ck" + (hasFiles ? "" : " off")); lab.append(ck, h("span", "", t.rewindFiles));
     dlg.append(lab);
+    // Why the box is off, or what ticking it restores.
+    if (!ckpt) dlg.append(h("div", "ra-dn", t.rewindNoSnapshot));
+    else {
+      const size = ckpt.files.reduce((n, f) => n + (typeof f.data === "string" ? new TextEncoder().encode(f.data).length : f.data.byteLength), 0);
+      dlg.append(h("div", "ra-dn", t.rewindSnapshot.replace("{n}", String(ckpt.files.length)).replace("{size}", fmtSize(size)).replace("{time}", clockTime(ckpt.at)) + (ckpt.partial ? ` ${t.rewindPartial}` : "")));
+    }
     const done = (v: { files: boolean } | null) => { overlay.remove(); resolve(v); };
     const rowB = h("div", "ra-btns");
     const cancel = h("button", "ra-btn", t.cancel); cancel.type = "button"; cancel.addEventListener("click", () => done(null));
@@ -887,7 +896,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const ws = agent.workspace;
     const ts = tsOf(row.msg);
     const ckpt = ws && ts ? await ws.getData<Checkpoint>(ckptKey(ts)) : undefined;
-    const choice = await rewindDialog(!!ckpt);
+    const choice = await rewindDialog(ckpt);
     if (!choice) return;
     try {
       if (agent.busy) { ui.cancelAll(); await agent.abort(); }
