@@ -394,3 +394,14 @@ test("workspace — nested folders persist in the IndexedDB directory across reo
   assert.equal(await b.readText("/top.md"), "top");
   assert.deepEqual((await b.list("/doc")).map((f) => f.path), ["/doc/plan.md"], "the memory mount starts over");
 });
+
+test("zip — buildZip writes an archive listZip/readZipEntry read back (deflated or stored), with nested paths", async () => {
+  const { buildZip } = await import("../dist/index.js");
+  const big = "lorem ipsum ".repeat(500);
+  const zip = await buildZip([{ path: "a/b/c.txt", data: big }, { path: "x.bin", data: new Uint8Array([1, 2, 3]) }, { path: "/leading/slash.md", data: "# hi" }]);
+  const entries = listZip(zip);
+  assert.deepEqual(entries.map((e) => e.name), ["a/b/c.txt", "x.bin", "leading/slash.md"]);
+  assert.equal(new TextDecoder().decode(await readZipEntry(zip, entries[0], inflate)), big);
+  assert.deepEqual([...await readZipEntry(zip, entries[1], inflate)], [1, 2, 3]);
+  assert.equal(new TextDecoder().decode(await readZipEntry(zip, entries[2], inflate)), "# hi");
+});

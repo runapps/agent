@@ -23,6 +23,7 @@ import type {
   AgentOptions,
   AgentUI,
   AgentUsage,
+  Permissions,
   RunEndReason,
   RunResult,
   SessionData,
@@ -194,6 +195,19 @@ export class Agent {
   set model(name: string | undefined) {
     this.opts.model = name;
     this.inputTokens = null;
+  }
+
+  /** The settings a user may change mid-conversation. */
+  get settings(): { model?: string; maxTurns: number; maxTokens: number | "auto"; permissions: "ask" | "auto" | "custom" } {
+    const p = this.opts.permissions ?? "ask";
+    return { model: this.opts.model, maxTurns: this.opts.maxTurns ?? DEFAULT_MAX_TURNS, maxTokens: typeof this.opts.maxTokens === "number" ? this.opts.maxTokens : "auto", permissions: typeof p === "function" ? "custom" : p };
+  }
+  /** Changes settings for the runs that follow (a run in progress keeps its own). `undefined` leaves a field alone. */
+  configure(patch: { model?: string; maxTurns?: number; maxTokens?: number | "auto"; permissions?: Permissions }): void {
+    if ("model" in patch) this.model = patch.model || undefined;
+    if (typeof patch.maxTurns === "number" && patch.maxTurns > 0) this.opts.maxTurns = Math.floor(patch.maxTurns);
+    if (patch.maxTokens !== undefined) this.opts.maxTokens = patch.maxTokens;
+    if (patch.permissions !== undefined) this.opts.permissions = patch.permissions;
   }
 
   /** A snapshot to save (`restore` continues it). Taken at the last complete turn. */

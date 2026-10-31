@@ -51,6 +51,13 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   suggestions?: string[];
   /** The history / new-chat menu (default: on when the agent has a workspace). */
   sessions?: boolean;
+  /**
+   * The settings gear in the header (default: on when the chat owns its
+   * agent): model, max turns, max output, tool permissions. What the user
+   * picks is kept per app in localStorage and applied to every session
+   * over the host's options.
+   */
+  settings?: boolean;
   /** Dialog language (default: the document's). */
   locale?: "zh" | "en";
   /** `"auto"` (default) follows the system; `"light"` / `"dark"` force one. */
@@ -108,13 +115,15 @@ const STRINGS = {
     enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "History", newChat: "New chat", noSessions: "No saved conversations",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
     other: "Other…", typeAnswer: "Type your answer", args: "Arguments", result: "Result", error: "Error", declined: "declined", blocked: "blocked", skipped: "skipped",
-    open: "Open in editor", stopped: "Stopped.", maxTurns: "Stopped after the maximum number of turns.", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
+    open: "Open in editor", stopped: "Stopped.", maxTurns: "Stopped after the maximum number of turns ({n}).", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove", attachments: "Attachments",
     sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
-    files: "Files", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
+    settings: "Settings", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
+    apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue.",
+    files: "Files", downloadZip: "Download as zip", zipping: "Zipping", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
   },
   zh: {
@@ -124,13 +133,15 @@ const STRINGS = {
     enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "历史", newChat: "新对话", noSessions: "还没有保存的对话",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
     other: "其他…", typeAnswer: "请输入", args: "参数", result: "结果", error: "错误", declined: "已拒绝", blocked: "已拦截", skipped: "已跳过",
-    open: "在编辑器中打开", stopped: "已停止。", maxTurns: "达到最大轮数，已停止。", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
+    open: "在编辑器中打开", stopped: "已停止。", maxTurns: "达到最大轮数（{n}），已停止。", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除", attachments: "附件",
     sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
-    files: "文件", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
+    settings: "设置", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
+    apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续。",
+    files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存", pickFile: "选择文件", folder: "文件夹",
   },
 };
@@ -188,6 +199,15 @@ const CSS = `
 .ra-menu .ra-mi:hover .ra-x{opacity:1}
 .ra-menu .ra-x:hover{background:var(--ra-red-subtle);color:var(--ra-red)}
 .ra-menu .ra-none{padding:8px 10px;color:var(--ra-fg-muted);font-size:13px}
+.ra-set{padding:10px 12px;display:flex;flex-direction:column;gap:10px;width:min(360px,calc(100% - 24px))}
+.ra-set label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ra-fg-muted)}
+.ra-set select,.ra-set input[type=number]{font:inherit;font-size:13px;color:var(--ra-fg);background:var(--ra-bg);border:1px solid var(--ra-border);border-radius:6px;padding:5px 8px;outline:0;width:100%;margin:0}
+.ra-set select:focus,.ra-set input:focus{border-color:var(--ra-p-solid)}
+.ra-set .ra-row{display:flex;gap:8px;align-items:center}
+.ra-set .ra-row>*{flex:1;min-width:0}
+.ra-set .ra-lim{font-size:11px;color:var(--ra-fg-muted);margin-top:-4px}
+.ra-set .ra-btns{justify-content:space-between}
+.ra-card .ra-btn{margin-top:8px}
 .ra-menu .ra-mi .ra-spin{margin-right:6px}
 .ra-chat .ra-btn.ra-bg{position:relative}
 .ra-chat .ra-btn.ra-bg::after{content:"";position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;background:var(--ra-p-solid)}
@@ -680,7 +700,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const filesBtn = h("button", "ra-btn ghost"); filesBtn.type = "button"; filesBtn.innerHTML = I.folder() + `<span>${escapeHTML(t.files)}</span>`;
   const histBtn = h("button", "ra-btn ghost"); histBtn.type = "button"; histBtn.innerHTML = I.hist() + `<span>${escapeHTML(t.history)}</span>`;
   const newBtn = h("button", "ra-btn ghost"); newBtn.type = "button"; newBtn.innerHTML = I.plus() + `<span>${escapeHTML(t.newChat)}</span>`;
-  head.append(titleEl, modelEl, h("span", "ra-sp"), filesBtn, histBtn, newBtn);
+  const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
+  head.append(titleEl, modelEl, h("span", "ra-sp"), filesBtn, histBtn, newBtn, setBtn);
   if (title === false) head.style.display = "none";
   const log = h("div", "ra-log");
   const inner = h("div", "ra-col");
@@ -1044,15 +1065,16 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     list.schedule();
   };
 
-  const noteEl = (text: string, summary?: string): HTMLElement => {
+  const noteEl = (text: string, summary?: string, action?: { label: string; onClick: () => void }): HTMLElement => {
     const card = h("div", "ra-card");
     const head = h("div", "ra-ct" + (summary ? "" : " only"));
     head.innerHTML = I.layers() + `<span>${escapeHTML(text)}</span>`;
     card.append(head);
     if (summary) { const md = h("div", "ra-md"); renderMD(md, summary, false); card.append(md); }
+    if (action) { const b = h("button", "ra-btn xs subtle", action.label); b.type = "button"; b.addEventListener("click", () => { b.disabled = true; action.onClick(); }); card.append(b); }
     return card;
   };
-  const addNote = (text: string, summary?: string) => { addRow({ render: () => noteEl(text, summary) }); list.schedule(); };
+  const addNote = (text: string, summary?: string, action?: { label: string; onClick: () => void }) => { addRow({ render: () => noteEl(text, summary, action) }); list.schedule(); };
 
   const addError = (message: string, retry?: () => void) => {
     const row: VRow = {
@@ -1289,6 +1311,74 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     void navigator.clipboard?.writeText(code.replace(/\n$/, "")).then(() => { b.innerHTML = I.check(14); setTimeout(() => { b.innerHTML = I.copy(); }, 1200); });
   });
 
+  /* --- settings --- */
+  type UserSettings = { model?: string; maxTurns?: number; maxTokens?: number };
+  const SET_KEY = `__runapps_agent_chat:${project}:settings`;
+  const readSettings = (): UserSettings => { try { return JSON.parse(localStorage.getItem(SET_KEY) || "{}") as UserSettings; } catch { return {}; } };
+  const writeSettings = (v: UserSettings) => { try { if (Object.keys(v).length) localStorage.setItem(SET_KEY, JSON.stringify(v)); else localStorage.removeItem(SET_KEY); } catch { /* private mode */ } };
+  let userSettings: UserSettings = givenAgent ? {} : readSettings();
+  let permChoice: "ask" | "auto" | null = null;  // not persisted: allowing everything is a per-page decision
+  const hasSettings = opts.settings ?? !givenAgent;
+  if (!hasSettings) setBtn.style.display = "none";
+  let modelsCache: Array<{ id: string; is_default?: boolean; max_input_tokens?: number; max_tokens?: number }> | null = null;
+  const kTok = (n?: number) => (typeof n === "number" ? (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)) : "?");
+  const openSettings = async () => {
+    if (menu) { closeMenu(); return; }
+    const a = agent;
+    menu = h("div", "ra-menu ra-set");
+    root.append(menu);
+    const cur = a.settings;
+    const modelSel = h("select");
+    modelSel.append(new Option(t.sDefault, ""));
+    const lim = h("div", "ra-lim");
+    const showLim = () => {
+      const id = modelSel.value || modelsCache?.find((m) => m.is_default)?.id;
+      const m = modelsCache?.find((x) => x.id === id);
+      lim.textContent = m ? `${t.context} ${kTok(m.max_input_tokens)} · ${t.sMaxTokens} ${kTok(m.max_tokens)}` : "";
+    };
+    modelSel.addEventListener("change", showLim);
+    if (client) {
+      try { modelsCache ??= (await client.models.list({ capability: "text" })) as unknown as NonNullable<typeof modelsCache>; } catch { /* no catalogue */ }
+      if (!menu) return;
+      for (const m of modelsCache ?? []) modelSel.append(new Option(`${m.id}${m.is_default ? " ★" : ""} · ${kTok(m.max_input_tokens)} / ${kTok(m.max_tokens)}`, m.id));
+    }
+    if (cur.model && !Array.from(modelSel.options).some((o) => o.value === cur.model)) modelSel.append(new Option(cur.model, cur.model));
+    modelSel.value = cur.model ?? "";
+    showLim();
+    const turns = h("input"); turns.type = "number"; turns.min = "1"; turns.max = "500"; turns.step = "1"; turns.value = String(cur.maxTurns);
+    const tokMode = h("select"); tokMode.append(new Option(t.sAuto, "auto"), new Option(t.sMaxTokens, "n"));
+    const tokN = h("input"); tokN.type = "number"; tokN.min = "256"; tokN.step = "256"; tokN.value = String(typeof cur.maxTokens === "number" ? cur.maxTokens : 8192);
+    tokMode.value = typeof cur.maxTokens === "number" ? "n" : "auto"; tokN.style.display = tokMode.value === "n" ? "" : "none";
+    tokMode.addEventListener("change", () => { tokN.style.display = tokMode.value === "n" ? "" : "none"; });
+    const perm = h("select"); perm.append(new Option(t.sAsk, "ask"), new Option(t.sAutoPerm, "auto"));
+    if (cur.permissions === "custom") { perm.append(new Option(t.sCustom, "custom")); }
+    perm.value = cur.permissions;
+    const field = (label: string, ...els: HTMLElement[]) => { const l = h("label"); l.append(h("span", "", label), ...els); return l; };
+    const tokRow = h("div", "ra-row"); tokRow.append(tokMode, tokN);
+    menu.append(field(t.sModel, modelSel), lim, field(t.sMaxTurns, turns), field(t.sMaxTokens, tokRow), field(t.sPerms, perm));
+    const btns = h("div", "ra-btns");
+    const resetB = h("button", "ra-btn xs ghost", t.reset); resetB.type = "button";
+    const applyB = h("button", "ra-btn xs solid", t.apply); applyB.type = "button";
+    btns.append(resetB, applyB);
+    menu.append(btns);
+    const applyTo = (ag: Agent, s: UserSettings, p: "ask" | "auto" | null) => {
+      ag.configure({ model: s.model ?? agentOpts.model, maxTurns: s.maxTurns ?? agentOpts.maxTurns ?? 20, maxTokens: s.maxTokens ?? (typeof agentOpts.maxTokens === "number" ? agentOpts.maxTokens : "auto"), permissions: p ?? agentOpts.permissions ?? "ask" });
+      modelEl.textContent = ag.model ?? ""; modelEl.style.display = ag.model ? "" : "none";
+    };
+    resetB.addEventListener("click", () => { userSettings = {}; writeSettings({}); permChoice = null; for (const ag of live.values()) applyTo(ag, {}, null); closeMenu(); ui.notify(t.applied); showUsage_(agent); });
+    applyB.addEventListener("click", () => {
+      const next: UserSettings = {};
+      if (modelSel.value) next.model = modelSel.value;
+      const n = parseInt(turns.value, 10); if (Number.isFinite(n) && n > 0) next.maxTurns = Math.min(500, n);
+      if (tokMode.value === "n") { const k = parseInt(tokN.value, 10); if (Number.isFinite(k) && k > 0) next.maxTokens = k; }
+      userSettings = next; writeSettings(next);
+      if (perm.value === "ask" || perm.value === "auto") permChoice = perm.value;
+      for (const ag of live.values()) applyTo(ag, next, permChoice);
+      closeMenu(); ui.notify(t.applied); showUsage_(agent);
+    });
+  };
+  setBtn.addEventListener("click", () => void openSettings());
+
   /* --- sessions menu --- */
   const closeMenu = () => { menu?.remove(); menu = null; };
   const openMenu = async () => {
@@ -1334,7 +1424,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   histBtn.addEventListener("click", () => void openMenu());
   newBtn.addEventListener("click", () => { closeMenu(); void newSession(); });
   document.addEventListener("click", onDocClick, true);
-  function onDocClick(e: Event) { if (menu && !menu.contains(e.target as Node) && e.target !== histBtn && !histBtn.contains(e.target as Node)) closeMenu(); }
+  function onDocClick(e: Event) { if (menu && !menu.contains(e.target as Node) && !histBtn.contains(e.target as Node) && !setBtn.contains(e.target as Node)) closeMenu(); }
 
   /* --- wiring an agent --- */
   const showUsage_ = (a: Agent) => {
@@ -1437,7 +1527,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       active = null;
       ui.cancelAll();
       if (r.reason === "error" && r.error) addError(r.error.message);
-      else if (r.reason === "max_turns") addNote(t.maxTurns);
+      else if (r.reason === "max_turns") addNote(t.maxTurns.replace("{n}", String(a.settings.maxTurns)) + " " + t.maxTurnsHint, undefined, { label: t.continueRun, onClick: () => void promptFromHost(t.continueRun) });
       else if (r.reason === "aborted") addNote(t.stopped);
       setBusy(false);
       showUsage_(a);
@@ -1459,7 +1549,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const sid = id ?? newId();
     const workspace = typeof wsOpt === "function" ? await wsOpt(sid) : wsOpt ?? null;
     const instructions = workspace ? [agentOpts.instructions, FILES_HINT].filter(Boolean).join("\n\n") : agentOpts.instructions;
-    return new Agent(client!, { ...agentOpts, instructions, id: sid, workspace, ui: agentOpts.ui ?? uiFor(sid) });
+    const over: Partial<AgentOptions> = {};
+    if (userSettings.model) over.model = userSettings.model;
+    if (userSettings.maxTurns) over.maxTurns = userSettings.maxTurns;
+    if (userSettings.maxTokens) over.maxTokens = userSettings.maxTokens;
+    if (permChoice) over.permissions = permChoice;
+    return new Agent(client!, { ...agentOpts, ...over, instructions, id: sid, workspace, ui: agentOpts.ui ?? uiFor(sid) });
   };
 
   const switchTo = async (id?: string): Promise<Agent> => {

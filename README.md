@@ -113,6 +113,10 @@ In the composer, Enter sends and Shift+Enter breaks a line; while the agent runs
 
 **Sessions keep running.** Starting a new chat or resuming another while the agent works does not stop it: the session goes on in the background (its agent object is kept, its questions wait until you come back, the history menu marks it "running" and the History button shows a dot, a notice appears when it ends). Up to three may run in the background; past that the chat asks you to stop one first. `unmount()` stops them all.
 
+**Settings.** The gear in the header (on when the chat owns its agent; `settings: false` hides it) sets the model (with its context / output limits from the catalogue), the max turns per run, the max output per reply (the model's maximum, or a number) and tool permissions (ask / allow everything); model, turns and output are kept per app in localStorage and applied to every session over the host's options (`agent.settings` / `agent.configure(patch)`). A run that hits the turn limit says so with a "Continue" button.
+
+**Files, zipped.** A folder row's download icon, or the icon in the panel's header for the whole directory, builds a zip in the browser (`buildZip`, deflate through `CompressionStream` when available) and hands it to the browser to save.
+
 **Rewind.** Under each user message sit the time it was sent, a copy button and "rewind to here": the conversation after that message is dropped (`agent.rewind(index)`), and, when the session has a directory, the directory's files can be put back as they were when the message was sent — the chat snapshots the work files (not skills, not mounts, files up to 2 MB) at every prompt and keeps them with the directory (`workspace.putData`). The message goes back into the composer to edit and resend. User messages carry `ts` (when sent) in the saved session; the model never sees it.
 
 The transcript is a virtual list (`VirtualList`, also exported): a row is built the first time it scrolls into view and only the rows around the viewport are in the DOM, so a session with thousands of messages opens at once; rows keep their element, so an opened tool card stays open when it scrolls back in. Streaming text is re-rendered at most every 100 ms and the list follows the end until you scroll up.
@@ -123,12 +127,12 @@ Colours come from `--ra-*` custom properties on `.ra-chat`, so a host can restyl
 
 | | |
 |---|---|
-| `createAgent(client, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `dequeue`, `clearQueue`, `abort`, `rewind`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id` |
+| `createAgent(client, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `dequeue`, `clearQueue`, `abort`, `rewind`, `configure`, `settings`, `limits`, `context`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id` |
 | `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `mountOf`, `isSkillPath`, `getData`, `putData`, `skills`, `skillBody`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` (deleting a session saved from a directory of its own id drops that directory too) |
 | Tools | `defineTool`, `fileTools`, `sandboxTool`, `runInSandbox`, `askUserTool` |
 | UI | `domUI`, `nullUI`; implement `AgentUI` for your own |
 | Files | `memoryFS`; implement `AgentFS` to mount your document |
-| Helpers | `parseSkill`, `listTemplates`, `expandSlash`, `applyEdits`, `planCut`, `collectCompletion`, `buildSystemPrompt`, `estimateTokens`, `validateSchema` |
+| Helpers | `buildZip`, `listZip`, `readZipEntry`, `parseSkill`, `listTemplates`, `expandSlash`, `applyEdits`, `planCut`, `collectCompletion`, `buildSystemPrompt`, `estimateTokens`, `validateSchema` |
 
 `examples/agent-demo.html` is a page to try everything against a local backend or a key. Tests: `npm test` (node:test on the built output, fetch mocked).
 

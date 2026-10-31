@@ -37,7 +37,7 @@ export { parseSkill, parseFrontmatter } from "./skills.js";
 export { collectCompletion, type CollectedCompletion } from "./completion.js";
 export { buildSystemPrompt, estimateTokens, fitBudget, groupTurns } from "./context.js";
 export { validateSchema } from "./json-schema.js";
-export { listZip, readZipEntry, type ZipEntry, type Inflate } from "./zip.js";
+export { listZip, readZipEntry, buildZip, type ZipEntry, type Inflate } from "./zip.js";
 export type {
   AgentEventMap,
   AgentEventName,

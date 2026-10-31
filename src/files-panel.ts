@@ -7,10 +7,11 @@
 import type { Workspace } from "./workspace.js";
 import type { FileStat } from "./types.js";
 import { h, I, modalConfirm, modalInput, downloadBlob } from "./dom.js";
+import { buildZip } from "./zip.js";
 
 export interface FilesStrings {
   files: string; upload: string; newFile: string; refresh: string; close: string; save: string; download: string; delete: string; cancel: string; ok: string;
-  confirmDeleteFile: string; newFilePath: string; noPreview: string; changedByAgent: string; noFiles: string; discard: string; saved: string; pickFile: string; folder: string;
+  confirmDeleteFile: string; newFilePath: string; noPreview: string; changedByAgent: string; noFiles: string; discard: string; saved: string; pickFile: string; folder: string; downloadZip: string; zipping: string;
 }
 
 export interface FilesPanelOptions {
@@ -95,10 +96,11 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   const ibtn = (icon: string, label: string, onClick: () => void) => { const b = h("button", "ra-ib"); b.type = "button"; b.innerHTML = icon; b.title = label; b.setAttribute("aria-label", label); b.addEventListener("click", onClick); return b; };
   const fileInput = h("input"); fileInput.type = "file"; fileInput.multiple = true; fileInput.style.display = "none";
   const uploadBtn = ibtn(I.upload(), t.upload, () => fileInput.click());
+  const zipBtn = ibtn(I.download(), t.downloadZip, () => void downloadFolder("/"));
   const newBtn = ibtn(I.filePlus(14), t.newFile, () => void newFile());
   const refreshBtn = ibtn(I.refresh(), t.refresh, () => void refresh());
   const closeBtn = ibtn(I.x(14), t.close, () => void close());
-  head.append(title, h("span", "ra-sp"), uploadBtn, newBtn, refreshBtn, closeBtn);
+  head.append(title, h("span", "ra-sp"), zipBtn, uploadBtn, newBtn, refreshBtn, closeBtn);
   const tree = h("div", "ra-tree");
   const editor = h("div", "ra-ed"); editor.style.display = "none";
   const edHead = h("div", "ra-edh");
@@ -142,7 +144,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
       row.append(chev, icon, name);
       if (changedPaths.has(c.path)) { const dot = h("span", "ra-dot"); dot.title = t.changedByAgent; row.append(dot); }
       const acts = h("span", "ra-fra");
-      if (!c.folder) acts.append(ibtn(I.download(13), t.download, () => void download(c.path)));
+      acts.append(c.folder ? ibtn(I.download(13), t.downloadZip, () => void downloadFolder(c.path)) : ibtn(I.download(13), t.download, () => void download(c.path)));
       acts.append(ibtn(I.trash(12), t.delete, () => void remove(c.path)));
       row.append(acts);
       row.addEventListener("click", (e) => {
@@ -233,6 +235,21 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     try {
       const r = await ws.read(path);
       downloadBlob(basename(path), r.data, r.contentType);
+    } catch (err) { notify((err as Error).message, "error"); }
+  };
+
+  /** A folder (or the whole directory) as a zip, built in the browser. */
+  const downloadFolder = async (path: string) => {
+    if (!ws) return;
+    try {
+      const prefix = path === "/" ? "/" : path + "/";
+      const files = (await ws.list(path)).filter((f) => f.path.startsWith(prefix));
+      if (!files.length) { notify(t.noFiles, "warning"); return; }
+      notify(`${t.zipping} ${files.length}…`);
+      const entries = [];
+      for (const f of files) { const r = await ws.read(f.path); entries.push({ path: f.path.slice(prefix.length), data: r.data, mtime: f.mtime }); }
+      const zip = await buildZip(entries);
+      downloadBlob(`${path === "/" ? (ws.id || "directory") : basename(path)}.zip`, zip, "application/zip");
     } catch (err) { notify((err as Error).message, "error"); }
   };
 

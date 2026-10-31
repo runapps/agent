@@ -100,8 +100,7 @@
   <section>
     <h4>模型与外观</h4>
     <div class="card">
-      <label class="f">Model<select id="model"><option value="">(platform default)</option></select></label>
-      <div id="limits" class="muted"></div>
+      <div class="muted">模型、最大轮数、单次输出上限、工具权限在聊天右上角的 ⚙ 设置里改，按应用记住。</div>
       <div class="row" style="gap:8px">
         <label class="f" style="flex:1">Theme<select id="theme"><option>auto</option><option>light</option><option>dark</option></select></label>
         <label class="f" style="flex:1">Locale<select id="locale"><option value="">(document)</option><option>zh</option><option>en</option></select></label>
@@ -143,30 +142,12 @@ if (params.get("local")) {
   client.auth?.onTokenChange?.(() => showUser());
 }
 async function showUser() {
-  try { const me = await client.me(); $("who").textContent = `已登录：${me.name || me.email || me.id}`; await loadModels(); }
+  try { const me = await client.me(); $("who").textContent = `已登录：${me.name || me.email || me.id}`; }
   catch { $("who").textContent = "未登录"; }
 }
-let MODELS = [];
-const k = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
-// The limits the agent will use for the chosen model: its context window and the most one reply can hold (max_tokens).
-function showLimits() {
-  const m = MODELS.find((x) => x.id === ($("model").value || MODELS.find((y) => y.is_default)?.id));
-  $("limits").textContent = m ? `上下文 ${k(m.max_input_tokens)} · 单次输出最多 ${k(m.max_tokens)} tokens（agent 调用时就用这个 max_tokens）` : "";
-}
-async function loadModels() {
-  const sel = $("model"); const cur = sel.value;
-  MODELS = await client.models.list({ capability: "text" });
-  const def = MODELS.find((m) => m.is_default);
-  // The first entry is the platform default, named, so you can see which model you get without choosing.
-  sel.replaceChildren(new Option(def ? `默认 · ${def.id}` : "(platform default)", ""));
-  for (const m of MODELS) sel.append(new Option(`${m.id}${m.is_default ? " ★" : ""} · ${k(m.max_input_tokens)} / ${k(m.max_tokens)}`, m.id));
-  sel.value = cur;
-  showLimits();
-}
-$("model").onchange = showLimits;
 $("signin").onclick = async () => { try { await client.signIn(); } catch (e) { alert("登录未完成：" + e.message); } showUser(); };
 $("signout").onclick = () => { client.signOut(); showUser(); };
-if (params.get("local")) loadModels().catch((e) => console.warn("models", e)); else if (client.user) showUser();
+if (!params.get("local") && client.user) showUser();
 
 /* ---- directories: one per session (the chat opens one under each session's id), or one shared by every session ---- */
 const dirMode = () => localStorage.getItem("lab_dirmode") || "session";
@@ -189,7 +170,6 @@ async function mount() {
   chat = RunAppsAgent.renderChat($("agent"), {
     client,
     workspace: workspaceFor,
-    model: $("model").value || undefined,
     theme: $("theme").value,
     locale: $("locale").value || undefined,
     appName: "Agent Chat Lab",
