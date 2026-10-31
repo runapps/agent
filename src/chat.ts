@@ -102,10 +102,10 @@ export interface ChatHandle {
 
 const STRINGS = {
   en: {
-    assistant: "Assistant", placeholder: "Ask the agent to do something…  type / for commands", placeholderBusy: "Running: Enter steers, Alt+Enter queues a follow-up",
+    assistant: "Assistant", placeholder: "Ask the agent to do something…  type / for commands", placeholderBusy: "↵ to steer the current task, {mod}↵ to queue for later",
     send: "Send", stop: "Stop", steer: "Steer", followUp: "Follow-up", steerTip: "Insert into the current task", followUpTip: "Queue after the current task",
     queued: "Queued messages", clear: "Clear queue", thinking: "Thinking…", thought: "Thought process",
-    enter: "send", newline: "new line", empty: "Start a conversation", history: "History", newChat: "New chat", noSessions: "No saved conversations",
+    enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "History", newChat: "New chat", noSessions: "No saved conversations",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
     other: "Other…", typeAnswer: "Type your answer", args: "Arguments", result: "Result", error: "Error", declined: "declined", blocked: "blocked", skipped: "skipped",
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Stopped after the maximum number of turns.", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
@@ -118,10 +118,10 @@ const STRINGS = {
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
   },
   zh: {
-    assistant: "助手", placeholder: "让 agent 做点什么…  输入 / 查看命令", placeholderBusy: "运行中：Enter 插入指令 (steer)，Alt+Enter 排队 (follow-up)",
+    assistant: "助手", placeholder: "让 agent 做点什么…  输入 / 查看命令", placeholderBusy: "↵ 插入当前任务，{mod}↵ 排队到之后",
     send: "发送", stop: "停止", steer: "Steer", followUp: "Follow-up", steerTip: "插入到当前任务 (steer)", followUpTip: "排到当前任务之后 (follow-up)",
     queued: "排队中的消息", clear: "清空队列", thinking: "思考中…", thought: "思考过程",
-    enter: "发送", newline: "换行", empty: "开始对话", history: "历史", newChat: "新对话", noSessions: "还没有保存的对话",
+    enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "历史", newChat: "新对话", noSessions: "还没有保存的对话",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
     other: "其他…", typeAnswer: "请输入", args: "参数", result: "结果", error: "错误", declined: "已拒绝", blocked: "已拦截", skipped: "已跳过",
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "达到最大轮数，已停止。", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
@@ -332,7 +332,7 @@ const CSS = `
 .ra-box:focus-within{border-color:var(--ra-p-solid)}
 .ra-box textarea{resize:none;height:96px;overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
 .ra-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;min-height:32px}
-.ra-bar .ra-hint{font-size:12px;color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra-bar .ra-hint{font-size:12px;color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.01em}
 .ra-kbd{display:inline-block;font:11px/1.4 ${MONO};border:1px solid var(--ra-border);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--ra-muted);color:var(--ra-fg)}
 .ra-bar .ra-acts{display:flex;gap:6px;align-items:center}
 .ra-chat .ra-send{width:32px;height:32px;border-radius:50%;background:var(--ra-p-solid);color:#fff;display:inline-flex;align-items:center;justify-content:center}
@@ -703,7 +703,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const fileInput = h("input"); fileInput.type = "file"; fileInput.multiple = true; fileInput.style.display = "none";
   if (attachOpt === false) attachBtn.style.display = "none";
   const hint = h("span", "ra-hint");
-  hint.innerHTML = `<span class="ra-kbd">Enter</span> ${escapeHTML(t.enter)} · <span class="ra-kbd">Shift</span>+<span class="ra-kbd">Enter</span> ${escapeHTML(t.newline)}`;
+  // ⌘ on a Mac, Ctrl elsewhere (the symbols read like the app's own placeholder: "↵ to send, ⌘↵ to queue").
+  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test((navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? "");
+  const MOD = isMac ? "⌘" : "Ctrl+";
+  const fill = (x: string) => x.replace("{mod}", MOD).replace("{enter}", t.enter).replace("{newline}", t.newline);
+  hint.textContent = fill(t.hintIdle);
   const acts = h("div", "ra-acts");
   const sendBtn = h("button", "ra-send"); sendBtn.type = "button"; sendBtn.innerHTML = I.send(); sendBtn.setAttribute("aria-label", t.send);
   const steerBtn = h("button", "ra-btn xs subtle"); steerBtn.type = "button"; steerBtn.innerHTML = I.corner() + escapeHTML(t.steer); steerBtn.title = t.steerTip;
@@ -1111,7 +1115,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   /* --- composer --- */
   const setBusy = (busy: boolean) => {
     root.dataset.busy = busy ? "1" : "";
-    ta.placeholder = busy ? t.placeholderBusy : (placeholder ?? t.placeholder);
+    ta.placeholder = busy ? fill(t.placeholderBusy) : (placeholder ?? t.placeholder);
+    hint.textContent = fill(busy ? t.hintBusy : t.hintIdle);
     sendBtn.style.display = busy ? "none" : "";
     steerBtn.style.display = fuBtn.style.display = stopBtn.style.display = busy ? "" : "none";
     renderQueue();
@@ -1259,7 +1264,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     }
     if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
     e.preventDefault();
-    void send(agent?.busy ? (e.altKey ? "followUp" : "steer") : "prompt");
+    // ⌘↵ (Mac) / Ctrl↵ (elsewhere) queues a follow-up while the agent runs; Alt↵ still works.
+    const queueKey = isMac ? e.metaKey : e.ctrlKey;
+    void send(agent?.busy ? (queueKey || e.altKey ? "followUp" : "steer") : "prompt");
   });
   ta.addEventListener("blur", () => { cmds.style.display = "none"; });
   ta.addEventListener("focus", () => renderCmds());
