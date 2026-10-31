@@ -26,7 +26,6 @@ import { debugPanel } from "./debug-panel.js";
 import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
 import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } from "./chat-theme.js";
 import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, Skill, ToolStatus } from "./types.js";
-import type { SkillZipInfo } from "./skill-zips.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   /** The client the agent calls the gateway with (required unless `agent` is given). */
@@ -166,9 +165,10 @@ const STRINGS = {
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved",
     skills: "Skills", uploadZip: "Upload zip", noSkills: "No skills yet. Upload a zip: SKILL.md at its root, or one folder per skill.", useSkill: "Use it: puts /skill:name in the composer", skillFolder: "folder", manualOnly: "manual only",
     skillsInstalled: "Installed: {names}", skillRemoved: "Removed {name}", notZip: "not a zip file",
-    confirmDeleteZip: "Delete {zip}? All of its skills go: {names}. No conversation will have them any more.", confirmDeleteSkillZip: "Delete the skill {name}? No conversation will have it any more.", confirmDeleteSkill: "Delete the skill {name}? Its folder in this directory is deleted.",
-    skillsHint: "Zips are read in place (nothing unpacked) and every conversation of the app has them, read-only. Folders the agent writes under {dir} belong to this directory. Drop a zip here to install it.",
-    waiting: "Thinking", compactingNow: "Compacting the context", builtinSkill: "built-in", confirmDeleteBuiltin: "Delete the built-in skill {name}? The app ships it; it will not come back by itself.", builtinNoReturn: "They ship with the app and will not come back by themselves.",
+    confirmDeleteZip: "Delete {zip}? All of its skills go: {names}. No conversation will have them any more.", confirmDeleteSkill: "Delete the skill {name} ({path})? No conversation will have it any more.",
+    skillsHint: "Built-in skills come with the app and cannot be removed. Your skills — zips you upload and skills the agent writes — are kept in {user} and shared by every conversation. {dir} is generated from both when the agent loads, read-only. Drop a zip here to install it.",
+    skillsHintNoUser: "These skills come with the app. {dir} is generated from them when the agent loads, read-only.",
+    waiting: "Thinking", compactingNow: "Compacting the context", builtinSkill: "built-in",
     today: "Today", yesterday: "Yesterday",
     worked: "Worked for {t}", workedNoTime: "Work", sec: "{s}s", minSec: "{m}m {s}s", hourMin: "{h}h {m}m",
     command: "Command", user: "User", compacting: "Compacting the context…", nothingToCompact: "Nothing to compact yet", busyCmd: "Wait for the current task to finish, or stop it, first", nothingToExport: "Nothing to export yet", nothingToContinue: "Nothing to continue",
@@ -202,9 +202,10 @@ const STRINGS = {
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存",
     skills: "技能", uploadZip: "上传 zip", noSkills: "还没有技能。上传一个 zip：根目录有 SKILL.md，或每个技能一个文件夹。", useSkill: "使用：在输入框填入 /skill:名称", skillFolder: "文件夹", manualOnly: "仅手动",
     skillsInstalled: "已安装：{names}", skillRemoved: "已删除 {name}", notZip: "不是 zip 文件",
-    confirmDeleteZip: "删除 {zip}？其中的技能都会删除：{names}。所有对话都不再能用。", confirmDeleteSkillZip: "删除技能 {name}？所有对话都不再能用。", confirmDeleteSkill: "删除技能 {name}？会删除当前目录里它的文件夹。",
-    skillsHint: "zip 直接读取（不解压），应用里的所有对话共用，只读。智能体在 {dir} 下写的文件夹只属于当前目录。把 zip 拖到这里也能安装。",
-    waiting: "思考中", compactingNow: "正在压缩上下文", builtinSkill: "应用自带", confirmDeleteBuiltin: "删除应用自带的技能 {name}？删除后不会自动恢复。", builtinNoReturn: "这些是应用自带的，删除后不会自动恢复。",
+    confirmDeleteZip: "删除 {zip}？里面的技能会一起删除：{names}。所有对话都不能再用。", confirmDeleteSkill: "删除技能 {name}（{path}）？所有对话都不能再用。",
+    skillsHint: "应用自带的技能不能删除。你上传的 zip 和智能体写的技能保存在 {user}，所有对话共用。{dir} 是加载时由这两部分生成的只读目录。把 zip 拖到这里也能安装。",
+    skillsHintNoUser: "这些技能是应用自带的。{dir} 是加载时由它们生成的只读目录。",
+    waiting: "思考中", compactingNow: "正在压缩上下文", builtinSkill: "应用自带",
     today: "今天", yesterday: "昨天",
     worked: "已工作 {t}", workedNoTime: "工作过程", sec: "{s}秒", minSec: "{m}分{s}秒", hourMin: "{h}小时{m}分",
     command: "命令", user: "用户", compacting: "正在压缩上下文…", nothingToCompact: "暂时没有可压缩的内容", busyCmd: "请等当前任务结束（或先停止）", nothingToExport: "还没有可导出的内容", nothingToContinue: "没有可继续的内容",
@@ -2001,12 +2002,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     menu = mine;
     root.append(mine);
     let skills: Skill[] = [];
-    let zips: SkillZipInfo[] = [];
-    try { [skills, zips] = await Promise.all([ws.skills(), ws.skillZips()]); } catch (err) { ui.notify((err as Error).message, "error"); }
+    try { skills = await ws.skills(); } catch (err) { ui.notify((err as Error).message, "error"); }
     if (menu !== mine) return;
     const head = h("div", "ra-skh");
     const up = h("button", "ra-btn xs solid"); up.type = "button"; up.innerHTML = I.upload(13) + `<span>${escapeHTML(t.uploadZip)}</span>`;
     up.addEventListener("click", () => skillInput.click());
+    if (!ws.userSkillsDir) up.style.display = "none";
     head.append(h("span", "", skills.length ? `${t.skills} · ${skills.length}` : t.skills), up);
     mine.append(head);
     if (!skills.length) mine.append(h("div", "ra-none", t.noSkills));
@@ -2014,31 +2015,29 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const row = h("div", "ra-mi");
       const b = h("button"); b.type = "button"; b.title = t.useSkill;
       const name = h("span", "ra-mt");
-      const zinfo = s.zip ? zips.find((x) => x.name === s.zip) : undefined;
-      name.append(h("span", "ra-mtt", s.name), h("span", "ra-skb", zinfo?.builtin ? t.builtinSkill : s.zip ? "zip" : t.skillFolder));
+      const isZip = !!s.from && /\.zip$/i.test(s.from);
+      name.append(h("span", "ra-mtt", s.name), h("span", "ra-skb", s.builtin ? t.builtinSkill : isZip ? "zip" : t.skillFolder));
       if (s.disableModelInvocation) name.append(h("span", "ra-skb", t.manualOnly));
       b.append(name, h("small", "", s.description));
       // Using a skill: it goes into the composer as /skill:name.
       b.addEventListener("click", () => { closeMenu(); ta.value = `/skill:${s.name} `; ta.focus(); renderCmds(); });
       const act = (icon: string, title: string, fn: () => void, cls = "ra-x ra-ia") => { const x = h("button", cls); x.type = "button"; x.innerHTML = icon; x.title = title; x.setAttribute("aria-label", title); x.addEventListener("click", (e) => { e.stopPropagation(); fn(); }); return x; };
-      const view = act(I.eye(), t.open, () => { closeMenu(); openPath(s.path); });
-      const dl = act(I.download(), t.download, () => {
-        if (s.zip) void ws.skillZip(s.zip).then((z) => { if (z) downloadBlob(`${s.zip}.zip`, z, "application/zip"); });
-        else void panel.downloadFolder(s.dir);
-      });
+      // A folder of the user's opens where it can be edited; anything else opens read-only in the generated folder.
+      const view = act(I.eye(), t.open, () => { closeMenu(); openPath(s.from && !isZip ? `${s.from}/SKILL.md` : s.path); });
+      const dl = act(I.download(), t.download, () => { if (isZip) void panel.download(s.from!); else void panel.downloadFolder(s.from ?? s.dir); });
       const del = act(I.trash(), t.delete, async () => {
         closeMenu();
-        const z = s.zip ? zips.find((x) => x.name === s.zip) : undefined;
-        let msg = z && z.folders.length > 1 ? t.confirmDeleteZip.replace("{zip}", `${z.name}.zip`).replace("{names}", z.folders.join("、"))
-          : s.zip ? t.confirmDeleteSkillZip.replace("{name}", s.name) : t.confirmDeleteSkill.replace("{name}", s.name);
-        if (z?.builtin) msg = z.folders.length > 1 ? `${msg} ${t.builtinNoReturn}` : t.confirmDeleteBuiltin.replace("{name}", s.name);
+        // A zip of several skills goes as a whole: say which go with it.
+        const packed = isZip ? skills.filter((x) => x.from === s.from).map((x) => x.name) : [s.name];
+        const msg = packed.length > 1 ? t.confirmDeleteZip.replace("{zip}", s.from!.replace(/^.*\//, "")).replace("{names}", packed.join("、")) : t.confirmDeleteSkill.replace("{name}", s.name).replace("{path}", s.from ?? "");
         if (!(await modalConfirm(root, t.delete, msg, { danger: true, ok: t.delete, cancel: t.cancel }))) return;
-        try { await ws.removeSkill(s.name); await refreshCommands(); ui.notify(t.skillRemoved.replace("{name}", s.name)); } catch (err) { ui.notify((err as Error).message, "error"); }
+        try { await ws.removeSkill(s.name); await refreshCommands(); ui.notify(t.skillRemoved.replace("{name}", packed.join(", "))); } catch (err) { ui.notify((err as Error).message, "error"); }
       }, "ra-x");
+      if (s.builtin || !s.from?.startsWith((ws.userSkillsDir ?? "\u0000") + "/")) del.style.display = "none";
       row.append(b, view, dl, del);
       mine.append(row);
     }
-    mine.append(h("div", "ra-skf", t.skillsHint.replace("{dir}", ws.skillsDir)));
+    mine.append(h("div", "ra-skf", (ws.userSkillsDir ? t.skillsHint.replace("{user}", ws.userSkillsDir) : t.skillsHintNoUser).replace("{dir}", ws.skillsDir)));
     // A zip dropped on the menu installs like the upload button.
     mine.addEventListener("dragover", (e) => { if (e.dataTransfer?.types.includes("Files")) { e.preventDefault(); e.stopPropagation(); mine.classList.add("drop"); } });
     mine.addEventListener("dragleave", () => mine.classList.remove("drop"));

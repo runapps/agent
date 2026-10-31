@@ -102,7 +102,7 @@ test("parseSkill — frontmatter, folder fallback, folded description, BOM/CRLF,
   assert.equal(parseSkill(SKILLS["secret/SKILL.md"], "/skills/secret/SKILL.md").skill.disableModelInvocation, true);
 });
 
-test("workspace — a skills zip is read in place under /.agent/skills (nothing unpacked), finds skills, persists work files", async () => {
+test("workspace — the app's skills zip is read in place under /.agent/skills: found, read-only, not stored; work files persist", async () => {
   const idb = new IDBFactory();
   const zip = makeZip(SKILLS);
   const { fetch, hits } = zipFetch(zip);
@@ -111,33 +111,36 @@ test("workspace — a skills zip is read in place under /.agent/skills (nothing 
   assert.equal(ws.id, "s1");
   const skills = await ws.skills();
   assert.deepEqual(skills.map((s) => s.name), ["chart", "pdf-tools", "secret"]);
+  assert.equal(skills[0].builtin, true);
   assert.equal((await ws.readText("/.agent/skills/pdf-tools/references/formats.md")), "PDF 1.7 …");
-  // Files outside the skill folders are not exposed; a skill's files are read-only; nothing went into the directory's own files.
+  // Files outside the skill folders are not exposed; the generated folder is read-only.
   assert.equal(await ws.exists("/.agent/skills/logo.png"), false);
   await assert.rejects(ws.write("/.agent/skills/pdf-tools/x.md", "x"), /read-only/);
+  await assert.rejects(ws.write("/.agent/skills/new/SKILL.md", "x"), /read-only/);
   assert.equal(ws.isReadOnly("/.agent/skills/pdf-tools/SKILL.md"), true);
-  assert.equal((await ws.skills()).find((s) => s.name === "pdf-tools").zip, "skills");
-  assert.deepEqual((await ws.skillZips()).map((z) => [z.name, z.folders.join(",")]), [["skills", "broken,chart,pdf-tools,secret"]]);
+  await assert.rejects(ws.removeSkill("pdf-tools"), /comes with the app/);
   assert.equal(ws.skillsDir, "/.agent/skills");
+  assert.equal(ws.userSkillsDir, "/skills");
   assert.match(ws.describe(), /\/\.agent\/skills\/ — skills/);
+  assert.match(ws.describe(), /\/skills\/ — the user's skills/);
   await ws.write("/notes/../notes/today.md", "hi");
   assert.equal(await ws.readText("/notes/today.md"), "hi");
   assert.equal((await ws.list("/notes")).length, 1);
   const body = await ws.skillBody("pdf-tools");
   assert.match(body.body, /references\/formats.md/);
 
-  // A second open of the same id sees the work file and, within a minute, does not ask for the zip again.
+  // Another directory of the page sees the work file only in its own id; the zip is fetched once per page.
   const ws2 = await Workspace.open(null, { id: "s1", project: "demo", skills: "/skills.zip", fetch, inflate, indexedDB: idb });
   assert.equal(await ws2.readText("/notes/today.md"), "hi");
   assert.equal(hits.get, 1);
-  assert.equal(hits.notModified, 0);
   await ws2.refreshSkills();
-  assert.equal(hits.notModified, 1, "an explicit refresh asks (and gets 304)");
-  // A different id is a different tree.
+  assert.equal(hits.get, 2, "an explicit refresh fetches again");
   const ws3 = await Workspace.open(null, { id: "s2", project: "demo", skills: "/skills.zip", fetch, inflate, indexedDB: idb });
   assert.equal(await ws3.exists("/notes/today.md"), false);
-  assert.equal(ws3.dbName, "__runapps_agent_ws:demo");
-  assert.equal(ws3.id, "s2");
+  assert.deepEqual((await ws3.skills()).map((s) => s.name), ["chart", "pdf-tools", "secret"]);
+  // Nothing of the zip was stored: a workspace without the option has no skills.
+  const bare = await Workspace.open(null, { id: "s1", project: "demo", indexedDB: idb });
+  assert.deepEqual(await bare.skills(), []);
 });
 
 test("workspace — a new zip version replaces the old files, removing what is gone", async () => {
@@ -253,42 +256,57 @@ test("workspace — reading a folder says so and read_file lists it", async () =
   assert.match(await tools.read_file.execute({ path: "/doc/" }, ctx), /is a folder with 1 file:\n\/doc\/p.txt/);
 });
 
-test("workspace — skills are files in the directory: hand-written ones are found, installSkill adds a zip, removeSkill deletes the folder, skillsDir is configurable", async () => {
-  const ws = await Workspace.open(null, { id: "dirskills", indexedDB: null });
-  await ws.write("/.agent/skills/hand/SKILL.md", "---\ndescription: Hand-written\n---\nDo it by hand.");
-  assert.deepEqual((await ws.skills()).map((s) => s.name), ["hand"]);
+test("workspace — the user's skills in /skills: folders and zips show up in the generated folder; install, unpack, replace, remove; skillsDir is configurable", async () => {
+  const ws = await Workspace.open(null, { id: "dirskills", project: "userskills", indexedDB: null, inflate });
+  await ws.write("/skills/hand/SKILL.md", "---\ndescription: Hand-written\n---\nDo it by hand.");
+  const [hand] = await ws.skills();
+  assert.deepEqual([hand.name, hand.path, hand.from, hand.builtin], ["hand", "/.agent/skills/hand/SKILL.md", "/skills/hand", undefined]);
   assert.equal((await ws.skillBody("hand")).body, "Do it by hand.");
+  assert.equal(await ws.readText("/.agent/skills/hand/SKILL.md"), "---\ndescription: Hand-written\n---\nDo it by hand.");
 
   const pack = makeZip({ "SKILL.md": "---\ndescription: From a file input\n---\nzip body", "scripts/a.js": "1" });
   const installed = await ws.installSkill(pack, { name: "uploaded" });
-  assert.deepEqual(installed.map((s) => s.name), ["uploaded"]);
-  assert.equal(await ws.exists("/.agent/skills/uploaded/scripts/a.js"), true);
+  assert.deepEqual(installed.map((s) => [s.name, s.from]), [["uploaded", "/skills/uploaded.zip"]]);
+  assert.equal(await ws.exists("/skills/uploaded.zip"), true);
+  assert.equal(await ws.readText("/.agent/skills/uploaded/scripts/a.js"), "1");
   assert.deepEqual((await ws.skills()).map((s) => s.name), ["hand", "uploaded"]);
 
-  // Installing the same pack again replaces it (a file gone from the zip goes away).
+  // Installing the same name again replaces it (a file gone from the zip goes away).
   await ws.installSkill(makeZip({ "SKILL.md": "---\ndescription: v2\n---\n" }), { name: "uploaded" });
   assert.equal(await ws.exists("/.agent/skills/uploaded/scripts/a.js"), false);
   assert.equal((await ws.skills()).find((s) => s.name === "uploaded").description, "v2");
 
   // Editing a SKILL.md is visible at once; an invalid one (no description) drops out.
-  await ws.write("/.agent/skills/hand/SKILL.md", "no frontmatter");
+  await ws.write("/skills/hand/SKILL.md", "no frontmatter");
   assert.deepEqual((await ws.skills()).map((s) => s.name), ["uploaded"]);
 
   assert.equal(await ws.removeSkill("uploaded"), true);
   assert.equal(await ws.removeSkill("uploaded"), false);
-  assert.equal(await ws.exists("/.agent/skills/uploaded/SKILL.md"), false);
+  assert.equal(await ws.exists("/skills/uploaded.zip"), false);
+  await assert.rejects(ws.installSkill(makeZip({ "readme.md": "no skill" }), { name: "bad" }), /no SKILL.md/);
 
-  // Files outside the skills folder are "work"; clearWork keeps the skills.
-  await ws.write("/.agent/skills/keep/SKILL.md", "---\ndescription: Keep\n---\n");
+  // unpack: the zip's skill becomes an editable folder.
+  await ws.installSkill(makeZip({ "SKILL.md": "---\ndescription: Editable\n---\nv1" }), { name: "edit-me", unpack: true });
+  assert.equal(await ws.exists("/skills/edit-me/SKILL.md"), true);
+  await ws.write("/skills/edit-me/SKILL.md", "---\ndescription: Edited\n---\nv2");
+  assert.equal((await ws.skills()).find((s) => s.name === "edit-me").description, "Edited");
+  assert.equal(await ws.removeSkill("edit-me"), true);
+  assert.equal(await ws.exists("/skills/edit-me/SKILL.md"), false);
+
+  // clearWork keeps the user's skills.
+  await ws.write("/skills/keep/SKILL.md", "---\ndescription: Keep\n---\n");
   await ws.write("/notes.md", "x");
   await ws.clearWork();
   assert.equal(await ws.exists("/notes.md"), false);
-  assert.equal(await ws.exists("/.agent/skills/keep/SKILL.md"), true);
+  assert.equal(await ws.exists("/skills/keep/SKILL.md"), true);
 
-  const custom = await Workspace.open(null, { id: "custom", indexedDB: null, skillsDir: "/.claude/skills", skills: "/s.zip", fetch: zipFetch(makeZip({ "z/SKILL.md": "---\ndescription: Z\n---\n" })).fetch, inflate });
+  const custom = await Workspace.open(null, { id: "custom", project: "userskills2", indexedDB: null, skillsDir: "/.claude/skills", skills: "/s.zip", fetch: zipFetch(makeZip({ "z/SKILL.md": "---\ndescription: Z\n---\n" })).fetch, inflate });
   assert.equal(await custom.exists("/.claude/skills/z/SKILL.md"), true);
   assert.deepEqual((await custom.skills()).map((s) => s.name), ["z"]);
   assert.match(fileTools(custom)[0].description, /\/\.claude\/skills holds the skills/);
+  assert.throws(() => new Workspace(null, { userSkillsDir: "/.claude/skills/mine", skillsDir: "/.claude/skills" }), /apart from skillsDir/);
+  const none = await Workspace.open(null, { id: "none", project: "userskills3", indexedDB: null, userSkillsDir: false });
+  await assert.rejects(none.installSkill(pack), /no userSkillsDir/);
 });
 
 test("workspace — `dir` makes an AgentFS the directory itself: files, skills zips and mounts all land there", async () => {
@@ -314,57 +332,67 @@ test("workspace — `dir` makes an AgentFS the directory itself: files, skills z
   await assert.rejects(ro.write("/y.md", "y"), /read-only/);
 });
 
-test("workspace — one library zip for the whole app: another skillsDir mounts it there; a copy unpacked into a directory before is removed", async () => {
+test("workspace — skills from before the generated folder move: a directory's own skill files go to /skills, copies of the app's zip are dropped, old library uploads become /skills zips", async () => {
   const idb = new IDBFactory();
   const zip = makeZip({ "one/SKILL.md": "---\ndescription: One\n---\n" });
-  const { fetch, hits } = zipFetch(zip);
-  // The old layout: the source's files unpacked into the directory, recorded under skills:<source>.
-  const old = await Workspace.open(null, { id: "mv", indexedDB: idb, fetch, inflate });
-  await old.installSkill("/s.zip", { unpack: true });
-  assert.equal(await old.exists("/.agent/skills/s/one/SKILL.md") || await old.exists("/.agent/skills/one/SKILL.md"), true);
-  const a = await Workspace.open(null, { id: "mv", skills: "/s.zip", skillsDir: "/skills", fetch, inflate, indexedDB: idb });
-  assert.equal(await a.exists("/skills/one/SKILL.md"), true);
-  assert.equal((await a.list("/.agent")).length, 0, "the unpacked copy is gone");
-  const b = await Workspace.open(null, { id: "other", skills: "/s.zip", fetch, inflate, indexedDB: idb });
-  assert.equal(await b.exists("/.agent/skills/one/SKILL.md"), true);
-  assert.equal(hits.get, 2, "fetched for the old unpack and once for the library");
+  const seed = await Workspace.open(null, { id: "seed", project: "mig", indexedDB: idb, inflate });
+  seed.close();
+  await new Promise((r) => setTimeout(r, 10));
+  // The old layout, written straight into the database.
+  await new Promise((resolve, reject) => {
+    const req = idb.open("__runapps_agent_ws:mig");
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction(["files", "meta"], "readwrite");
+      const files = tx.objectStore("files"), meta = tx.objectStore("meta");
+      files.put({ space: "old", path: "/.agent/skills/hand/SKILL.md", data: "---\ndescription: Hand\n---\n", mtime: 1, layer: "work" });
+      files.put({ space: "old", path: "/.agent/skills/one/SKILL.md", data: "---\ndescription: One (old copy)\n---\n", mtime: 1, layer: "skills", source: "skills:/s.zip" });
+      meta.put({ space: "old", key: "skills:/s.zip", value: { files: ["/.agent/skills/one/SKILL.md"] } });
+      meta.delete(["\u0000skills", "migrated:2"]);
+      meta.put({ space: "\u0000skills", key: "zip:up-pack", value: { name: "up-pack", bytes: makeZip({ "SKILL.md": "---\ndescription: Uploaded\n---\n" }), source: "upload", at: 1 } });
+      meta.put({ space: "\u0000skills", key: "zip:s", value: { name: "s", bytes: zip, source: "/s.zip", at: 1 } });
+      meta.put({ space: "\u0000skills", key: "removed:/x.zip", value: { at: 1 } });
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+  const ws = await Workspace.open(null, { id: "old", project: "mig", skills: "/s.zip", fetch: zipFetch(zip).fetch, inflate, indexedDB: idb });
+  assert.deepEqual((await ws.skills()).map((s) => [s.name, s.description, !!s.builtin]), [["hand", "Hand", false], ["one", "One", true], ["up-pack", "Uploaded", false]]);
+  assert.equal(await ws.exists("/skills/hand/SKILL.md"), true);
+  assert.equal(await ws.exists("/skills/up-pack.zip"), true);
+  assert.equal(await ws.exists("/skills/one/SKILL.md"), false, "the app's copy is not kept");
 });
 
-test("workspace — installSkill puts a zip in the library for every directory; removeSkill drops the zip; other workspaces follow", async () => {
+test("workspace — the user's skills are shared by every directory of the app; a change in one shows in the others", async () => {
   const idb = new IDBFactory();
   const a = await Workspace.open(null, { id: "lib-a", project: "lib", indexedDB: idb, inflate });
   const b = await Workspace.open(null, { id: "lib-b", project: "lib", indexedDB: idb, inflate });
   const seen = [];
   b.onChange((c) => seen.push(c.path));
   const got = await a.installSkill(makeZip({ "SKILL.md": "---\ndescription: Packed\n---\nbody", "ref/x.md": "X" }), { name: "My Tool" });
-  assert.deepEqual(got.map((s) => [s.name, s.zip]), [["my-tool", "my-tool"]]);
-  assert.equal(await a.readText("/.agent/skills/my-tool/ref/x.md"), "X");
+  assert.deepEqual(got.map((s) => [s.name, s.from]), [["my-tool", "/skills/my-tool.zip"]]);
   assert.deepEqual(await a.list("/.agent/skills/my-tool").then((l) => l.map((f) => f.path)), ["/.agent/skills/my-tool/ref/x.md", "/.agent/skills/my-tool/SKILL.md"]);
   await new Promise((r) => setTimeout(r, 50));
-  assert.equal(await b.exists("/.agent/skills/my-tool/SKILL.md"), true, "the other directory mounted it");
-  assert.ok(seen.includes("/.agent/skills"), "and told its listeners");
-  assert.equal((await a.skillZip("my-tool")).byteLength > 0, true);
-  await assert.rejects(a.installSkill(makeZip({ "readme.md": "no skill" }), { name: "bad" }), /no SKILL.md/);
-  assert.equal(await a.removeSkill("my-tool"), true);
-  assert.equal(await a.exists("/.agent/skills/my-tool/SKILL.md"), false);
+  assert.equal(await b.exists("/.agent/skills/my-tool/SKILL.md"), true, "the other directory has it");
+  assert.ok(seen.includes("/skills/my-tool.zip") && seen.includes("/.agent/skills"), "and told its listeners");
+  // A skill written in b (as the agent would) shows in a.
+  await b.write("/skills/notes/SKILL.md", "---\ndescription: Notes\n---\n");
   await new Promise((r) => setTimeout(r, 50));
-  assert.equal(await b.exists("/.agent/skills/my-tool/SKILL.md"), false);
-  assert.deepEqual(await a.skillZips(), []);
+  assert.deepEqual((await a.skills()).map((s) => s.name), ["my-tool", "notes"]);
+  assert.equal(await a.removeSkill("my-tool"), true);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual((await b.skills()).map((s) => s.name), ["notes"]);
 });
 
-test("workspace — a built-in skills zip the user removed stays removed on the next open, until installed again or force-refreshed", async () => {
-  const idb = new IDBFactory();
-  const { fetch, hits } = zipFetch(makeZip({ "base/SKILL.md": "---\ndescription: Base\n---\n" }));
-  const a = await Workspace.open(null, { id: "t1", project: "tomb", skills: "/s.zip", fetch, inflate, indexedDB: idb });
-  assert.equal((await a.skillZips())[0].builtin, true);
-  assert.equal(await a.removeSkill("base"), true);
-  const b = await Workspace.open(null, { id: "t2", project: "tomb", skills: "/s.zip", fetch, inflate, indexedDB: idb });
-  assert.deepEqual(await b.skills(), [], "not fetched back");
-  await b.refreshSkills();
-  assert.deepEqual(await b.skills(), [], "a plain refresh keeps it removed");
-  await b.refreshSkills(true);
-  assert.deepEqual((await b.skills()).map((s) => s.name), ["base"]);
-  assert.equal(hits.get, 2);
+test("workspace — the app's skills from Blobs and bytes; a user's skill of the same name takes its place", async () => {
+  const blob = new Blob([makeZip({ "SKILL.md": "---\ndescription: From a blob\n---\n" })]);
+  const bytes = makeZip({ "x/SKILL.md": "---\ndescription: From bytes\n---\n" });
+  const ws = await Workspace.open(null, { id: "blob", project: "blobs", indexedDB: null, inflate, skills: [{ name: "Blob Skill", data: blob }, bytes] });
+  assert.deepEqual((await ws.skills()).map((s) => [s.name, s.description, s.builtin]), [["blob-skill", "From a blob", true], ["x", "From bytes", true]]);
+  await ws.write("/skills/x/SKILL.md", "---\ndescription: Mine\n---\n");
+  const x = (await ws.skills()).find((s) => s.name === "x");
+  assert.deepEqual([x.description, x.builtin, x.from], ["Mine", undefined, "/skills/x"]);
 });
 
 test("workspace — ids are separate directories in one app database; sessions list across them; destroy drops one directory", async () => {
@@ -375,12 +403,11 @@ test("workspace — ids are separate directories in one app database; sessions l
   assert.equal(a.dbName, b.dbName);
   await a.write("/notes.md", "A's notes");
   await b.write("/notes.md", "B's notes");
-  await a.write("/.agent/skills/mine/SKILL.md", "---\ndescription: only in a\n---\n");
+  await a.write("/skills/mine/SKILL.md", "---\ndescription: written in a\n---\n");
+  await new Promise((r) => setTimeout(r, 50));  // b hears of it over the app's channel
   assert.equal(await a.readText("/notes.md"), "A's notes");
   assert.equal(await b.readText("/notes.md"), "B's notes");
-  assert.equal(await b.exists("/.agent/skills/mine/SKILL.md"), false);
-  assert.deepEqual((await b.skills()).map((s) => s.name), ["k"], "each directory sees the skills zip");
-  assert.deepEqual((await a.skills()).map((s) => s.name), ["k", "mine"]);
+  assert.deepEqual((await b.skills()).map((s) => s.name), ["k", "mine"], "every directory has the app's zip and the user's skills");
   const usage = { total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 };
   await a.sessions.save({ v: 2, id: "sess-a", messages: [{ role: "user", content: "hi from a" }], usage, droppedTurns: 0, savedAt: 2 });
   await b.sessions.save({ v: 2, id: "sess-b", messages: [{ role: "user", content: "hi from b" }], usage, droppedTurns: 0, savedAt: 3 });

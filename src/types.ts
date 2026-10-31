@@ -169,8 +169,10 @@ export interface Skill {
   dir: string;
   /** Only loaded when the app or user asks for it, never picked by the model. */
   disableModelInvocation?: boolean;
-  /** The library zip it is read from (read-only); absent for a folder of the directory. */
-  zip?: string;
+  /** It comes with the app (the workspace's `skills` option): the user cannot remove it. */
+  builtin?: boolean;
+  /** Where the user's skill is kept: its zip (`/skills/pack.zip`) or folder (`/skills/name`) in `userSkillsDir`. */
+  from?: string;
   license?: string;
   compatibility?: string;
   allowedTools?: string[];

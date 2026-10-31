@@ -1,44 +1,16 @@
-// Skills straight from their zips: a zip is kept whole (once per app, in
-// the app's database) and read in place — its central directory parsed
-// once, an entry inflated the first time it is read and kept in memory.
-// Each skill folder in it appears read-only at `<skillsDir>/<name>/`, so
-// the agent and the files panel see ordinary paths and nothing is
-// unpacked into a directory.
+// Skills straight from their zips: a zip is read in place — its central
+// directory parsed once, an entry inflated the first time it is read and
+// kept in memory — and each skill folder in it is served as a read-only
+// file tree. The workspace puts these trees, with the user's skill
+// folders, under the generated `<skillsDir>/<name>/`.
 
 import type { AgentFS, FileStat } from "./types.js";
 import { listZip, readZipEntry, type Inflate, type ZipEntry } from "./zip.js";
 
-/** A skills zip kept in the app's library. */
-export interface SkillZipRecord {
-  /** The library name: the zip's file name without `.zip`, lowercased (a skill zip with SKILL.md at its root is the skill of this name). */
-  name: string;
-  bytes: Uint8Array;
-  /** When it was stored. */
-  at: number;
-  /** Where it came from: a URL / bundle path / `files:` path (the `skills` option), or `upload`. */
-  source: string;
-  etag?: string;
-  lastModified?: string;
-  /** Last time the source was asked whether it changed. */
-  checkedAt?: number;
-}
-
-/** A skill zip as the UI lists it. */
-export interface SkillZipInfo {
-  name: string;
-  size: number;
-  at: number;
-  source: string;
-  /** The skill folders it holds (names under skillsDir). */
-  folders: string[];
-  /** It comes from the app's own `skills` option (shipped with the app). */
-  builtin?: boolean;
-}
-
 interface Parsed {
   /** Every file, by path inside the zip. */
   entries: Map<string, ZipEntry>;
-  /** Skill folders: name under skillsDir → prefix inside the zip ("" for a zip with SKILL.md at its root). */
+  /** Skill folders: name → prefix inside the zip ("" for a zip with SKILL.md at its root). */
   folders: Map<string, string>;
   bytes: Uint8Array;
   /** Decoded entries, by path inside the zip. */
@@ -75,38 +47,32 @@ export function skillFoldersOf(paths: Iterable<string>, base: string): Map<strin
   return out;
 }
 
-/** The zip, parsed (once per name and version, shared by every workspace of the page). */
-export function parseSkillZip(rec: Pick<SkillZipRecord, "name" | "bytes" | "at">, scope = ""): Parsed {
-  // Records come back from IndexedDB as new objects: the key says which zip and which version.
-  const cacheKey = `${scope}|${rec.name}@${rec.at}:${rec.bytes.byteLength}`;
-  const hit = parsedCache.get(cacheKey);
-  if (hit) return hit;
+/** The files of a zip (cleaned paths → entries), without caching. */
+export function zipFiles(bytes: Uint8Array): Map<string, ZipEntry> {
   const entries = new Map<string, ZipEntry>();
-  for (const e of listZip(rec.bytes)) {
+  for (const e of listZip(bytes)) {
     const rel = cleanEntry(e.name);
     if (rel) entries.set(rel, e);
   }
-  const parsed: Parsed = { entries, folders: skillFoldersOf(entries.keys(), rec.name), bytes: rec.bytes, cache: new Map() };
+  return entries;
+}
+
+/** The zip, parsed; `key` names this zip and version (the same key reuses the parse and its decoded entries). */
+export function parseSkillZip(name: string, bytes: Uint8Array, key: string): Parsed {
+  const hit = parsedCache.get(key);
+  if (hit && hit.bytes.byteLength === bytes.byteLength) return hit;
+  const entries = zipFiles(bytes);
+  const parsed: Parsed = { entries, folders: skillFoldersOf(entries.keys(), name), bytes, cache: new Map() };
   if (parsedCache.size >= MAX_PARSED) parsedCache.delete(parsedCache.keys().next().value!);
-  parsedCache.set(cacheKey, parsed);
+  parsedCache.set(key, parsed);
   return parsed;
 }
 
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const asText = (bytes: Uint8Array): string | null => { try { return decoder.decode(bytes); } catch { return null; } };
 
-/** A skill zip as the UI shows it. */
-export function zipInfo(rec: SkillZipRecord, parsed: Parsed): SkillZipInfo {
-  return { name: rec.name, size: rec.bytes.byteLength, at: rec.at, source: rec.source, folders: [...parsed.folders.keys()].sort() };
-}
-
 /** One skill folder of a zip as a read-only file tree (paths relative to the folder). */
-export interface SkillZipFS extends AgentFS {
-  /** The library zip it comes from. */
-  readonly zip: string;
-}
-
-export function skillZipFS(parsed: Parsed, zip: string, prefix: string, mtime: number, inflate?: Inflate): SkillZipFS {
+export function skillZipFS(parsed: Parsed, prefix: string, mtime: number, inflate?: Inflate): AgentFS {
   const files = new Map<string, string>(); // "/rel" → path inside the zip
   for (const p of parsed.entries.keys()) if (p.startsWith(prefix)) files.set("/" + p.slice(prefix.length), p);
   const stat = (rel: string): FileStat | null => {
@@ -114,8 +80,6 @@ export function skillZipFS(parsed: Parsed, zip: string, prefix: string, mtime: n
     return p ? { path: rel, size: parsed.entries.get(p)!.size, mtime } : null;
   };
   return {
-    zip,
-    description: `skill from ${zip}.zip (read-only)`,
     async list(at) {
       const base = at === "/" ? "/" : at.replace(/\/+$/, "") + "/";
       const out: FileStat[] = [];
@@ -133,5 +97,21 @@ export function skillZipFS(parsed: Parsed, zip: string, prefix: string, mtime: n
       parsed.cache.set(p, value);
       return value;
     },
+  };
+}
+
+/** The part of `fs` under `base`, as its own read-only tree. */
+export function subFS(fs: AgentFS, base: string): AgentFS {
+  return {
+    async list(at) {
+      const out: FileStat[] = [];
+      for (const f of await fs.list(at === "/" ? base : base + at)) {
+        const p = f.path.startsWith(base + "/") ? f.path.slice(base.length) : null;
+        if (p) out.push({ ...f, path: p });
+      }
+      return out;
+    },
+    async stat(at) { const s = fs.stat ? await fs.stat(base + at) : null; return s ? { ...s, path: at } : null; },
+    read: (at) => fs.read(base + at),
   };
 }

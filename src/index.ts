@@ -21,7 +21,7 @@ export function openWorkspace(client: RunApps | null, opts: WorkspaceOptions = {
   const project = opts.project ?? (client as unknown as { projectName?: string } | null)?.projectName ?? undefined;
   return Workspace.open(client, { ...opts, project });
 }
-export { Workspace, memoryFS, normalizePath, DEFAULT_SKILLS_DIR, type WorkspaceOptions, type WorkspaceRead, type WorkspaceChange, type SessionStore } from "./workspace.js";
+export { Workspace, memoryFS, normalizePath, DEFAULT_SKILLS_DIR, DEFAULT_USER_SKILLS_DIR, type SkillSource, type WorkspaceOptions, type WorkspaceRead, type WorkspaceChange, type SessionStore } from "./workspace.js";
 export { directoryFS } from "./directory-fs.js";
 export { planCut, serializeConversation, summaryOf, type CompactionSettings, type CutPlan } from "./compaction.js";
 export { parseCommandArgs, substituteArgs, listTemplates, expandSlash, type PromptTemplate } from "./templates.js";
@@ -40,7 +40,7 @@ export { collectCompletion, type CollectedCompletion } from "./completion.js";
 export { buildSystemPrompt, estimateTokens, fitBudget, groupTurns } from "./context.js";
 export { validateSchema } from "./json-schema.js";
 export { listZip, readZipEntry, buildZip, type ZipEntry, type Inflate } from "./zip.js";
-export { skillZipFS, skillFoldersOf, type SkillZipInfo, type SkillZipFS } from "./skill-zips.js";
+export { skillZipFS, skillFoldersOf, subFS } from "./skill-zips.js";
 export type {
   AgentEventMap,
   AgentEventName,
