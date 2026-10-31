@@ -20,7 +20,7 @@ export interface VListOptions {
   overscan?: number;
   /** Class of the wrapper around each row. */
   rowClass?: string;
-  /** Within this distance of the bottom the list follows new output. */
+  /** Within this distance of the bottom (after the user scrolls) the list follows new output again. Default 2. */
   followWithin?: number;
 }
 
@@ -42,27 +42,57 @@ export class VirtualList {
   private last = -1;
   private frame: number | null = null;
   private disposed = false;
+  /** scrollTop the list itself last set; a scroll event landing there is not the user's. */
+  private expectedTop = -1;
+  private lastTop = 0;
 
   constructor(readonly scroller: HTMLElement, readonly inner: HTMLElement, opts: VListOptions = {}) {
     this.estimate = opts.estimate ?? 96;
     this.overscan = opts.overscan ?? 400;
     this.rowClass = opts.rowClass ?? "";
-    this.followWithin = opts.followWithin ?? 80;
+    this.followWithin = opts.followWithin ?? 2;
     this.top = document.createElement("div");
     this.win = document.createElement("div");
     this.bottom = document.createElement("div");
     inner.append(this.top, this.win, this.bottom);
     scroller.style.overflowAnchor = "none";
     scroller.addEventListener("scroll", this.onScroll, { passive: true });
+    // A wheel or finger moving up is the user leaving the bottom: stop following at once, before any layout can snap back.
+    scroller.addEventListener("wheel", this.onWheel, { passive: true });
+    scroller.addEventListener("touchstart", this.onTouch, { passive: true });
     this.ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => this.schedule());
     if (this.ro) this.ro.observe(scroller);
   }
 
   private onScroll = () => {
     const s = this.scroller;
-    this.follow = s.scrollHeight - s.scrollTop - s.clientHeight < this.followWithin;
+    const top = s.scrollTop;
+    const ours = this.expectedTop >= 0 && Math.abs(top - this.expectedTop) <= 1;
+    this.expectedTop = -1;
+    if (!ours) {
+      const atBottom = s.scrollHeight - top - s.clientHeight <= this.followWithin;
+      if (top < this.lastTop - 0.5) this.follow = false;  // moved up
+      else if (atBottom) this.follow = true;
+    }
+    this.lastTop = top;
     this.schedule();
   };
+  private onWheel = (e: WheelEvent) => { if (e.deltaY < 0) this.follow = false; };
+  private touchY = 0;
+  private onTouch = (e: TouchEvent) => {
+    this.touchY = e.touches[0]?.clientY ?? 0;
+    const move = (ev: TouchEvent) => { const y = ev.touches[0]?.clientY ?? 0; if (y > this.touchY + 2) this.follow = false; };
+    const end = () => { this.scroller.removeEventListener("touchmove", move); this.scroller.removeEventListener("touchend", end); };
+    this.scroller.addEventListener("touchmove", move, { passive: true });
+    this.scroller.addEventListener("touchend", end, { passive: true });
+  };
+  private setTop(v: number): void {
+    const s = this.scroller;
+    if (Math.abs(s.scrollTop - v) <= 0.5) return;
+    this.expectedTop = v;
+    s.scrollTop = v;
+    this.lastTop = s.scrollTop;
+  }
 
   get length(): number { return this.rows.length; }
 
@@ -108,6 +138,8 @@ export class VirtualList {
     this.disposed = true;
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.scroller.removeEventListener("scroll", this.onScroll);
+    this.scroller.removeEventListener("wheel", this.onWheel);
+    this.scroller.removeEventListener("touchstart", this.onTouch);
     this.ro?.disconnect();
   }
 
@@ -180,12 +212,10 @@ export class VirtualList {
       }
       if (changed) {
         const total2 = this.computeOffsets();
-        s.scrollTop = this.follow ? Math.max(0, total2 - view) : Math.max(0, this.offsets[anchor]! - anchorDelta);
+        this.setTop(this.follow ? Math.max(0, total2 - view) : Math.max(0, this.offsets[anchor]! - anchorDelta));
         continue;
       }
-      if (this.follow && Math.abs(s.scrollTop - Math.max(0, total - view)) > 1) {
-        s.scrollTop = Math.max(0, total - view);
-      }
+      if (this.follow && Math.abs(s.scrollTop - Math.max(0, total - view)) > 1) this.setTop(Math.max(0, total - view));
       return;
     }
   }
