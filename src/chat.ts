@@ -215,8 +215,9 @@ const CSS = `
 .ra-main{flex:1;min-height:0;display:flex;position:relative}
 .ra-chat{container-type:inline-size}
 .ra-chatcol{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
-.ra-fp{flex:0 0 380px;width:380px;min-width:0;border-left:1px solid var(--ra-border);background:var(--ra-subtle);display:flex;flex-direction:column;position:relative}
-@container (max-width:760px){.ra-fp{position:absolute;inset:0;width:auto;flex:none;border-left:0;z-index:4}.ra-chat.ra-editing .ra-fp{display:none}}
+.ra-fp{position:absolute;top:0;right:0;bottom:0;width:380px;max-width:100%;z-index:4;border-left:1px solid var(--ra-border);background:var(--ra-subtle);display:flex;flex-direction:column;box-shadow:-8px 0 24px rgba(0,0,0,.08)}
+.ra-chat.ra-files-open .ra-ed{right:380px}
+@container (max-width:760px){.ra-fp{left:0;width:auto;border-left:0;box-shadow:none}.ra-chat.ra-files-open .ra-ed{right:0}.ra-chat.ra-editing .ra-fp{display:none}}
 .ra-fph{display:flex;align-items:center;gap:2px;padding:6px 8px 6px 12px;border-bottom:1px solid var(--ra-border);flex-shrink:0}
 .ra-fph .ra-fpt{font-size:12px;font-weight:600;color:var(--ra-fg-muted);text-transform:uppercase;letter-spacing:.04em}
 .ra-fph .ra-sp{flex:1}
