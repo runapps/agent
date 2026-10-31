@@ -378,3 +378,19 @@ test("workspace — deleting a session from another directory drops the director
   assert.equal(await b2.exists("/notes.md"), false);
   assert.equal(await shared.readText("/shared.md"), "keep me");
 });
+
+test("workspace — nested folders persist in the IndexedDB directory across reopen; a memoryFS mount starts over (it is the host's live data, not storage)", async () => {
+  const idb = new IDBFactory();
+  const a = await Workspace.open(null, { id: "s1", project: "app", indexedDB: idb });
+  a.mount("/doc", memoryFS({ "/plan.md": "plan" }));
+  for (let i = 1; i <= 12; i++) { await a.write(`/book/rewrite/ch${i}.md`, `chapter ${i}`); await a.write(`/doc/rewrite/ch${i}.md`, `doc chapter ${i}`); }
+  await a.write("/top.md", "top");
+  assert.equal((await a.list("/book/rewrite")).length, 12);
+  assert.equal((await a.list("/doc/rewrite")).length, 12);
+  const b = await Workspace.open(null, { id: "s1", project: "app", indexedDB: idb });
+  b.mount("/doc", memoryFS({ "/plan.md": "plan" }));
+  assert.equal((await b.list("/book/rewrite")).length, 12, "IndexedDB keeps nested folders");
+  assert.equal(await b.readText("/book/rewrite/ch7.md"), "chapter 7");
+  assert.equal(await b.readText("/top.md"), "top");
+  assert.deepEqual((await b.list("/doc")).map((f) => f.path), ["/doc/plan.md"], "the memory mount starts over");
+});

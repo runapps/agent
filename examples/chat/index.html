@@ -106,7 +106,9 @@ if (params.get("local")) loadModels().catch((e) => console.warn("models", e)); e
 /* ---- one directory per session: the chat opens a workspace under each session's id ---- */
 async function workspaceFor(sessionId) {
   const ws = await RunAppsAgent.openWorkspace(client, { id: sessionId, skills: "./skills.zip" });
-  ws.mount("/doc", RunAppsAgent.memoryFS({ "/plan.md": "# Q3 plan\n- hire 2 engineers\n- ship v2\n- write the launch post\n" }, { description: "the open document" }));
+  // Seed files live in the directory itself (IndexedDB), so what the agent writes under them survives reloads.
+  // (A `ws.mount("/doc", memoryFS(...))` would start over on every open — that is for a host's live document, not for storage.)
+  if (!(await ws.exists("/doc/plan.md"))) await ws.write("/doc/plan.md", "# Q3 plan\n- hire 2 engineers\n- ship v2\n- write the launch post\n");
   if (!(await ws.exists("/prompts/haiku.md"))) await ws.write("/prompts/haiku.md", "---\ndescription: a haiku about the arguments\nargument-hint: <topic>\n---\nWrite a haiku about $@. Only the haiku.\n");
   return ws;
 }
@@ -123,7 +125,7 @@ async function mount() {
     theme: $("theme").value,
     locale: $("locale").value || undefined,
     appName: "Agent Chat Lab",
-    instructions: "You are the assistant inside a small notes app. The user's open document is mounted at /doc.",
+    instructions: "You are the assistant inside a small notes app. The user's notes live under /doc.",
     title: "Agent Chat Lab",
     suggestions: ["17 * 23 等于多少？", "列出工作区里的文件", "把 /doc/plan.md 的第二项改成 ship v3", "/skill:unit-convert 10 lb to kg", "/haiku autumn", "帮我选一个颜色：问我喜欢冷色还是暖色"],
     // no onOpenFile: paths in replies and tool cards open in the chat's own Files panel
