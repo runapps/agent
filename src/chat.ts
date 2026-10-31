@@ -296,6 +296,11 @@ const CSS = `
 .ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:rgba(147,51,234,.08);border:2px dashed var(--ra-p-solid);border-radius:8px;color:var(--ra-p-fg);font-weight:600;pointer-events:none}
 .ra-chat[data-drop="1"] .ra-drop{display:flex}
 .ra-usage{font-size:11px;color:var(--ra-fg-muted);text-align:right;margin-top:6px;min-height:14px}
+.ra-modal{position:absolute;inset:0;z-index:9;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.4);padding:16px}
+.ra-modal .ra-dlg{width:min(420px,100%);background:var(--ra-panel);border:1px solid var(--ra-border);border-radius:10px;box-shadow:var(--ra-shadow-md);padding:16px;display:flex;flex-direction:column;gap:10px}
+.ra-modal .ra-dt{font-size:15px;font-weight:600}
+.ra-modal .ra-dm{font-size:14px;color:var(--ra-fg-muted);white-space:pre-wrap}
+.ra-modal .ra-btns{margin-top:4px}
 .ra-toasts{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:7;display:flex;flex-direction:column;gap:6px;pointer-events:none;max-width:calc(100% - 32px)}
 .ra-toast{background:#18181b;color:#fff;font-size:13px;padding:8px 14px;border-radius:8px;box-shadow:var(--ra-shadow-md);white-space:pre-wrap;word-break:break-word}
 .ra-toast.warning{background:#d97706}.ra-toast.error{background:#dc2626}
@@ -543,6 +548,26 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
       for (const p of [...pending]) p.cancel();
     },
   };
+}
+
+/** A confirmation of the chat's own (deleting a session): a dialog over the chat, Escape or the backdrop declines. */
+function modalConfirm(root: HTMLElement, title: string, message: string, opts: { ok: string; cancel: string; danger?: boolean }): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const overlay = h("div", "ra-modal");
+    const dlg = h("div", "ra-dlg"); dlg.setAttribute("role", "dialog"); dlg.setAttribute("aria-modal", "true"); dlg.setAttribute("aria-label", title);
+    dlg.append(h("div", "ra-dt", title), h("div", "ra-dm", message));
+    const row = h("div", "ra-btns");
+    const done = (v: boolean) => { overlay.remove(); resolve(v); };
+    const cancel = h("button", "ra-btn", opts.cancel); cancel.type = "button"; cancel.addEventListener("click", () => done(false));
+    const ok = h("button", "ra-btn " + (opts.danger ? "red" : "solid"), opts.ok); ok.type = "button"; ok.addEventListener("click", () => done(true));
+    row.append(cancel, ok);
+    dlg.append(row);
+    overlay.append(dlg);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) done(false); });
+    overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); } });
+    root.append(overlay);
+    queueMicrotask(() => cancel.focus());
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -1033,7 +1058,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       x.addEventListener("click", async (e) => {
         e.stopPropagation();
         closeMenu();
-        if (await ui.confirm(t.delete, t.confirmDelete, { danger: true, ok: t.delete, cancel: t.cancel })) await deleteSession(s.id);
+        if (await modalConfirm(root, t.delete, t.confirmDelete, { danger: true, ok: t.delete, cancel: t.cancel })) await deleteSession(s.id);
       });
       row.append(b, x);
       menu.append(row);
@@ -1043,7 +1068,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const all = h("button", "ra-btn xs ghost"); all.type = "button"; all.innerHTML = I.trash() + escapeHTML(t.deleteAll);
       all.addEventListener("click", async () => {
         closeMenu();
-        if (!(await ui.confirm(t.deleteAll, t.confirmDeleteAll, { danger: true, ok: t.deleteAll, cancel: t.cancel }))) return;
+        if (!(await modalConfirm(root, t.deleteAll, t.confirmDeleteAll, { danger: true, ok: t.deleteAll, cancel: t.cancel }))) return;
         for (const s of found) await deleteSession(s.id, true);
         await newSession();
       });
