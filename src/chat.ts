@@ -111,8 +111,8 @@ const STRINGS = {
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Stopped after the maximum number of turns.", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove", attachments: "Attachments",
-    sent: "sent", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
-    rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindNoSnapshot: "No file snapshot was taken when this message was sent (it predates snapshots, or the session had no directory), so only the conversation can be rewound.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
+    sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
+    rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     files: "Files", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved", pickFile: "Choose files", folder: "Folder",
@@ -127,8 +127,8 @@ const STRINGS = {
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "达到最大轮数，已停止。", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除", attachments: "附件",
-    sent: "已发送", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
-    rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindNoSnapshot: "这条消息发出时没有记录文件快照（早于快照功能，或会话没有目录），所以只能回退对话。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
+    sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
+    rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     files: "文件", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存", pickFile: "选择文件", folder: "文件夹",
@@ -238,13 +238,13 @@ const CSS = `
 .ra-user .ra-bubble{max-width:85%;background:var(--ra-p-subtle);border-radius:12px;padding:8px 14px;white-space:pre-wrap;word-break:break-word;font-size:14px}
 .ra-user img{display:block;max-width:240px;border-radius:4px;margin-top:6px}
 .ra-user{flex-direction:column;align-items:flex-end}
-.ra-uf{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ra-fg-muted);margin-top:4px;height:22px;padding-right:2px}
-.ra-uf .ra-ut{margin-right:6px;font-variant-numeric:tabular-nums}
-.ra-uf .ra-ib{width:22px;height:22px;opacity:.55}
-.ra-uf .ra-ib:hover{opacity:1}
+.ra-uf{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ra-fg-muted);margin-top:4px;height:22px;padding-right:2px;opacity:0;transition:opacity .15s}
+.ra-user:hover .ra-uf,.ra-uf:focus-within{opacity:1}
+.ra-uf .ra-ut{display:inline-flex;align-items:center;gap:5px;margin-right:4px}
+.ra-uf .ra-ut::after{content:"·";margin-left:4px}
+.ra-uf .ra-ib{width:22px;height:22px}
 .ra-modal label.ra-ck{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
 .ra-modal label.ra-ck input{width:auto;accent-color:var(--ra-p-solid)}
-.ra-modal label.ra-ck.off{color:var(--ra-fg-muted);cursor:default}
 .ra-modal .ra-dn{font-size:12px;color:var(--ra-fg-muted);margin:-4px 0 0 24px}
 .ra-asst{display:flex;gap:10px;align-items:flex-start}
 .ra-avatar{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:var(--ra-p-subtle);color:var(--ra-p-fg);display:flex;align-items:center;justify-content:center;margin-top:2px}
@@ -426,6 +426,13 @@ function fmtSize(n: number): string {
   return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function relTime(ts: number, t: Strings): string {
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return t.justNow;
+  if (s < 3600) return t.minutesAgo.replace("{n}", String(Math.floor(s / 60)));
+  if (s < 86400) return t.hoursAgo.replace("{n}", String(Math.floor(s / 3600)));
+  return clockTime(ts);
+}
 /** "18:00" today, "10/31 18:00" earlier this year, else with the year. */
 function clockTime(ts: number): string {
   const d = new Date(ts), now = new Date();
@@ -472,7 +479,7 @@ const ATTACH_MARK = "[attachments]";
 const FILES_HINT = "The user can browse, edit and download every file of the directory from the chat's Files panel. When you create or change a file for the user, name its absolute path in backticks (for example `/uploads/report.csv`); in the chat that path becomes a link that opens the file, with a download button. Files the user attaches arrive under /uploads.";
 
 /** A file the user attached: read once, saved to the directory (or inlined) when the message is sent. */
-interface Attachment { file: File; name: string; bytes: Uint8Array; text: string | null; image: boolean; preview: string | null; chip: HTMLElement }
+interface Attachment { file: File; name: string; bytes: Uint8Array; text: string | null; image: boolean; preview: string | null; chip: HTMLElement; /** Already in the directory at this path (re-attached by a rewind): reused, not copied. */ path?: string }
 
 /** Text when the type or extension says so, or when the first 8 KB hold no NUL byte and decode as UTF-8. */
 function decodeText(file: File, bytes: Uint8Array): string | null {
@@ -845,9 +852,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const back = h("button", "ra-ib"); back.type = "button"; back.innerHTML = I.undo(); back.title = t.rewind; back.setAttribute("aria-label", t.rewind);
     back.addEventListener("click", () => void rewindTo(row));
     foot.append(time, copy, back);
+    el.addEventListener("mouseenter", () => row.update());
     row.update = () => {
       const ts = tsOf(row.msg);
-      time.textContent = ts ? clockTime(ts) : "";
+      time.innerHTML = I.checks() + `<span>${escapeHTML(ts ? relTime(ts, t) : t.sent)}</span>`;
       back.disabled = !row.msg;
     };
     row.update();
@@ -868,12 +876,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const overlay = h("div", "ra-modal");
     const dlg = h("div", "ra-dlg"); dlg.setAttribute("role", "dialog"); dlg.setAttribute("aria-modal", "true");
     dlg.append(h("div", "ra-dt", t.rewindTitle), h("div", "ra-dm", t.rewindMsg));
-    const ck = h("input"); ck.type = "checkbox"; ck.checked = hasFiles; ck.disabled = !hasFiles;
-    const lab = h("label", "ra-ck" + (hasFiles ? "" : " off")); lab.append(ck, h("span", "", t.rewindFiles));
-    dlg.append(lab);
-    // Why the box is off, or what ticking it restores.
-    if (!ckpt) dlg.append(h("div", "ra-dn", t.rewindNoSnapshot));
-    else {
+    const ck = h("input"); ck.type = "checkbox"; ck.checked = hasFiles;
+    // The file option only when there is a snapshot to restore (what it holds is said under it).
+    if (ckpt) {
+      const lab = h("label", "ra-ck"); lab.append(ck, h("span", "", t.rewindFiles));
+      dlg.append(lab);
       const size = ckpt.files.reduce((n, f) => n + (typeof f.data === "string" ? new TextEncoder().encode(f.data).length : f.data.byteLength), 0);
       dlg.append(h("div", "ra-dn", t.rewindSnapshot.replace("{n}", String(ckpt.files.length)).replace("{size}", fmtSize(size)).replace("{time}", clockTime(ckpt.at)) + (ckpt.partial ? ` ${t.rewindPartial}` : "")));
     }
@@ -907,7 +914,33 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       void panel.refresh();
       void refreshCommands();
       ta.value = row.text; ta.focus(); renderCmds();
+      await reattach(row.msg);
     } catch (err) { ui.notify((err as Error).message, "error"); }
+  };
+  /** Puts a rewound message's attachments back into the composer: from the directory, or from what the message carried inline. */
+  const reattach = async (msg: ChatMessage) => {
+    if (!Array.isArray(msg.content)) return;
+    const parts = msg.content;
+    const block = parts.find((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text" && p.text.startsWith(ATTACH_MARK));
+    if (!block) return;
+    const ws = agent?.workspace;
+    const inline = new Map<string, string>();
+    for (const p of parts) if (p.type === "text") { const m = /^<file name="([^"]*)">\n([\s\S]*)\n<\/file>$/.exec(p.text); if (m) inline.set(m[1]!, m[2]!); }
+    const images = parts.flatMap((p) => (p.type === "image_url" && p.image_url.url.startsWith("data:") ? [p.image_url.url] : []));
+    const files: File[] = [], paths: Array<string | undefined> = [], missing: string[] = [];
+    for (const line of block.text.split("\n").slice(1)) {
+      const m = /^- (.+?) \(([^,)]*)(?:, [^)]*)?\)/.exec(line);
+      if (!m) continue;
+      const ref = m[1]!, type = m[2]!;
+      const name = ref.replace(/^.*\//, "");
+      if (ref.startsWith("/") && ws) {
+        try { const r = await ws.read(ref); files.push(new File([r.data as BlobPart], name, { type: r.contentType || type })); paths.push(ref); } catch { missing.push(ref); }
+      } else if (inline.has(name)) { files.push(new File([inline.get(name)!], name, { type })); paths.push(undefined); }
+      else if (/^image\//.test(type) && images.length) { const blob = await (await fetch(images.shift()!)).blob(); files.push(new File([blob], name, { type })); paths.push(undefined); }
+      else missing.push(name);
+    }
+    if (files.length) await addFiles(files, paths);
+    if (missing.length) ui.notify(t.rewindGoneFile.replace("{path}", missing.join(", ")), "warning");
   };
 
   const asstRow = (): AsstRow => {
@@ -1139,9 +1172,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const pendingFiles: Attachment[] = [];
   const renderFiles = () => { files.style.display = pendingFiles.length ? "" : "none"; };
   const removeFile = (a: Attachment) => { const i = pendingFiles.indexOf(a); if (i >= 0) pendingFiles.splice(i, 1); if (a.preview) URL.revokeObjectURL(a.preview); a.chip.remove(); renderFiles(); };
-  const addFiles = async (list: ArrayLike<File> | null | undefined) => {
+  const addFiles = async (list: ArrayLike<File> | null | undefined, paths: Array<string | undefined> = []) => {
     if (attachOpt === false || !list?.length) return;
-    for (const file of Array.from(list)) {
+    for (const [i, file] of Array.from(list).entries()) {
       if (file.size > MAX_ATTACHMENT) { ui.notify(`${file.name} ${t.tooLarge}`, "warning"); continue; }
       const bytes = new Uint8Array(await file.arrayBuffer());
       const image = /^image\/(png|jpe?g|gif|webp)$/.test(file.type);
@@ -1150,7 +1183,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const chip = chipEl(safeName(file.name), fmtSize(file.size), preview);
       const x = h("button"); x.type = "button"; x.innerHTML = I.x(); x.title = t.remove; x.setAttribute("aria-label", t.remove);
       chip.append(x);
-      const a: Attachment = { file, name: safeName(file.name), bytes, text, image, preview, chip };
+      const a: Attachment = { file, name: safeName(file.name), bytes, text, image, preview, chip, path: paths[i] };
       x.addEventListener("click", () => removeFile(a));
       pendingFiles.push(a);
       files.append(chip);
@@ -1179,8 +1212,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     for (const a of pendingFiles) {
       const type = a.file.type || (a.text !== null ? "text/plain" : "application/octet-stream");
       if (ws) {
-        const path = await freePath(ws, uploadsDir, a.name);
-        await ws.write(path, a.text ?? a.bytes, type);
+        const path = a.path && (await ws.exists(a.path)) ? a.path : await freePath(ws, uploadsDir, a.name);
+        if (path !== a.path) await ws.write(path, a.text ?? a.bytes, type);
         lines.push(`- ${path} (${type}, ${fmtSize(a.file.size)})`);
         void panel.refresh();
       } else if (a.text !== null && a.text.length <= MAX_INLINE_TEXT) {
