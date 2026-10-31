@@ -185,16 +185,15 @@ const CSS = `
 .ra-menu .ra-mf{border-top:1px solid var(--ra-border);margin-top:4px;padding-top:4px;display:flex;justify-content:flex-end}
 .ra-main{flex:1;min-height:0;display:flex;position:relative}
 .ra-chat{container-type:inline-size}
-.ra-chatcol{flex:1;min-width:0;display:flex;flex-direction:column}
+.ra-chatcol{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
 .ra-fp{flex:0 0 380px;width:380px;min-width:0;border-left:1px solid var(--ra-border);background:var(--ra-subtle);display:flex;flex-direction:column;position:relative}
-@container (max-width:760px){.ra-fp{position:absolute;inset:0;width:auto;flex:none;border-left:0;z-index:4}}
+@container (max-width:760px){.ra-fp{position:absolute;inset:0;width:auto;flex:none;border-left:0;z-index:4}.ra-chat.ra-editing .ra-fp{display:none}}
 .ra-fph{display:flex;align-items:center;gap:2px;padding:6px 8px 6px 12px;border-bottom:1px solid var(--ra-border);flex-shrink:0}
 .ra-fph .ra-fpt{font-size:12px;font-weight:600;color:var(--ra-fg-muted);text-transform:uppercase;letter-spacing:.04em}
 .ra-fph .ra-sp{flex:1}
 .ra-chat .ra-ib{width:26px;height:26px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--ra-fg-muted)}
 .ra-chat .ra-ib:hover{background:var(--ra-muted);color:var(--ra-fg)}
 .ra-tree{flex:1;min-height:0;overflow:auto;padding:4px}
-.ra-fp.ra-editing .ra-tree{flex:0 1 auto;max-height:40%;border-bottom:1px solid var(--ra-border)}
 .ra-fr{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;cursor:pointer;font-size:13px;min-height:26px}
 .ra-fr:hover{background:var(--ra-panel)}
 .ra-fr.ra-cur{background:var(--ra-p-subtle)}
@@ -206,12 +205,12 @@ const CSS = `
 .ra-fr:hover .ra-fra{display:inline-flex}
 .ra-fr .ra-fra .ra-ib{width:22px;height:22px}
 .ra-fpe{padding:8px 10px;font-size:12px;color:var(--ra-fg-muted)}
-.ra-ed{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--ra-bg)}
-.ra-edh{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;border-bottom:1px solid var(--ra-border);flex-shrink:0}
+.ra-ed{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;background:var(--ra-bg)}
+.ra-edh{display:flex;align-items:center;gap:6px;padding:6px 10px 6px 16px;border-bottom:1px solid var(--ra-border);flex-shrink:0;background:var(--ra-subtle)}
 .ra-edh .ra-edp{flex:1;min-width:0;font:12px ${MONO};color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ra-edh .ra-eda{display:inline-flex;align-items:center;gap:2px}
 .ra-edb{flex:1;min-height:0;display:flex;flex-direction:column}
-.ra-edta{flex:1;min-height:0;resize:none;padding:10px 12px;font:13px/1.55 ${MONO};tab-size:2;white-space:pre;overflow:auto}
+.ra-edta{flex:1;min-height:0;resize:none;padding:14px 20px;font:13.5px/1.6 ${MONO};tab-size:2;white-space:pre;overflow:auto}
 .ra-edpv{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px}
 .ra-edpv img{max-width:100%;max-height:100%;border-radius:4px}
 .ra-fpdrop{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:rgba(147,51,234,.08);border:2px dashed var(--ra-p-solid);color:var(--ra-p-fg);font-weight:600;pointer-events:none}
@@ -667,7 +666,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   let mounted = true;
 
   const ui = inlineUI(askCol, toasts, t, () => list.schedule());
-  const panel = filesPanel({ t, root, notify: (m, l) => ui.notify(m, l), onChange: () => void refreshCommands() });
+  const panel = filesPanel({ t, root, editorHost: chatCol, notify: (m, l) => ui.notify(m, l), onChange: () => void refreshCommands() });
   main.append(panel.el);
   filesBtn.addEventListener("click", () => void panel.toggle());
   /** Opens a path: the host's editor when it has one, else the files panel. */

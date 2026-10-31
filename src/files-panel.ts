@@ -17,6 +17,8 @@ export interface FilesPanelOptions {
   t: FilesStrings;
   /** The element dialogs are placed over. */
   root: HTMLElement;
+  /** Where the editor goes when a file is open: it covers this element (the transcript and composer) until closed. */
+  editorHost: HTMLElement;
   notify(message: string, level?: "info" | "warning" | "error"): void;
   /** Called after the panel changed the directory (a save, upload or delete). */
   onChange?: () => void;
@@ -74,7 +76,7 @@ export async function freePath(ws: Workspace, dir: string, name: string): Promis
 }
 
 export function filesPanel(opts: FilesPanelOptions): FilesPanel {
-  const { t, root, notify } = opts;
+  const { t, root, notify, editorHost } = opts;
   let ws: Workspace | null = null;
   let visible = false;
   let active: string | null = null;
@@ -114,7 +116,8 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   edBody.append(ta, preview);
   editor.append(edHead, edBody);
   const drop = h("div", "ra-fpdrop", t.upload);
-  el.append(head, tree, editor, fileInput, drop);
+  el.append(head, tree, fileInput, drop);
+  editorHost.append(editor);
 
   const setDraft = (v: string | null) => { draft = v; saveBtn.style.display = v === null ? "none" : ""; };
   ta.addEventListener("input", () => setDraft(ta.value === loaded ? null : ta.value));
@@ -164,7 +167,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     tree.replaceChildren(frag);
   };
 
-  const showEditor = (on: boolean) => { editor.style.display = on ? "" : "none"; el.classList.toggle("ra-editing", on); };
+  const showEditor = (on: boolean) => { editor.style.display = on ? "" : "none"; root.classList.toggle("ra-editing", on); };
 
   const openFile = async (path: string) => {
     if (!ws) return;
@@ -314,6 +317,8 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
       disposed = true;
       if (previewURL) URL.revokeObjectURL(previewURL);
       el.remove();
+      editor.remove();
+      root.classList.remove("ra-editing");
     },
   };
 }

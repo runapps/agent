@@ -45,7 +45,7 @@
     <div class="muted">每个会话一个独立目录（IndexedDB 里的一棵树）；技能在 <code>.agent/skills/&lt;name&gt;/SKILL.md</code>，新会话从 <code>skills.zip</code> 解包。左上「历史」切换会话即切换目录。</div>
     <button id="clear">清空这个目录（保留技能）</button>
   </div>
-  <pre id="ws">…</pre>
+  <div id="ws" class="muted">…</div>
 
   <h4>技能（这个会话的）</h4>
   <div id="skills" class="box">…</div>
@@ -144,7 +144,8 @@ async function refreshPanels() {
   const ws = workspace(); if (!ws) return;
   $("sid").textContent = chat.agent.id;
   const files = await ws.list("/");
-  $("ws").textContent = files.map((f) => `${f.path} (${f.size})`).join("\n") || "(empty)";
+  const skillFiles = files.filter((f) => f.path.startsWith(ws.skillsDir + "/")).length;
+  $("ws").textContent = `${files.length} 个文件（其中技能 ${skillFiles} 个）· 用左上「文件」按钮浏览、编辑、上传、下载`;
   const skills = await ws.skills();
   const box = $("skills"); box.replaceChildren();
   for (const s of skills) {
