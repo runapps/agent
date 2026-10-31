@@ -76,6 +76,8 @@ const exportReport = defineTool({
 
 Results longer than `maxResultChars` (default 32 000 characters) are cut, with a note saying so. A thrown error is sent to the model as an error result.
 
+A tool message can only carry text in the OpenAI format, so pictures (and audio or video) a tool returns go to the model in a user message right after the batch's results, each labelled with the call it came from. Only the latest two batches' pictures are sent again on later turns — each costs thousands of tokens; older ones are replaced by a note telling the model to call the tool again for the current state.
+
 ```js
 // A screenshot back to a vision model
 execute: async () => [
@@ -98,6 +100,20 @@ const deleteProject = defineTool({
 ```
 
 Under `permissions: "ask"` (the default) a tool with `destructive: true` or a `confirm` asks the user first. `confirm` may return `false` to run without asking this time (`({ id }) => isDraft(id) ? false : "Delete …?"`), or `{ title, message }` to show the details under the question (`message` goes to `ui.confirm`'s second argument — the arguments, what will happen). A declined call returns `"declined"` to the model. See [Permissions and dialogs](agent.md#permissions-and-dialogs) for the other modes.
+
+## Tools for models that see
+
+`vision: true` offers a tool only while the model in use is known to see pictures — a screenshot tool, say, is useless to a text-only model, and offering it invites a call whose result it cannot read:
+
+```js
+const screenshot = defineTool({
+  name: "capture_page",
+  description: "A picture of the page as the user sees it now.",
+  readOnly: true,
+  vision: true,
+  execute: async () => [{ type: "text", text: "The page:" }, { type: "image_url", image_url: { url: await snap() } }],
+});
+```
 
 ## Calls that go nowhere
 
@@ -162,7 +178,7 @@ In a browser the server must allow your page's origin (CORS) and expose the `Mcp
 | `ask_user` | One to three questions to the user, with options or free text, when a request is unclear. | `askUser: false` removes it |
 | `run_js` | JavaScript the model writes, run in a Worker: no DOM, no network, a captured console, and `fs` bound to the workspace. The model computes, parses and transforms data with it instead of guessing, and runs skills' scripts. | `sandbox: false`, or `{ timeoutMs, network }` |
 | `list_files` | Files under a folder, with sizes. | with a workspace |
-| `read_file` | A file, 2000 lines / 50 KB per call, `offset` and `limit` to continue; a PDF as text. | |
+| `read_file` | A file, 2000 lines / 50 KB per call, `offset` and `limit` to continue; a PDF as text; a picture shown to a model that sees pictures. | |
 | `write_file` | Create or replace a file. | |
 | `edit_file` | One or more exact replacements — the model sends only the changed pieces; tolerant of curly quotes, dashes and trailing spaces. A mount with its own `edit()` applies them itself ([Workspace](workspace.md#mounting-your-apps-data)). | |
 | `delete_file` | Delete a file (asks). | |

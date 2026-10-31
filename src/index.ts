@@ -5,7 +5,7 @@
 // `@runappsai/agent/node`.
 
 export { Agent, type PromptContent } from "./agent.js";
-export { openAIProvider, runappsProvider, toProvider, ProviderError, sseData, type ModelProvider, type ModelInfo, type OpenAIProviderOptions, type RunAppsClientLike } from "./provider.js";
+export { openAIProvider, runappsProvider, toProvider, ProviderError, sseData, modelAccepts, type ModelProvider, type ModelInfo, type InputKind, type OpenAIProviderOptions, type RunAppsClientLike } from "./provider.js";
 export type { ChatMessage, ContentPart, ChatTool, ChatToolCall, ChatCompletionParams, ChatCompletionChunk, ChatCompletion, Usage } from "./llm.js";
 
 import { Agent } from "./agent.js";
@@ -32,7 +32,7 @@ export function openWorkspace(provider: ModelProvider | RunAppsClientLike | null
   return Workspace.open(p, { ...opts, project: opts.project ?? p?.name ?? undefined });
 }
 export { Workspace, memoryFS, normalizePath, guessType, decodeText, titleOf, UNTITLED, DEFAULT_SKILLS_DIR, DEFAULT_USER_SKILLS_DIR, type SkillSource, type LazySkill, type WorkspaceOptions, type WorkspaceRead, type WorkspaceChange, type SessionStore, type WorkspaceStore, type WorkspaceStoreFactory, type FileRecord } from "./workspace.js";
-export { planCut, serializeConversation, summaryOf, type CompactionSettings, type CutPlan } from "./compaction.js";
+export { planCut, serializeConversation, splitForSummary, summaryOf, summaryMessage, type CompactionSettings, type CutPlan } from "./compaction.js";
 export { parseCommandArgs, substituteArgs, listTemplates, expandSlash, type PromptTemplate } from "./templates.js";
 export { applyEdits, normalizeForFuzzyMatch, type TextEdit } from "./edit.js";
 export { defineTool, normalizeResult } from "./tool.js";

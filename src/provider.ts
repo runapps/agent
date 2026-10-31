@@ -19,6 +19,23 @@ export interface ModelInfo {
   max_tokens?: number;
   /** Request options the model takes; `inputs.reasoning_effort.enum` lists its thinking levels. */
   options?: { inputs?: Record<string, { enum?: unknown[]; default?: unknown }> };
+  /** What the model takes as input: `["text", "image"]`, also `"video"`, `"audio"` (RunApps' `/v1/models`). */
+  input_modalities?: string[];
+}
+
+/** A kind of input a model may or may not take besides text. */
+export type InputKind = "image" | "video" | "audio";
+
+/**
+ * Whether `model` takes `kind` as input: from its `input_modalities`, or —
+ * for pictures — its `vision` capability. Undefined when the catalogue does
+ * not say (an OpenAI-style `/models`, a model it does not list).
+ */
+export function modelAccepts(model: ModelInfo | undefined, kind: InputKind): boolean | undefined {
+  if (!model) return undefined;
+  if (Array.isArray(model.input_modalities)) return model.input_modalities.includes(kind);
+  if (kind === "image" && model.capability === "vision") return true;
+  return undefined;
 }
 
 export interface ModelProvider {
@@ -72,9 +89,9 @@ export function errorStatus(err: unknown): number | undefined {
 export interface RunAppsClientLike {
   chat: {
     stream(params: ChatCompletionParams, init?: { signal?: AbortSignal }): AsyncIterable<ChatCompletionChunk>;
-    create(params: ChatCompletionParams, init?: { signal?: AbortSignal }): Promise<ChatCompletion>;
+    create?(params: ChatCompletionParams, init?: { signal?: AbortSignal }): Promise<ChatCompletion>;
   };
-  models?: { list(opts?: { capability?: string }): Promise<unknown[]> };
+  models?: { list?(opts?: { capability?: string }): Promise<unknown[]> };
   files?: { stat(path: string): Promise<{ etag?: string }>; get(path: string): Promise<Blob> };
   projectName?: string;
 }
@@ -85,8 +102,9 @@ export function runappsProvider(client: RunAppsClientLike): ModelProvider {
   return {
     name: client.projectName,
     stream: (p, init) => client.chat.stream(p, init),
-    complete: (p, init) => client.chat.create(p, init),
-    models: client.models ? async (o) => (await client.models!.list(o)) as ModelInfo[] : undefined,
+    // Only what the client really has: a stand-in without create() or a catalogue is still a provider.
+    complete: client.chat.create ? (p, init) => client.chat.create!(p, init) : undefined,
+    models: client.models?.list ? async (o) => (await client.models!.list!(o)) as ModelInfo[] : undefined,
     readFile: files
       ? async (path, o) => {
           const st = await files.stat(path);

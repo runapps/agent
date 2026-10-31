@@ -222,3 +222,14 @@ test("validateSchema — anyOf/oneOf keep the schema's other keywords; oneOf ref
   assert.ok(validateSchema(one, 3).length > 0, "3 matches both branches");
   assert.deepEqual(validateSchema(one, 3.5), []);
 });
+
+test("compaction — a history too long for one request is summarised piece by piece, each piece updating the summary", async () => {
+  const { splitForSummary } = await import("../dist/index.js");
+  const text = Array.from({ length: 10 }, (_, i) => `[User]: message ${i} ${"x".repeat(90)}`).join("\n\n");
+  const pieces = splitForSummary(text, 250);
+  assert.ok(pieces.length > 3);
+  assert.ok(pieces.every((p) => p.length <= 250));
+  assert.equal(pieces.join("\n\n"), text);
+  // One message longer than a piece is cut inside.
+  assert.deepEqual(splitForSummary(`[User]: ${"y".repeat(25)}`, 10).map((p) => p.length), [10, 10, 10, 3]);
+});

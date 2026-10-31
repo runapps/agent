@@ -18,7 +18,8 @@ Three entry points:
 | `toProvider(providerOrClient)` | A provider as is, a RunApps client wrapped. |
 | `ProviderError(status, message, { code?, retryAfter? })` | Throw from your provider; 408 / 429 / 5xx / 0 are retried. |
 | `sseData(body, signal?)` | Yields the `data:` payloads of a server-sent event stream. |
-| types | `ModelProvider`, `ModelInfo`, `OpenAIProviderOptions`, `RunAppsClientLike`, `ChatMessage`, `ContentPart`, `ChatTool`, `ChatToolCall`, `ChatCompletionParams`, `ChatCompletionChunk`, `ChatCompletion`, `Usage` |
+| `modelAccepts(model, kind)` | Whether a catalogue entry takes `"image"` / `"video"` / `"audio"` (from `input_modalities`, or a `vision` capability). |
+| types | `ModelProvider`, `ModelInfo`, `InputKind`, `OpenAIProviderOptions`, `RunAppsClientLike`, `ChatMessage`, `ContentPart`, `ChatTool`, `ChatToolCall`, `ChatCompletionParams`, `ChatCompletionChunk`, `ChatCompletion`, `Usage` |
 
 ## Agent — [guide](agent.md)
 
@@ -33,6 +34,7 @@ Three entry points:
 | `abort()` | Stop the run. |
 | `rewind(index)` | Drop the messages from `index` on. |
 | `clear()` | Start over under the same id (messages, queue, usage), saved. |
+| `modelInfo()`, `accepts(kind)` | The catalogue's entry for the model in use; whether it takes `"image"` / `"video"` / `"audio"` (`true` / `false` / `undefined`). |
 | `compact(focus?)` | Summarise older turns now. → `boolean` |
 | `queued`, `dequeue(message)`, `clearQueue()` | What waits. |
 | `on(event, handler)` / `on("*", (name, event) => …)` | Subscribe; returns an unsubscribe function. |
@@ -50,7 +52,7 @@ Options: see [the options table](agent.md#options). Events: see [Events](agent.m
 
 | Export | |
 |---|---|
-| `defineTool({ name, description, parameters?, execute, destructive?, readOnly?, confirm?, guidelines?, maxResultChars? })` | A tool (`confirm` returns a question, `{ title, message }` or `false`). |
+| `defineTool({ name, description, parameters?, execute, destructive?, readOnly?, vision?, confirm?, guidelines?, maxResultChars? })` | A tool (`confirm` returns a question, `{ title, message }` or `false`). |
 | `fileTools(workspace, { readBeforeWrite?, guard? })` | The file tools for a workspace. |
 | `fileGuard(workspace, { enabled? })` → `FileGuard` | What the model has read (`saw`, `wrote`, `edited`, `copied`, `check`, `forget`, `clear`); the agent shares one between the file tools and `run_js` (`sandboxTool(ws, { guard })`). |
 | `connectMCP(url, { token?, headers?, prefix?, confirm?, images?, timeoutMs?, maxTools?, maxResultChars?, fetch?, signal? })` → `MCPConnection` | An MCP server's tools (`tools`, `serverTools`, `server`, `instructions`, `refresh()`, `close()`). `MCPError` for its failures. |
@@ -106,7 +108,7 @@ Options: `id`, `project`, `dir`, `store`, `skills`, `skillsDir`, `userSkills`, `
 |---|---|
 | `collectCompletion(stream, params, opts)` | Gathers a streamed completion (text, thinking, tool calls). |
 | `buildSystemPrompt(input)`, `estimateTokens(messages)`, `fitBudget(...)`, `groupTurns(...)` | Context building. |
-| `planCut(messages, keepRecentTokens)`, `serializeConversation(messages)`, `summaryOf(message)` | Compaction. |
+| `planCut(messages, keepRecentTokens)`, `serializeConversation(messages)`, `splitForSummary(text, maxChars)`, `summaryOf(message)`, `summaryMessage(summary)` | Compaction. |
 | `applyEdits(text, edits)`, `normalizeForFuzzyMatch(text)` | The edit matching of `edit_file`. |
 | `parseCommandArgs(text)`, `substituteArgs(template, args)` | Template arguments. |
 | `listZip(bytes)`, `readZipEntry(bytes, entry)`, `buildZip(entries)` | Zip files. |

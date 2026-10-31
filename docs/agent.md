@@ -77,7 +77,7 @@ agent.on("run_end", ({ reason, error, usage }) => setBusy(false));
 |---|---|---|
 | `run_start` | `runId`, `message` | A run starts (`message` null for `continue()`) |
 | `turn_start` / `turn_end` | `runId`, `turn`, (`usage`) | Around each model call and its tools |
-| `request` / `response` | the request sent; timing, finish reason, usage, message | Each model call (debug views) |
+| `request` / `response` | the request sent; timing, finish reason, usage, message; `purpose: "compaction"` for summary calls | Each model call (debug views, counting calls) |
 | `reasoning_delta` | `delta`, `text` | Thinking streams in |
 | `text_delta` | `delta`, `text` | Answer text streams in |
 | `message_reset` | `reason` | A call is retried after it streamed: discard what was shown |
@@ -150,7 +150,7 @@ await workspace.sessions.delete("chat-41");
 
 The agent knows the model's window and longest reply from the provider's catalogue (`agent.limits()` → `{ input, output }`; `agent.context()` → `{ used, window }`). Each call asks for the model's longest reply (`maxTokens: "auto"`).
 
-When the conversation comes within about 16k tokens of the window, the older turns are **summarised by the model** into a structured checkpoint (goal, constraints, progress, decisions, next steps, critical context) and replaced by it; the newest ~20k tokens stay as they were. The next compaction updates the summary rather than rewriting it. If the summary fails, old tool results are shortened and old turns dropped instead.
+The window counts everything a request carries: the system prompt, the tools' schemas and the conversation. When the conversation comes within about 16k tokens of the window, the older turns are **summarised by the model** into a structured checkpoint (goal, constraints, progress, decisions, next steps, critical context) and replaced by it; the newest ~20k tokens stay as they were. The next compaction updates the summary rather than rewriting it; a history too long for one request (after switching to a model with a smaller window, say) is summarised piece by piece, each piece updating the summary so far. A summary call asks for at most 80% of `reserveTokens`, never the model's whole output. If the summary fails, old tool results are shortened and old turns dropped instead. Summary calls appear as `request` / `response` events with `purpose: "compaction"`. Files whose contents were summarised away must be read again before they are changed; files read or written in the kept turns stay read.
 
 ```js
 createAgent(provider, {
@@ -162,6 +162,24 @@ createAgent(provider, {
 await agent.compact("keep every API name we discussed");   // now, with a focus
 ```
 
+## Pictures and models that see them
+
+Some models see pictures, some only read text. The agent asks the catalogue (`input_modalities`, see [Providers](providers.md#telling-the-agent-about-models)) and acts on the answer:
+
+| The model in use | |
+|---|---|
+| sees pictures | Pictures in messages and tool results go to it. `read_file` on a PNG, JPEG, GIF or WebP shows the picture (up to 5 MB). Tools marked `vision: true` are offered. |
+| is text-only | No picture is ever sent to it: each one becomes a line saying a picture was there and the model cannot see it (it says so to the user instead of guessing). `vision` tools are not offered. |
+| unknown (no catalogue, or not listed) | Pictures are sent as they are; `vision` tools are not offered. |
+
+```js
+await agent.accepts("image");        // true / false / undefined (also "video", "audio")
+await agent.modelInfo();             // the catalogue's entry for the model in use
+createAgent(provider, { vision: true });   // you know better: true offers vision tools, false never sends pictures
+```
+
+A tool result's pictures go to the model in a user message after the batch's results (OpenAI's format keeps tool messages to text); only the latest two batches' pictures are sent again on later turns. The chat UI marks the models that see pictures in its model list, and when the current one cannot, keeps attached pictures as files and tells the user.
+
 ## Memory and project instructions
 
 With a workspace that has the file tools, two files mean something:
@@ -169,7 +187,7 @@ With a workspace that has the file tools, two files mean something:
 - **`/AGENTS.md`** — your instructions for the project, added to the system prompt.
 - **`/memory/notes.md`** — the agent's own notes. The prompt tells it to append a line there to remember something for later, and shows the notes at the start of every conversation.
 
-Both live in the workspace's directory: shared by every conversation that uses the same directory.
+Both live in the workspace's directory: shared by every conversation that uses the same directory. When the directory is the user's own project — their app's files, a folder on disk — the agent should not put notes of its own there, nor take instructions from a file someone else wrote: `memoryFile: false` and `instructionsFile: false` turn them off, or name other paths (`memoryFile: "/.notes/agent.md"`).
 
 ## Options
 
@@ -192,6 +210,9 @@ Both live in the workspace's directory: shared by every conversation that uses t
 | `maxInputTokens` | `"auto"` | The context budget: the model's window, or a number. |
 | `parallelTools` | `false` | Run a turn's tool calls at once. |
 | `keepTurns` | `4` | Turns kept intact when old turns have to be dropped. |
+| `vision` | from the catalogue | Whether the model sees pictures; see [Pictures](#pictures-and-models-that-see-them). |
+| `memoryFile` | `"/memory/notes.md"` | The memory notes file; `false` for none. |
+| `instructionsFile` | `"/AGENTS.md"` | The project instructions file; `false` for none. |
 | `loopGuard` | `{ warn: 3, stop: 6 }` | Rounds without anything new before the model is warned / the run stops; `false` turns it off. |
 | `temperature`, `top_p` | | Sent as is. |
 | `extra` | | Any other request field (`reasoning_effort`, …). |

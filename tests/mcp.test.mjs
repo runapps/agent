@@ -149,3 +149,14 @@ test("mcp — the agent asks before a call, with the arguments; read-only tools 
   assert.deepEqual(asked, [["Run Fake Server / write?", '{\n  "text": "a"\n}']]);
   assert.deepEqual(statuses, ["declined"]);
 });
+
+test("mcp — the signal cancels connecting only: aborting it later leaves the connection working", async () => {
+  const s = server();
+  const ac = new AbortController();
+  const mcp = await connectMCP("https://mcp.test/mcp", { fetch: s.fetch, signal: ac.signal });
+  ac.abort();
+  assert.equal(await mcp.tools[0].execute({ text: "still here" }, { signal: new AbortController().signal, update() {} }), "still here");
+  const early = new AbortController();
+  early.abort();
+  await assert.rejects(connectMCP("https://mcp.test/mcp", { fetch: s.fetch, signal: early.signal }));
+});

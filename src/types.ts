@@ -86,6 +86,12 @@ export interface ToolDefinition<A = Record<string, unknown>> {
   readOnly?: boolean;
   /** Longest result sent to the model, in characters (default 32 000). */
   maxResultChars?: number;
+  /**
+   * Only useful to a model that sees pictures (a screenshot tool, say): it
+   * is offered only while the model in use is known to take images
+   * (`agent.accepts("image")`).
+   */
+  vision?: boolean;
   execute(args: A, ctx: ToolContext): Promise<ToolResultValue> | ToolResultValue;
 }
 
@@ -267,10 +273,14 @@ export interface AgentEventMap {
   compaction: { runId?: string; summary: boolean; tokensBefore: number; tokensAfter: number; droppedTurns: number; elidedResults: number };
   /** The session was written to the workspace. */
   session_saved: { id: string };
-  /** A model call is about to be made: the request as sent (debugging views). */
-  request: { runId: string; turn: number; params: ChatCompletionParams };
+  /**
+   * A model call is about to be made: the request as sent (debugging views,
+   * counting calls). `purpose: "compaction"` for a call that writes a
+   * summary of older turns (a long history may take several).
+   */
+  request: { runId: string; turn: number; params: ChatCompletionParams; purpose?: "compaction" };
   /** A model call came back (or failed): timing, finish reason, usage, the assembled message. */
-  response: { runId: string; turn: number; durationMs: number; finishReason?: string; usage?: Usage; message?: ChatMessage; error?: string };
+  response: { runId: string; turn: number; durationMs: number; finishReason?: string; usage?: Usage; message?: ChatMessage; error?: string; purpose?: "compaction" };
   /** Queued steering entered the history (at a turn, or before a new prompt): draw these messages now. */
   steered: { runId: string; messages: ChatMessage[] };
   /** `rewind(index)` dropped the messages from `index` on. */
@@ -373,6 +383,22 @@ export interface AgentOptions {
   parallelTools?: boolean;
   /** Keep this many recent turns intact when the context is trimmed (default 4). */
   keepTurns?: number;
+  /**
+   * Whether the model sees pictures, when you know better than the
+   * catalogue (default: its `input_modalities`; unknown when it has none).
+   * `true` offers `vision` tools and lets read_file show pictures; `false`
+   * never sends a picture — attached or returned by a tool — to the model.
+   */
+  vision?: boolean;
+  /**
+   * The memory notes file in the workspace (default `/memory/notes.md`):
+   * shown to the model at the start of every conversation, and it is told
+   * to append to it. `false` for none — when the workspace is the user's own
+   * project, say, and you keep memory elsewhere.
+   */
+  memoryFile?: string | false;
+  /** The project instructions file added to the system prompt (default `/AGENTS.md`); `false` for none. */
+  instructionsFile?: string | false;
   /**
    * The guard against tool calls that go nowhere: after `warn` rounds in a
    * row that brought nothing new (the same results, lines already read,

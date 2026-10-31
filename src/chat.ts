@@ -20,8 +20,8 @@ import { filesPanel, freePath } from "./files-panel.js";
 import { debugPanel } from "./debug-panel.js";
 import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } from "./chat-theme.js";
 // The core comes in through its entry, so a CommonJS build of the UI requires the core package instead of bundling a copy.
-import { Agent, toProvider, titleOf, UNTITLED, summaryOf, listTemplates, extractPdfText, formatPdfText, isPdf } from "./index.js";
-import type { ModelProvider, RunAppsClientLike, ChatMessage, ContentPart, Workspace, AgentOptions, AgentUI, RunEnd, RunResult, SelectOption, SessionSummary, Skill, ToolStatus } from "./index.js";
+import { Agent, toProvider, titleOf, UNTITLED, summaryOf, listTemplates, extractPdfText, formatPdfText, isPdf, modelAccepts } from "./index.js";
+import type { ModelProvider, ModelInfo, RunAppsClientLike, ChatMessage, ContentPart, Workspace, AgentOptions, AgentUI, RunEnd, RunResult, SelectOption, SessionSummary, Skill, ToolStatus } from "./index.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   /**
@@ -168,7 +168,7 @@ const STRINGS = {
     dSystem: "System prompt", dMessages: "Messages sent to the model", dPayload: "Request", dResponse: "Response", dRun: "Run", dTurn: "Turn {n}", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
-    settings: "Settings", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sCustomN: "Set a number", filter: "Filter…", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
+    settings: "Settings", sVision: "sees pictures", sVisionYes: "sees pictures", sVisionNo: "text only", noVision: "{model} cannot see pictures: they are saved as files, but the model will not see what is in them.", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sCustomN: "Set a number", filter: "Filter…", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
     apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue from here.",
     files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", tooBig: "Too large to edit here; download it.", conflict: "The file changed since you opened it. Overwrite it?", readOnly: "Read-only", autoSaved: "Unsaved edits saved", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved",
@@ -205,7 +205,7 @@ const STRINGS = {
     dSystem: "系统提示词", dMessages: "发给模型的消息", dPayload: "请求内容", dResponse: "响应", dRun: "运行", dTurn: "第 {n} 轮", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
-    settings: "设置", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sCustomN: "自定义", filter: "搜索…", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
+    settings: "设置", sVision: "可看图", sVisionYes: "可看图", sVisionNo: "仅文字", noVision: "{model} 不能看图：图片已保存为文件，但模型看不到图里的内容。", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sCustomN: "自定义", filter: "搜索…", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
     apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续从这里接着跑",
     files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", tooBig: "文件太大，无法在这里编辑，可以下载。", conflict: "文件在你打开后被改过，要覆盖吗？", readOnly: "只读", autoSaved: "未保存的修改已自动保存", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存",
@@ -1876,6 +1876,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const ws = target.workspace;
     const lines: string[] = [];
     const parts: ContentPart[] = [];
+    // A model known not to see pictures gets none: they are kept as files, and the user is told.
+    const blind = taken.some((a) => a.image) && (await target.accepts("image")) === false;
+    if (blind) ui.notify(t.noVision.replace("{model}", target.model || (await target.modelInfo())?.id || t.sDefault), "warning");
     for (const a of taken) {
       const type = a.file.type || (a.text !== null ? "text/plain" : "application/octet-stream");
       if (ws) {
@@ -1893,8 +1896,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       } else if (a.text !== null && a.text.length <= MAX_INLINE_TEXT) {
         lines.push(`- ${a.name} (${type}, ${fmtSize(a.file.size)}) — contents below`);
         parts.push({ type: "text", text: `<file name="${a.name}">\n${a.text}\n</file>` });
-      } else lines.push(`- ${a.name} (${type}, ${fmtSize(a.file.size)}) — ${a.image ? "the picture below" : "not readable here"}`);
-      if (a.image && a.file.size <= MAX_IMAGE_PART) {
+      } else lines.push(`- ${a.name} (${type}, ${fmtSize(a.file.size)}) — ${a.image && !blind ? "the picture below" : "not readable here"}`);
+      if (a.image && !blind && a.file.size <= MAX_IMAGE_PART) {
         const b64 = await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(a.file); });
         parts.push({ type: "image_url", image_url: { url: b64 } });
       }
@@ -1995,7 +1998,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   let permChoice: "ask" | "auto" | null = null;  // not persisted: allowing everything is a per-page decision
   const hasSettings = opts.settings ?? !givenAgent;
   if (!hasSettings) setBtn.style.display = "none";
-  type CatModel = { id: string; is_default?: boolean; max_input_tokens?: number; max_tokens?: number; options?: { inputs?: Record<string, { enum?: unknown[]; default?: unknown }> } };
+  type CatModel = ModelInfo;
   let modelsCache: CatModel[] | null = null;
   /** The thinking levels a model offers (`options.inputs.reasoning_effort`), or null when it has none. */
   const effortOf = (m: CatModel | undefined): { levels: string[]; def?: string } | null => {
@@ -2012,7 +2015,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
   const saveSettings = (next: UserSettings) => { userSettings = next; writeSettings(next); for (const ag of live.values()) applyTo(ag, next, permChoice); showUsage_(agent); };
   const loadModels = async (): Promise<CatModel[]> => {
-    if (provider?.models) { try { modelsCache ??= (await provider.models({ capability: "text" })).filter((m) => !m.capability || m.capability === "text") as CatModel[]; } catch { /* no catalogue */ } }
+    if (provider?.models) { try { modelsCache ??= (await provider.models()).filter((m) => !m.capability || m.capability === "text" || m.capability === "vision") as CatModel[]; } catch { /* no catalogue */ } }
     return modelsCache ?? [];
   };
   const kTok = (n?: number) => (typeof n === "number" ? (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)) : "?");
@@ -2033,7 +2036,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const chosenModel = () => { const id = modelSel.value || modelsCache?.find((m) => m.is_default)?.id; return modelsCache?.find((x) => x.id === id); };
     const showLim = () => {
       const m = chosenModel();
-      lim.textContent = m ? `${t.context} ${kTok(m.max_input_tokens)} · ${t.sMaxTokens} ${kTok(m.max_tokens)}` : "";
+      const sees = modelAccepts(m, "image");
+      lim.textContent = m ? `${t.context} ${kTok(m.max_input_tokens)} · ${t.sMaxTokens} ${kTok(m.max_tokens)}${sees === undefined ? "" : ` · ${sees ? t.sVisionYes : t.sVisionNo}`}` : "";
       // Thinking levels follow the model: the list is the catalogue's, the first entry its default.
       const eff = effortOf(m);
       const keep = effortSel.value;
@@ -2051,7 +2055,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const def = modelsCache?.find((m) => m.is_default);
       // The platform default names the model it is; each model shows its context / output limits.
       modelOpts.push({ value: "", label: t.sDefault, note: def?.id });
-      for (const m of modelsCache ?? []) modelOpts.push({ value: m.id, label: m.id, note: `${kTok(m.max_input_tokens)} / ${kTok(m.max_tokens)}` });
+      // A model that sees pictures says so next to its limits.
+      for (const m of modelsCache ?? []) modelOpts.push({ value: m.id, label: m.id, note: `${modelAccepts(m, "image") ? `${t.sVision} · ` : ""}${kTok(m.max_input_tokens)} / ${kTok(m.max_tokens)}` });
     } else modelOpts.push({ value: "", label: t.sDefault });
     if (cur.model && !modelOpts.some((o) => o.value === cur.model)) modelOpts.push({ value: cur.model, label: cur.model });
     modelSel.setOptions(modelOpts);

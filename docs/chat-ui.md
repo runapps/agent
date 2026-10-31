@@ -27,11 +27,11 @@
 - **Tool calls** — one quiet line per chain of calls, worded from the tools ("read 2 files, edited 1 file"), opening to a card per call with arguments, result, duration and status.
 - **Questions** — `ask_user` and confirmations appear inline above the composer.
 - **The composer** — Enter sends, Shift+Enter breaks a line. While the agent runs, Enter **steers** (inserts into the current task) and ⌘↵ / Ctrl+↵ **queues** a follow-up; queued messages sit in a card above the box with *send now*, *edit* and *remove*.
-- **Attachments** — paperclip, drag and drop, or paste. Files are saved under `/uploads/` in the conversation's directory and named in the message; pictures also go to the model as images. 20 MB per file.
+- **Attachments** — paperclip, drag and drop, or paste. Files are saved under `/uploads/` in the conversation's directory and named in the message; pictures also go to the model as images — unless the model is known to be text-only: then they stay files and the user is told the model cannot see them. 20 MB per file.
 - **Files** — the header's *Files* button opens the directory: a tree, an editor (⌘S, word wrap, Markdown preview), picture and PDF previews, upload, new file, download (folders as zip). File paths in replies open there. Live: changes by the agent show at once.
 - **Skills** — the *Skills* button lists the skills (with a count), uploads zips, removes the user's own.
 - **Chats** — the conversation list (the open one first), new chat, delete. Conversations keep running when you switch away (up to three in the background).
-- **Settings** — the gear: model (with context and output limits), thinking level when the model has one, max turns, max output, tool permissions. Kept per app in the browser and applied to every conversation.
+- **Settings** — the gear: model (with context and output limits, and which models see pictures), thinking level when the model has one, max turns, max output, tool permissions. Kept per app in the browser and applied to every conversation.
 - **Rewind** — hover a user message: when it was sent, copy, *rewind to here* (the conversation after it is dropped, the message goes back into the composer, and the directory's files can be restored to that moment).
 - **How a run ended** — *Stopped.*, the turn limit with *Continue*, an error with *Retry*; kept across reloads until the next run.
 - **Context** — a ring under the composer shows how full the model's window is; older turns are summarised automatically.

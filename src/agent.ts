@@ -4,9 +4,9 @@
 // app shows comes through `on()` events; what the app owns (dialogs,
 // files, skills, tools) comes in through the options.
 
-import type { ChatCompletionParams, ChatMessage, ChatToolCall, ContentPart, Usage, Unsubscribe } from "./llm.js";
-import { errorStatus, ProviderError, toProvider, type ModelProvider, type RunAppsClientLike } from "./provider.js";
-import { planCut, resolveSettings, shouldCompact, summaryMessage, summaryOf, summarizationMessages, type CompactionSettings } from "./compaction.js";
+import type { ChatCompletion, ChatCompletionParams, ChatMessage, ChatToolCall, ContentPart, Usage, Unsubscribe } from "./llm.js";
+import { errorStatus, modelAccepts, ProviderError, toProvider, type InputKind, type ModelInfo, type ModelProvider, type RunAppsClientLike } from "./provider.js";
+import { planCut, resolveSettings, serializeConversation, shouldCompact, splitForSummary, summaryMessage, summaryOf, summarizationMessages, type CompactionSettings } from "./compaction.js";
 import { collectCompletion } from "./completion.js";
 import { buildSystemPrompt, estimateTokens, fitBudget } from "./context.js";
 import { expandSlash } from "./templates.js";
@@ -31,7 +31,7 @@ import type {
 } from "./types.js";
 import { askUserTool, domUI } from "./dialogs.js";
 import { fileGuard } from "./file-guard.js";
-import { isMachineTitle, titleOf, UNTITLED, type Workspace } from "./workspace.js";
+import { isMachineTitle, normalizePath, titleOf, UNTITLED, type Workspace } from "./workspace.js";
 
 const DEFAULT_MAX_TURNS = 100;
 const DEFAULT_MAX_TOKENS = 8192;
@@ -80,6 +80,71 @@ function toWire(m: ChatMessage, older: boolean): ChatMessage {
   return rest as ChatMessage;
 }
 
+/**
+ * A tool message may only carry text (OpenAI's format); pictures, audio or
+ * video a tool returned go to the model in a user message right after the
+ * batch's tool results, each named by the call it came from.
+ */
+function moveToolImages(messages: ChatMessage[]): ChatMessage[] {
+  const hasMedia = (m: ChatMessage) => m.role === "tool" && Array.isArray(m.content) && m.content.some((p) => p.type !== "text");
+  if (!messages.some(hasMedia)) return messages;
+  // Only the latest batches' media are sent again (each costs thousands of tokens); older ones are named.
+  // A batch is a run of tool messages; note where each one with media starts.
+  const starts: number[] = [];
+  let start = -1, counted = false;
+  messages.forEach((m, i) => {
+    if (m.role !== "tool") { start = -1; return; }
+    if (start < 0) { start = i; counted = false; }
+    if (!counted && hasMedia(m)) { starts.push(start); counted = true; }
+  });
+  const keepFrom = starts.length > KEEP_TOOL_MEDIA_BATCHES ? starts[starts.length - KEEP_TOOL_MEDIA_BATCHES]! : 0;
+  const out: ChatMessage[] = [];
+  let carried: ContentPart[] = [];
+  const flush = () => {
+    if (carried.length) out.push({ role: "user", content: carried });
+    carried = [];
+  };
+  for (const [i, m] of messages.entries()) {
+    if (m.role !== "tool") flush();
+    if (hasMedia(m)) {
+      const parts = m.content as ContentPart[];
+      const media = parts.filter((p) => p.type !== "text");
+      const text = parts.filter((p) => p.type === "text").map((p) => (p as { text: string }).text).join("\n");
+      const n = `${media.length} attachment${media.length === 1 ? "" : "s"}`;
+      if (i < keepFrom) {
+        out.push({ ...m, content: `${text}${text ? "\n" : ""}[${n} no longer shown; call the tool again to see the current state]` });
+        continue;
+      }
+      out.push({ ...m, content: `${text}${text ? "\n" : ""}[${n} follow${media.length === 1 ? "s" : ""} in the next message]` });
+      carried.push({ type: "text", text: `Attachments from tool call ${m.tool_call_id ?? ""}:`.trim() }, ...media);
+      continue;
+    }
+    out.push(m);
+  }
+  flush();
+  return out;
+}
+
+const KEEP_TOOL_MEDIA_BATCHES = 2;
+
+const MEDIA_PART: Record<InputKind, ContentPart["type"]> = { image: "image_url", video: "video_url", audio: "audio_url" };
+const MEDIA_NAME: Record<InputKind, string> = { image: "picture", video: "video", audio: "audio clip" };
+
+/** Pictures (video, audio) the model is known not to take are replaced by a line saying one was there. */
+function withoutMedia(messages: ChatMessage[], media: Partial<Record<InputKind, boolean | undefined>>, model?: string): ChatMessage[] {
+  const refused = (Object.keys(MEDIA_PART) as InputKind[]).filter((k) => media[k] === false);
+  if (!refused.length) return messages;
+  const kindOf = (p: ContentPart) => refused.find((k) => MEDIA_PART[k] === p.type);
+  return messages.map((m) => {
+    if (!Array.isArray(m.content) || !m.content.some((p) => kindOf(p))) return m;
+    const content = m.content.map((p): ContentPart => {
+      const k = kindOf(p);
+      return k ? { type: "text", text: `[A ${MEDIA_NAME[k]} was attached here; the model in use${model ? ` (${model})` : ""} does not take ${MEDIA_NAME[k]}s, so it is not shown. Say so if it matters.]` } : p;
+    });
+    return { ...m, content };
+  });
+}
+
 const emptyUsage = (): AgentUsage => ({ total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 });
 const abortedResult = (): RunResult => ({ runId: "", reason: "aborted", text: "", usage: emptyUsage() });
 const SKIPPED_STOP = "Skipped: the user stopped the run.";
@@ -87,7 +152,11 @@ const balanceError = () => new ProviderError(402, "runapps agent: the reply was 
 
 /** Settles with `p`, or rejects as soon as `signal` aborts (the work itself may go on; its result is ignored). */
 function raceAbort<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(signal.reason ?? new Error("aborted"));
+  if (signal.aborted) {
+    // The work may still fail (it may even be what aborted): its result is ignored, and so is its error.
+    p.catch(() => undefined);
+    return Promise.reject(signal.reason ?? new Error("aborted"));
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(signal.reason ?? new Error("aborted"));
     signal.addEventListener("abort", onAbort, { once: true });
@@ -113,9 +182,12 @@ export class Agent {
   private current: { controller: AbortController; promise: Promise<RunResult> } | null = null;
   private chain: Promise<unknown> = Promise.resolve();
   private pendingSkills: string[] = [];
-  private inputTokens: Promise<{ input: number; output: number }> | null = null;
+  /** The catalogue's entry for the model in use (undefined: not listed, or no catalogue); asked once per model. */
+  private catalogue: Promise<ModelInfo | undefined> | null = null;
   /** The guard against calls that go nowhere: results seen since the last change, rounds in a row without anything new. */
   private loop = { seen: new Set<string>(), idle: 0, warned: false };
+  /** The turn of the running run (0 outside one), for events of calls made outside the turn's own request. */
+  private turnNow = 0;
   private readonly loaded: Promise<void>;
   private createdAt = Date.now();
   /** The session's title, fixed once known (a later compaction must not turn it into the summary's first words). */
@@ -133,7 +205,11 @@ export class Agent {
     const tools: Tool[] = [...(opts.tools ?? [])];
     // What the model has read, for the file tools and run_js alike; forgotten when the conversation is compacted or rewound.
     const guard = this.workspace ? fileGuard(this.workspace, { enabled: opts.readBeforeWrite !== false }) : undefined;
-    if (guard) { this.on("compaction", () => guard.clear()); this.on("rewind", () => guard.clear()); }
+    if (guard) {
+      const sync = () => guard.retain(this.filesInView());
+      this.on("compaction", sync);
+      this.on("rewind", sync);
+    }
     if (this.workspace && opts.fileTools !== false) {
       const want = Array.isArray(opts.fileTools) ? new Set(opts.fileTools) : null;
       tools.push(...fileTools(this.workspace, { guard }).filter((t) => !want || want.has(t.name)));
@@ -177,7 +253,7 @@ export class Agent {
     this._ended = data.ended ?? null;
     // Titles saved before titleOf skipped summaries and expanded commands are worked out again.
     this.title = data.title && !isMachineTitle(data.title) ? data.title : undefined;
-    if (data.model && !this.opts.model) { this.opts.model = data.model; this.inputTokens = null; }
+    if (data.model && !this.opts.model) { this.opts.model = data.model; this.catalogue = null; }
   }
 
   /** Resolves once a saved session (if any) has been loaded. */
@@ -248,7 +324,7 @@ export class Agent {
 
   set model(name: string | undefined) {
     this.opts.model = name;
-    this.inputTokens = null;
+    this.catalogue = null;
   }
 
   /** The settings a user may change mid-conversation. */
@@ -481,41 +557,45 @@ export class Agent {
       for (let turn = 1; ; turn++) {
         if (signal.aborted) { reason = "aborted"; break; }
         if (turn > maxTurns) { reason = "max_turns"; break; }
+        this.turnNow = turn;
         this.emit("turn_start", { runId, turn });
 
         // Steering arrives between tool batches.
         this.applySteering(runId);
 
         const system = await this.systemPrompt();
+        // What every request carries besides the transcript: the system prompt and the tools' schemas.
+        const fixed = this.fixedText(system);
         // Context management, pi-style: summarise older turns when the
         // window is nearly full; elide/drop as the fallback.
-        const tokensBefore = estimateTokens(this.history, system);
+        const tokensBefore = estimateTokens(this.history, fixed);
         if (shouldCompact(tokensBefore, window, compaction)) {
           const summarized = this.opts.compaction === false ? false : await this.compactWith(compaction, runId, signal);
-          const after = estimateTokens(this.history, system);
+          const after = estimateTokens(this.history, fixed);
           if (!summarized || shouldCompact(after, window, compaction)) {
             // Trim, keeping a compaction summary at the front pinned: it
             // is the memory of everything already dropped.
             const pinned = this.history.length && summaryOf(this.history[0]!) !== null ? [this.history[0]!] : [];
             const rest = this.history.slice(pinned.length);
-            const fit = fitBudget(rest, { budget: window - compaction.reserveTokens - estimateTokens(pinned), keepTurns: this.opts.keepTurns ?? 4, system });
+            const fit = fitBudget(rest, { budget: window - compaction.reserveTokens - estimateTokens(pinned), keepTurns: this.opts.keepTurns ?? 4, system: fixed });
             if (fit.droppedTurns || fit.elidedResults) {
               this.history = [...pinned, ...fit.messages];
               this.droppedTurns += fit.droppedTurns;
               this.committed = Math.min(this.committed, this.history.length);
-              this.emit("compaction", { runId, summary: false, tokensBefore: after, tokensAfter: estimateTokens(this.history, system), droppedTurns: fit.droppedTurns, elidedResults: fit.elidedResults });
+              this.emit("compaction", { runId, summary: false, tokensBefore: after, tokensAfter: estimateTokens(this.history, fixed), droppedTurns: fit.droppedTurns, elidedResults: fit.elidedResults });
             }
           }
         }
 
+        const tools = await this.activeTools();
         const params: ChatCompletionParams = {
           ...(this.opts.extra ?? {}),
           model: this.opts.model ?? "",
-          messages: [{ role: "system", content: system }, ...this.toWireHistory()],
+          messages: [{ role: "system", content: system }, ...this.toWireHistory(await this.mediaSupport())],
           max_tokens: maxTokens,
         };
         if (!params.model) delete (params as Partial<ChatCompletionParams>).model;
-        if (this.tools.length) params.tools = this.tools.map((t) => toChatTool(t as Tool<unknown>));
+        if (tools.length) params.tools = tools.map((t) => toChatTool(t as Tool<unknown>));
         if (this.opts.serverTools?.length) params.server_tools = this.opts.serverTools;
         if (this.opts.prompt) params.prompt = this.opts.prompt;
         if (this.opts.temperature !== undefined) params.temperature = this.opts.temperature;
@@ -624,10 +704,23 @@ export class Agent {
     this.emit("steered", { runId, messages: steer });
   }
 
-  private toWireHistory(): ChatMessage[] {
+  private toWireHistory(media: Partial<Record<InputKind, boolean | undefined>> = {}): ChatMessage[] {
     let lastUser = -1;
     for (let i = this.history.length - 1; i >= 0; i--) if (this.history[i]!.role === "user") { lastUser = i; break; }
-    return this.history.map((m, i) => toWire(m, i < lastUser));
+    return withoutMedia(moveToolImages(this.history.map((m, i) => toWire(m, i < lastUser))), media, this.opts.model);
+  }
+
+  /** What the model in use takes besides text (undefined: not known — then it is sent). */
+  private async mediaSupport(): Promise<Record<InputKind, boolean | undefined>> {
+    const [image, video, audio] = await Promise.all([this.accepts("image"), this.accepts("video"), this.accepts("audio")]);
+    return { image, video, audio };
+  }
+
+  /** The tools offered this turn: `vision` tools only while the model is known to take pictures. */
+  private async activeTools(): Promise<Tool[]> {
+    if (!this.tools.some((t) => t.vision)) return this.tools;
+    const sees = await this.accepts("image");
+    return this.tools.filter((t) => !t.vision || sees === true);
   }
 
   /** The system prompt for the next request (what the model is told). */
@@ -642,17 +735,20 @@ export class Agent {
         return undefined;
       }
     };
+    const tools = await this.activeTools();
     return buildSystemPrompt({
       appName: this.opts.appName,
       instructions: typeof this.opts.instructions === "function" ? this.opts.instructions() : this.opts.instructions,
-      tools: this.tools,
+      tools,
       workspaceDescription: ws ? ws.describe() : undefined,
       skills: ws ? await ws.skills() : [],
-      hasSandbox: this.tools.some((t) => t.name === "run_js"),
-      hasAskUser: this.tools.some((t) => t.name === "ask_user"),
-      canWrite: this.tools.some((t) => t.name === "write_file" || t.name === "edit_file"),
-      agentsMd: await readOpt(AGENTS_PATH, 20_000),
-      memory: await readOpt(MEMORY_PATH, MAX_NOTES_CHARS),
+      hasSandbox: tools.some((t) => t.name === "run_js"),
+      hasAskUser: tools.some((t) => t.name === "ask_user"),
+      canWrite: tools.some((t) => t.name === "write_file" || t.name === "edit_file"),
+      agentsMd: this.opts.instructionsFile === false ? undefined : await readOpt(this.opts.instructionsFile ?? AGENTS_PATH, 20_000),
+      agentsPath: this.opts.instructionsFile || AGENTS_PATH,
+      memory: this.opts.memoryFile === false ? undefined : await readOpt(this.opts.memoryFile ?? MEMORY_PATH, MAX_NOTES_CHARS),
+      memoryPath: this.opts.memoryFile === false ? undefined : this.opts.memoryFile ?? MEMORY_PATH,
       droppedTurns: this.droppedTurns,
     });
   }
@@ -703,17 +799,38 @@ export class Agent {
       if (typeof this.opts.compaction === "function") {
         summary = await this.opts.compaction(plan, this);
       } else {
-        const params: ChatCompletionParams = { model: this.opts.model ?? "", messages: summarizationMessages(plan.toSummarize, plan.previousSummary, plan.focus), max_tokens: (await this.limits()).output };
-        if (!params.model) delete (params as Partial<ChatCompletionParams>).model;
-        const res = this.provider.complete
-          ? await this.provider.complete(params, { signal })
-          : await collectCompletion((p, init) => this.provider.stream(p, init), params, { signal }).then((c) => ({ choices: [{ message: { ...c.message, content: typeof c.message.content === "string" ? c.message.content : null }, finish_reason: c.finishReason }], usage: c.usage }));
-        if (res.usage) this.addUsage(res.usage);
-        const choice = res.choices[0];
-        if (!choice || choice.finish_reason === "length") throw new Error("the summary is incomplete");
-        if (choice.message.tool_calls?.length) throw new Error("the summariser attempted to call a tool");
-        summary = (choice.message.content ?? "").trim();
-        if (!summary) throw new Error("empty summary");
+        const limits = await this.limits();
+        // pi: the summary may use most of the reserve, never the model's whole output limit.
+        const maxTokens = Math.min(limits.output, Math.max(1024, Math.floor(settings.reserveTokens * 0.8)));
+        // What one request can carry (3 characters a token, room for the prompt); a longer history is summarised piece by piece.
+        const room = Math.max(6000, (limits.input - maxTokens - 1500) * 3);
+        let previous = plan.previousSummary;
+        for (const piece of splitForSummary(serializeConversation(plan.toSummarize), room)) {
+          const params: ChatCompletionParams = { model: this.opts.model ?? "", messages: summarizationMessages(piece, previous, plan.focus), max_tokens: maxTokens };
+          if (!params.model) delete (params as Partial<ChatCompletionParams>).model;
+          const tag = { runId: runId ?? "", turn: this.turnNow, purpose: "compaction" as const };
+          this.emit("request", { ...tag, params });
+          // A listener may have stopped the run on seeing this request (a call limit): then it never goes out.
+          signal.throwIfAborted();
+          const asked = Date.now();
+          let res: ChatCompletion;
+          try {
+            res = this.provider.complete
+              ? await this.provider.complete(params, { signal })
+              : await collectCompletion((p, init) => this.provider.stream(p, init), params, { signal }).then((c) => ({ choices: [{ message: { ...c.message, content: typeof c.message.content === "string" ? c.message.content : null }, finish_reason: c.finishReason }], usage: c.usage }) as unknown as ChatCompletion);
+          } catch (err) {
+            this.emit("response", { ...tag, durationMs: Date.now() - asked, error: err instanceof Error ? err.message : String(err) });
+            throw err;
+          }
+          if (res.usage) this.addUsage(res.usage);
+          const choice = res.choices[0];
+          this.emit("response", { ...tag, durationMs: Date.now() - asked, finishReason: choice?.finish_reason ?? undefined, usage: res.usage ?? undefined, message: choice?.message as ChatMessage | undefined });
+          if (!choice || choice.finish_reason === "length") throw new Error("the summary is incomplete");
+          if (choice.message.tool_calls?.length) throw new Error("the summariser attempted to call a tool");
+          previous = (choice.message.content ?? "").trim();
+          if (!previous) throw new Error("empty summary");
+        }
+        summary = previous!;
       }
     } catch (err) {
       if (signal.aborted) throw err;
@@ -749,6 +866,7 @@ export class Agent {
     for (let attempt = 1; ; attempt++) {
       text = "";
       reasoning = "";
+      signal.throwIfAborted();
       try {
         return await collectCompletion(
           (p, init) => this.provider.stream(p, init),
@@ -834,7 +952,8 @@ export class Agent {
       this.emit("tool_start", { runId, id, name, args: call.function.arguments });
       return finish("error", `Tool call "${name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`);
     }
-    tool = this.tools.find((t) => t.name === name);
+    const offered = await this.activeTools();
+    tool = offered.find((t) => t.name === name);
     let args: unknown;
     try {
       args = call.function.arguments.trim() ? JSON.parse(call.function.arguments) : {};
@@ -843,7 +962,7 @@ export class Agent {
       return finish("error", "Error: the arguments are not valid JSON.");
     }
     this.emit("tool_start", { runId, id, name, args });
-    if (!tool) return finish("error", `Error: there is no tool named "${name}". Available tools: ${this.tools.map((t) => t.name).join(", ")}.`);
+    if (!tool) return finish("error", `Error: there is no tool named "${name}". Available tools: ${offered.map((t) => t.name).join(", ")}.`);
     if (args === null || typeof args !== "object" || Array.isArray(args)) return finish("error", "Error: the arguments must be a JSON object.");
     const problems = validateSchema(tool.parameters, args);
     if (problems.length) return finish("error", `Error: invalid arguments for ${name}:\n- ${problems.join("\n- ")}\nFix the call and try again.`);
@@ -952,7 +1071,32 @@ export class Agent {
   /** How full the model's context is: tokens the next call would send (estimated) against the window. */
   async context(): Promise<{ used: number; window: number }> {
     const [window, system] = await Promise.all([this.contextTokens(), this.systemPrompt().catch(() => "")]);
-    return { used: estimateTokens(this.history, system), window };
+    return { used: estimateTokens(this.history, this.fixedText(system)), window };
+  }
+
+  /**
+   * The files whose contents are still in the conversation: read (with the
+   * result not trimmed away) or written by the model in a turn that was kept.
+   * The rest were summarised or dropped, so the model must read them again.
+   */
+  private filesInView(): string[] {
+    const trimmed = new Set(this.history.filter((m) => m.role === "tool" && typeof m.content === "string" && m.content.startsWith("[result elided")).map((m) => m.tool_call_id));
+    const paths: string[] = [];
+    for (const m of this.history) {
+      for (const c of m.role === "assistant" ? m.tool_calls ?? [] : []) {
+        if (trimmed.has(c.id)) continue;
+        let args: { path?: unknown; to?: unknown };
+        try { args = JSON.parse(c.function.arguments); } catch { continue; }
+        const path = ["read_file", "write_file", "edit_file"].includes(c.function.name) ? args.path : ["move_file", "copy_file"].includes(c.function.name) ? args.to : undefined;
+        if (typeof path === "string") paths.push(normalizePath(path));
+      }
+    }
+    return paths;
+  }
+
+  /** The system prompt and the tools' schemas, as they count against the window. */
+  private fixedText(system: string): string {
+    return this.tools.length ? `${system}\n${JSON.stringify(this.tools.map((t) => toChatTool(t as Tool<unknown>)))}` : system;
   }
 
   /**
@@ -974,25 +1118,44 @@ export class Agent {
     return this.limits().then((l) => l.input);
   }
 
-  private catalogueLimits(): Promise<{ input: number; output: number }> {
-    if (!this.inputTokens) {
-      this.inputTokens = (async () => {
+  private async catalogueLimits(): Promise<{ input: number; output: number }> {
+    const m = await this.modelInfo();
+    const input = typeof m?.max_input_tokens === "number" && m.max_input_tokens > 0 ? m.max_input_tokens : DEFAULT_INPUT_TOKENS;
+    const output = typeof m?.max_tokens === "number" && m.max_tokens > 0 ? m.max_tokens : DEFAULT_MAX_TOKENS;
+    return { input, output };
+  }
+
+  /**
+   * The catalogue's entry for the model in use — the named model, else the
+   * provider's default chat model — or undefined when the provider has no
+   * catalogue or does not list it.
+   */
+  modelInfo(): Promise<ModelInfo | undefined> {
+    if (!this.catalogue) {
+      this.catalogue = (async () => {
         try {
-          if (!this.provider.models) return { input: DEFAULT_INPUT_TOKENS, output: DEFAULT_MAX_TOKENS };
+          if (!this.provider.models) return undefined;
           const models = await this.provider.models();
           const want = this.opts.model?.toLowerCase();
-          const m = (want ? models.find((x) => x.id.toLowerCase() === want) : models.find((x) => x.is_default && (x.capability === "text"))) as { max_input_tokens?: number; max_tokens?: number } | undefined;
-          const input = typeof m?.max_input_tokens === "number" && m.max_input_tokens > 0 ? m.max_input_tokens : DEFAULT_INPUT_TOKENS;
-          const output = typeof m?.max_tokens === "number" && m.max_tokens > 0 ? m.max_tokens : DEFAULT_MAX_TOKENS;
-          return { input, output };
+          return want ? models.find((x) => x.id.toLowerCase() === want) : models.find((x) => x.is_default && (!x.capability || x.capability === "text" || x.capability === "vision"));
         } catch {
-          // Offline for a moment: use the defaults now, ask the catalogue again next time.
-          queueMicrotask(() => { this.inputTokens = null; });
-          return { input: DEFAULT_INPUT_TOKENS, output: DEFAULT_MAX_TOKENS };
+          // Offline for a moment: nothing known now, ask the catalogue again next time.
+          queueMicrotask(() => { this.catalogue = null; });
+          return undefined;
         }
       })();
     }
-    return this.inputTokens;
+    return this.catalogue;
+  }
+
+  /**
+   * Whether the model in use takes pictures (`"image"`), video or audio as
+   * input: the `vision` option when given (for pictures), else the
+   * catalogue's `input_modalities`. Undefined when nothing says.
+   */
+  async accepts(kind: InputKind): Promise<boolean | undefined> {
+    if (kind === "image" && typeof this.opts.vision === "boolean") return this.opts.vision;
+    return modelAccepts(await this.modelInfo(), kind);
   }
 
   private async withSkillPrefaces(message: ChatMessage): Promise<ChatMessage> {

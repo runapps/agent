@@ -16,10 +16,13 @@ export interface SystemPromptInput {
   hasAskUser: boolean;
   /** The workspace has write_file/edit_file (memory notes can be kept). */
   canWrite: boolean;
-  /** `/AGENTS.md` from the workspace, when present. */
+  /** The project instructions file (`/AGENTS.md`), when present. */
   agentsMd?: string;
-  /** `/memory/notes.md` from the workspace, when present. */
+  agentsPath?: string;
+  /** The memory notes (`/memory/notes.md`), when present. */
   memory?: string;
+  /** Where memory notes are kept; none: the model is not told to keep any. */
+  memoryPath?: string;
   droppedTurns: number;
   now?: Date;
 }
@@ -31,7 +34,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
     `You are ${input.appName ? `the assistant built into ${input.appName}, an app` : "an assistant"} running on RunApps. Today is ${date}.`,
   );
   if (input.instructions?.trim()) out.push(input.instructions.trim());
-  if (input.agentsMd?.trim()) out.push(`Project-specific instructions and guidelines:\n\n<project_instructions path="/AGENTS.md">\n${input.agentsMd.trim()}\n</project_instructions>`);
+  if (input.agentsMd?.trim()) out.push(`Project-specific instructions and guidelines:\n\n<project_instructions path="${input.agentsPath ?? "/AGENTS.md"}">\n${input.agentsMd.trim()}\n</project_instructions>`);
 
   const rules = [
     "Act with your tools rather than describing what you would do; carry a multi-step task through, then report briefly what you did and what you found.",
@@ -52,12 +55,12 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   if (input.workspaceDescription) {
     out.push(
       "# Workspace\nYou have a file tree (absolute POSIX paths).\n" + input.workspaceDescription +
-      "\nUse list_files and read_file to look around, edit_file for small changes (old_text must match exactly once), write_file for new files or rewrites. A reply has an output limit: a file longer than you can emit in one call is written in parts — write_file the first part, then edit_file to append the rest (old_text = the last lines written) — never one huge write_file." +
-      (input.canWrite ? "\nTo remember something for later conversations (a preference, a decision, a fact about the user's project), append a short line to /memory/notes.md; it is shown to you at the start of every conversation." : ""),
+      "\nUse list_files and read_file to look around, edit_file for small changes (each oldText must match exactly once), write_file for new files or rewrites. A reply has an output limit: a file longer than you can emit in one call is written in parts — write_file the first part, then edit_file to append the rest (oldText = the last lines written) — never one huge write_file." +
+      (input.canWrite && input.memoryPath ? `\nTo remember something for later conversations (a preference, a decision, a fact about the user's project), append a short line to ${input.memoryPath}; it is shown to you at the start of every conversation.` : ""),
     );
   }
   if (input.memory?.trim()) {
-    out.push("# Memory\nYour notes from earlier conversations (/memory/notes.md):\n" + input.memory.trim());
+    out.push(`# Memory\nYour notes from earlier conversations (${input.memoryPath ?? "/memory/notes.md"}):\n` + input.memory.trim());
   }
 
   const visible = input.skills.filter((s) => !s.disableModelInvocation);

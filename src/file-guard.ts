@@ -1,8 +1,8 @@
 // Read before write: what the model has seen of each file, so that it does
 // not overwrite, edit or delete a file from a stale or partial view — the
 // user may edit files while it works. One guard per agent, shared by the
-// file tools and run_js's `fs`; it forgets everything when the conversation
-// is compacted or rewound (the model no longer has those contents).
+// file tools and run_js's `fs`; when the conversation is compacted or
+// rewound it forgets the files whose contents the model no longer has.
 
 import { decodeText, type Workspace } from "./workspace.js";
 
@@ -67,7 +67,9 @@ export interface FileGuard {
    */
   check(path: string, verb: "overwrite" | "edit" | "delete"): Promise<void>;
   forget(path: string): void;
-  /** Forget everything (after compaction or a rewind). */
+  /** Forget every file but these (after compaction or a rewind: the ones whose contents the model still has). */
+  retain(paths: Iterable<string>): void;
+  /** Forget everything. */
   clear(): void;
 }
 
@@ -132,6 +134,10 @@ export function fileGuard(ws: Workspace, opts: { enabled?: boolean } = {}): File
       }
     },
     forget(p) { seen.delete(p); },
+    retain(paths) {
+      const keep = new Set(paths);
+      for (const p of [...seen.keys()]) if (!keep.has(p)) seen.delete(p);
+    },
     clear() { seen.clear(); },
   };
 }

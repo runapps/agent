@@ -187,9 +187,30 @@ function truncateForSummary(text: string, max: number): string {
   return `${text.slice(0, max)}\n\n[... ${text.length - max} more characters truncated]`;
 }
 
-/** The messages of a summarisation request. */
-export function summarizationMessages(toSummarize: ChatMessage[], previousSummary?: string, focus?: string): ChatMessage[] {
-  let prompt = `<conversation>\n${serializeConversation(toSummarize)}\n</conversation>\n\n`;
+/**
+ * A serialized conversation in pieces of at most `maxChars`, cut between
+ * messages where it can be (a single message longer than that is cut
+ * inside): each piece is summarised in turn, updating the summary so far,
+ * when the whole would not fit in one request.
+ */
+export function splitForSummary(text: string, maxChars: number): string[] {
+  if (text.length <= maxChars) return [text];
+  const pieces: string[] = [];
+  let current = "";
+  for (const block of text.split(/\n\n(?=\[(?:User|Assistant|Assistant tool calls|Tool result)\]: )/)) {
+    for (let i = 0; i < block.length; i += maxChars) {
+      const slice = block.slice(i, i + maxChars);
+      if (current && current.length + 2 + slice.length > maxChars) { pieces.push(current); current = ""; }
+      current = current ? `${current}\n\n${slice}` : slice;
+    }
+  }
+  if (current) pieces.push(current);
+  return pieces;
+}
+
+/** The messages of a summarisation request (`toSummarize` may come serialized already, as one piece of a longer conversation). */
+export function summarizationMessages(toSummarize: ChatMessage[] | string, previousSummary?: string, focus?: string): ChatMessage[] {
+  let prompt = `<conversation>\n${typeof toSummarize === "string" ? toSummarize : serializeConversation(toSummarize)}\n</conversation>\n\n`;
   if (previousSummary) prompt += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
   prompt += previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
   // pi's `/compact <instructions>`: what the user wants the summary to keep above all.

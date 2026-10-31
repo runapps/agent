@@ -94,6 +94,7 @@ export class MCPError extends Error {
  * ```
  */
 export async function connectMCP(url: string | URL, opts: MCPOptions = {}): Promise<MCPConnection> {
+  opts.signal?.throwIfAborted();
   const endpoint = new URL(url);
   if (endpoint.protocol !== "https:" && endpoint.protocol !== "http:") throw new MCPError("An MCP endpoint is an http(s) URL.");
   const doFetch = opts.fetch ?? globalThis.fetch.bind(globalThis);
@@ -102,6 +103,8 @@ export async function connectMCP(url: string | URL, opts: MCPOptions = {}): Prom
   let protocol: string | undefined;
   let nextId = 1;
   let closed = false;
+  // opts.signal cancels connecting only: once connected, the connection lives until close().
+  let connecting: AbortSignal | undefined = opts.signal;
 
   const headers = (json: boolean): Record<string, string> => ({
     ...(opts.headers ?? {}),
@@ -133,7 +136,7 @@ export async function connectMCP(url: string | URL, opts: MCPOptions = {}): Prom
     if (closed) throw new MCPError("The MCP connection is closed.");
     const id = nextId++;
     const timeout = AbortSignal.timeout(timeoutMs);
-    const combined = anySignal([timeout, ...(signal ? [signal] : []), ...(opts.signal ? [opts.signal] : [])]);
+    const combined = anySignal([timeout, ...(signal ? [signal] : []), ...(connecting ? [connecting] : [])]);
     const body: RPCMessage = { jsonrpc: "2.0", id, method, ...(params ? { params: onProgress ? { ...params, _meta: { progressToken: id } } : params } : {}) };
     const cancel = () => {
       // Tell the server to stop (a request already running may still have its effect).
@@ -201,7 +204,7 @@ export async function connectMCP(url: string | URL, opts: MCPOptions = {}): Prom
   };
 
   const notify = async (method: string) => {
-    const res = await post({ jsonrpc: "2.0", method }, anySignal([AbortSignal.timeout(timeoutMs), ...(opts.signal ? [opts.signal] : [])]));
+    const res = await post({ jsonrpc: "2.0", method }, anySignal([AbortSignal.timeout(timeoutMs), ...(connecting ? [connecting] : [])]));
     await res.body?.cancel();
   };
 
@@ -291,6 +294,7 @@ export async function connectMCP(url: string | URL, opts: MCPOptions = {}): Prom
     await end();
     throw err;
   }
+  connecting = undefined;
 
   async function end(): Promise<void> {
     if (closed) return;

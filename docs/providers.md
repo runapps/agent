@@ -69,15 +69,18 @@ const models = [
   {
     id: "deepseek-reasoner",
     is_default: true,                    // used when the agent names no model
-    capability: "text",                  // only "text" models are offered in the chat's picker
+    capability: "text",                  // "text" and "vision" models are offered in the chat's picker
     max_input_tokens: 128_000,
     max_tokens: 64_000,
+    input_modalities: ["text"],          // what it takes: add "image" (or "video", "audio") for a model that sees them
     options: { inputs: { reasoning_effort: { enum: ["low", "medium", "high"], default: "medium" } } },
   },
 ];
 ```
 
 `options.inputs.reasoning_effort` lists the thinking levels a model takes; the chat's settings menu offers them and sends the choice as `reasoning_effort`.
+
+`input_modalities` says what a model takes besides text (RunApps' `/v1/models` lists it for every model; a `vision` capability also counts as pictures). `modelAccepts(model, "image")` reads it: `true`, `false`, or `undefined` when the catalogue does not say. See [Pictures and models that see them](agent.md#pictures-and-models-that-see-them).
 
 ## `runappsProvider` — RunApps
 

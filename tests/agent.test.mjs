@@ -733,3 +733,87 @@ test("agent — clear() starts the conversation over with the same id, saved, fi
   const r = await agent.prompt("two");
   assert.equal(r.text, "second");
 });
+
+test("agent — pictures a tool returns reach the model in a user message; only the latest two batches are sent again", async () => {
+  const shot = (n) => [{ type: "text", text: `shot ${n}` }, { type: "image_url", image_url: { url: `data:image/png;base64,${n}` } }];
+  let n = 0;
+  const camera = defineTool({ name: "camera", description: "a picture", readOnly: true, execute: () => shot(++n) });
+  const requests = [];
+  const agent = createAgent(playing([[{ name: "camera", args: {} }], [{ name: "camera", args: {} }], [{ name: "camera", args: {} }], "done"], requests), { tools: [camera], sandbox: false, askUser: false });
+  await agent.prompt("look");
+  const last = requests.at(-1).messages;
+  const tools = last.filter((m) => m.role === "tool");
+  assert.ok(tools.every((m) => typeof m.content === "string"));
+  assert.match(tools[0].content, /^shot 1\n\[1 attachment no longer shown/);
+  assert.match(tools[2].content, /^shot 3\n\[1 attachment follows in the next message\]$/);
+  const carriers = last.filter((m) => m.role === "user" && Array.isArray(m.content));
+  assert.deepEqual(carriers.map((m) => m.content[1].image_url.url), ["data:image/png;base64,2", "data:image/png;base64,3"]);
+  // Each carrier comes right after its tool result.
+  const i3 = last.indexOf(tools[2]);
+  assert.equal(last[i3 + 1], carriers[1]);
+});
+
+test("agent — a file read in a turn that compaction kept stays read; one summarised away must be read again", async () => {
+  const ws = await Workspace.open(null, { id: "kept-read", project: "kept-read-test", indexedDB: null, userSkills: false });
+  await ws.write("/old.md", "old\n");
+  await ws.write("/new.md", "new\n");
+  const agent = createAgent(playing([[{ name: "read_file", args: { path: "/old.md" } }], "first " + "y".repeat(400), [{ name: "read_file", args: { path: "new.md" } }], "second"]), { workspace: ws, sandbox: false, askUser: false, persist: false, compaction: async () => "SUM" });
+  await agent.prompt("read old");
+  await agent.prompt("read new");
+  assert.equal(await agent.compact(), true);
+  const t = Object.fromEntries(agent.tools.map((x) => [x.name, x]));
+  const ctx = { signal: new AbortController().signal, ui: agent.ui, workspace: ws, agent, update() {}, progress() {} };
+  await t.edit_file.execute({ path: "/new.md", oldText: "new", newText: "newer" }, ctx);
+  await assert.rejects(t.edit_file.execute({ path: "/old.md", oldText: "old", newText: "older" }, ctx), /not read it/);
+});
+
+/** A provider with a catalogue: `models` as given, replies from `turns` (as playing()). */
+function cataloguing(models, turns, requests = []) {
+  return { ...playing(turns, requests), models: async () => models };
+}
+
+test("vision — the catalogue says which models see pictures; vision tools are offered only to them", async () => {
+  const { modelAccepts } = await import("../dist/index.js");
+  assert.equal(modelAccepts({ id: "a", input_modalities: ["text", "image"] }, "image"), true);
+  assert.equal(modelAccepts({ id: "b", input_modalities: ["text"] }, "image"), false);
+  assert.equal(modelAccepts({ id: "c", capability: "vision" }, "image"), true);
+  assert.equal(modelAccepts({ id: "d", capability: "text" }, "image"), undefined);
+  assert.equal(modelAccepts({ id: "e", input_modalities: ["text", "image", "video"] }, "video"), true);
+
+  const models = [{ id: "Eyes", capability: "text", is_default: true, input_modalities: ["text", "image"] }, { id: "Words", capability: "text", input_modalities: ["text"] }];
+  const shot = defineTool({ name: "screenshot", description: "see the page", vision: true, readOnly: true, execute: () => "ok" });
+  const seen = [];
+  const eyes = createAgent(cataloguing(models, ["hi"], seen), { tools: [shot], sandbox: false, askUser: false });
+  assert.equal(await eyes.accepts("image"), true);
+  await eyes.prompt("x");
+  assert.ok(seen[0].tools.some((t) => t.function.name === "screenshot"));
+  const blind = [];
+  const words = createAgent(cataloguing(models, [[{ name: "screenshot", args: {} }], "done"], blind), { model: "words", tools: [shot], sandbox: false, askUser: false });
+  assert.equal(await words.accepts("image"), false);
+  await words.prompt("x");
+  assert.equal(blind[0].tools, undefined);
+  assert.match(blind[1].messages.at(-1).content, /no tool named "screenshot"/);
+  // The option wins over the catalogue.
+  assert.equal(await createAgent(cataloguing(models, []), { model: "Words", vision: true }).accepts("image"), true);
+});
+
+test("vision — pictures never reach a model known to be text-only; read_file shows a picture to one that sees", async () => {
+  const models = [{ id: "Eyes", is_default: true, input_modalities: ["text", "image"] }, { id: "Words", input_modalities: ["text"] }];
+  const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+  const ws = await Workspace.open(null, { id: "vision", project: "vision-test", indexedDB: null, userSkills: false });
+  await ws.write("/logo.png", png, "image/png");
+  const pic = [{ type: "text", text: "look" }, { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } }];
+
+  const textOnly = [];
+  await createAgent(cataloguing(models, [[{ name: "read_file", args: { path: "/logo.png" } }], "done"], textOnly), { model: "Words", workspace: ws, sandbox: false, askUser: false }).prompt(pic);
+  assert.ok(!JSON.stringify(textOnly).includes("data:image"));
+  assert.match(textOnly[0].messages.at(-1).content[1].text, /picture was attached here; the model in use \(Words\) does not take pictures/);
+  assert.match(textOnly[1].messages.at(-1).content, /binary file \(image\/png[^]*cannot view pictures/);
+
+  const sees = [];
+  await createAgent(cataloguing(models, [[{ name: "read_file", args: { path: "/logo.png" } }], "done"], sees), { workspace: ws, sandbox: false, askUser: false }).prompt(pic);
+  assert.equal(sees[0].messages.at(-1).content[1].type, "image_url");
+  const last = sees[1].messages;
+  assert.match(last.at(-2).content, /^\/logo\.png \(image\/png, \d+ bytes\):\n\[1 attachment follows/);
+  assert.match(last.at(-1).content[1].image_url.url, /^data:image\/png;base64,iVBOR/);
+});

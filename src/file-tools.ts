@@ -13,6 +13,15 @@ const MAX_LIST = 500;
 const MAX_READ_LINES = 2000;
 const MAX_READ_BYTES = 50 * 1024;
 const MAX_SEARCH_HITS = 100;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_TYPES: Record<string, true> = { "image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true };
+const IMAGE_EXT: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+
+function base64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
 
 export interface FileToolsOptions {
   /**
@@ -54,7 +63,7 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
     defineTool<{ path: string; offset?: number; limit?: number }>({
       name: "read_file",
       description:
-        "Read the contents of a text file in the workspace; a PDF is read as the text of its pages, each under a `--- page N ---` line. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files; when you need the full file, continue with offset until complete. Reading a folder lists it.",
+        "Read the contents of a text file in the workspace; a PDF is read as the text of its pages, each under a `--- page N ---` line; a picture (PNG, JPEG, GIF, WebP) is shown to you when the model can see pictures. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files; when you need the full file, continue with offset until complete. Reading a folder lists it.",
       readOnly: true,
       parameters: {
         type: "object",
@@ -72,6 +81,19 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
           return `${normalizePath(path)} is a folder with ${files.length} file${files.length === 1 ? "" : "s"}:\n` +
             files.slice(0, MAX_LIST).map((f) => `${f.path}  (${f.size} B)`).join("\n");
         }
+        // A picture, to a model that sees pictures: shown, not described.
+        const st0 = await ws.stat(path);
+        const pictureType = st0 && IMAGE_TYPES[(st0.contentType ?? "").split(";")[0]!.trim()] ? st0.contentType!.split(";")[0]!.trim() : IMAGE_EXT[/\.([a-z0-9]+)$/i.exec(path)?.[1]?.toLowerCase() ?? ""];
+        if (st0 && pictureType && (await ctx.agent?.accepts("image")) === true) {
+          if (st0.size > MAX_IMAGE_BYTES) return `${normalizePath(path)} is a picture of ${st0.size} bytes, more than the ${MAX_IMAGE_BYTES / 1024 / 1024} MB that can be shown; describe what you need from it to the user instead.`;
+          const { data } = await ws.read(path);
+          const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+          await files.saw(normalizePath(path));
+          return [
+            { type: "text", text: `${normalizePath(path)} (${pictureType}, ${bytes.byteLength} bytes):` },
+            { type: "image_url", image_url: { url: `data:${pictureType};base64,${base64(bytes)}` } },
+          ];
+        }
         let doc: { text: string; kind: "text" | "pdf" } | null;
         try {
           doc = await ws.readAsText(path);
@@ -83,7 +105,8 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
         if (!doc) {
           await files.saw(normalizePath(path));
           const st = await ws.stat(path);
-          return `${normalizePath(path)} is a binary file (${st?.contentType ?? "unknown type"}, ${st?.size ?? 0} bytes).`;
+          const blind = pictureType && (await ctx.agent?.accepts("image")) === false ? " The model in use cannot view pictures." : "";
+          return `${normalizePath(path)} is a binary file (${st?.contentType ?? "unknown type"}, ${st?.size ?? 0} bytes).${blind}`;
         }
         const text = doc.text;
         const lines = text.split("\n");
