@@ -176,7 +176,13 @@ export async function runInSandbox(
           if (!ws) throw new Error("no workspace");
           let value: unknown;
           switch (m.op) {
-            case "read": value = await ws.readText(String(args[0])); break;
+            case "read": {
+              // Text files as they are; a PDF as the text of its pages.
+              const doc = await ws.readAsText(String(args[0]));
+              if (!doc) throw new Error(`${String(args[0])} is a binary file`);
+              value = doc.text;
+              break;
+            }
             case "write": await ws.write(String(args[0]), String(args[1] ?? "")); value = true; break;
             case "list": value = (await ws.list(String(args[0] ?? "/"))).map((f) => ({ path: f.path, size: f.size })); break;
             case "exists": value = await ws.exists(String(args[0])); break;

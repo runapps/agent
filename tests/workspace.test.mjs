@@ -485,3 +485,31 @@ test("zip — buildZip refuses more entries than a plain zip can count; a stored
   await assert.rejects(readZipEntry(zip, { ...e, compressedSize: e.compressedSize + 40, size: e.size + 40 }, inflate), /damaged/);
   await assert.rejects(readZipEntry(zip, { ...e, size: e.size + 1 }, inflate), /damaged/);
 });
+
+test("pdf — read_file and run_js read a PDF's text page by page through a (stubbed) pdf.js; the text is cached until the file changes; scanned PDFs say so", async () => {
+  const { configurePdf } = await import("../dist/index.js");
+  let loads = 0, parses = 0;
+  const pagesOf = (bytes) => new TextDecoder().decode(bytes).includes("SCAN") ? ["", ""] : ["第一页 正文", "Second page text"];
+  configurePdf({ load: async () => { loads++; return { GlobalWorkerOptions: {}, getDocument: ({ data }) => ({ promise: (async () => { parses++; const pages = pagesOf(data); return { numPages: pages.length, getPage: async (n) => ({ getTextContent: async () => ({ items: [{ str: pages[n - 1], hasEOL: false }] }) }), destroy: () => {} }; })() }) }; } });
+  const idb = new IDBFactory();
+  const ws = await Workspace.open(null, { id: "pdf", project: "pdf-test", indexedDB: idb });
+  const pdf = new TextEncoder().encode("%PDF-1.4 fake body");
+  await ws.write("/docs/a.pdf", pdf, "application/pdf");
+  const read = fileTools(ws).find((t) => t.name === "read_file");
+  const out = await read.execute({ path: "/docs/a.pdf" }, { signal: new AbortController().signal });
+  const text = typeof out === "string" ? out : out.content;
+  assert.match(text, /\[PDF \/docs\/a\.pdf: 2 pages\]/);
+  assert.match(text, /--- page 1 ---\n第一页 正文/);
+  assert.match(text, /--- page 2 ---\nSecond page text/);
+  await read.execute({ path: "/docs/a.pdf" }, { signal: new AbortController().signal });
+  assert.equal(parses, 1, "the second read came from the cache");
+  await ws.write("/docs/a.pdf", new TextEncoder().encode("%PDF-1.4 changed"), "application/pdf");
+  await ws.readAsText("/docs/a.pdf");
+  assert.equal(parses, 2, "a changed file is parsed again");
+  await ws.write("/docs/scan.pdf", new TextEncoder().encode("%PDF-1.4 SCAN"), "application/pdf");
+  assert.match((await ws.readAsText("/docs/scan.pdf")).text, /no text layer/);
+  const r = await runInSandbox(ws, "return (await fs.read('/docs/a.pdf')).includes('Second page text')", null, {});
+  assert.equal(r.result, "true");
+  assert.equal(loads, 1, "pdf.js is loaded once");
+  configurePdf({ load: undefined });
+});

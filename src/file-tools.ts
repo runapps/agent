@@ -6,7 +6,7 @@
 import { applyEdits, type TextEdit } from "./edit.js";
 import { defineTool } from "./tool.js";
 import type { Tool } from "./types.js";
-import { decodeText, normalizePath, type Workspace } from "./workspace.js";
+import { normalizePath, type Workspace } from "./workspace.js";
 
 const MAX_LIST = 500;
 const MAX_READ_LINES = 2000;
@@ -36,7 +36,7 @@ export function fileTools(ws: Workspace): Tool[] {
     defineTool<{ path: string; offset?: number; limit?: number }>({
       name: "read_file",
       description:
-        "Read the contents of a text file in the workspace. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files; when you need the full file, continue with offset until complete. Reading a folder lists it.",
+        "Read the contents of a text file in the workspace; a PDF is read as the text of its pages, each under a `--- page N ---` line. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files; when you need the full file, continue with offset until complete. Reading a folder lists it.",
       parameters: {
         type: "object",
         properties: {
@@ -53,14 +53,19 @@ export function fileTools(ws: Workspace): Tool[] {
           return `${normalizePath(path)} is a folder with ${files.length} file${files.length === 1 ? "" : "s"}:\n` +
             files.slice(0, MAX_LIST).map((f) => `${f.path}  (${f.size} B)`).join("\n");
         }
-        const { data, size, contentType } = await ws.read(path);
-        let text: string;
-        if (typeof data === "string") text = data;
-        else {
-          const t = decodeText(data);
-          if (t === null) return `${normalizePath(path)} is a binary file (${contentType ?? "unknown type"}, ${size} bytes).`;
-          text = t;
+        let doc: { text: string } | null;
+        try {
+          doc = await ws.readAsText(path);
+        } catch (err) {
+          const st = await ws.stat(path);
+          if (st && /\.pdf$/i.test(path)) return `Could not read the PDF ${normalizePath(path)}: ${(err as Error).message}`;
+          throw err;
         }
+        if (!doc) {
+          const st = await ws.stat(path);
+          return `${normalizePath(path)} is a binary file (${st?.contentType ?? "unknown type"}, ${st?.size ?? 0} bytes).`;
+        }
+        const text = doc.text;
         const lines = text.split("\n");
         const total = lines.length;
         const start = Math.max(1, offset ?? 1);

@@ -237,6 +237,18 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
         if (typeof r.data === "string") text = r.data;
         else { try { text = new TextDecoder("utf-8", { fatal: true }).decode(r.data); } catch { text = null; } }
       }
+      // A PDF opens in the browser's own viewer (the agent reads its text through pdf.js).
+      if (/\.pdf$/i.test(path) || r.contentType === "application/pdf") {
+        loaded = null; ta.style.display = "none"; md.style.display = "none"; mdBtn.style.display = "none"; preview.style.display = "";
+        previewURL = URL.createObjectURL(new Blob([r.data as BlobPart], { type: "application/pdf" }));
+        const frame = h("iframe", "ra-edpdf"); frame.src = previewURL; frame.title = basename(path);
+        wrapBtn.style.display = "none";
+        preview.replaceChildren(frame);
+        delBtn.style.display = ws.isReadOnly(path) ? "none" : "";
+        draw();
+        return;
+      }
+      wrapBtn.style.display = "";
       if (text !== null && r.size > MAX_EDIT) text = null;
       const readOnly = ws.isReadOnly(path);
       delBtn.style.display = readOnly ? "none" : "";

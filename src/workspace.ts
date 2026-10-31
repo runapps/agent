@@ -13,6 +13,7 @@ import type { RunApps } from "@runappsai/sdk";
 import type { AgentFS, FileStat, SessionData, SessionSummary, Skill } from "./types.js";
 import { listZip, readZipEntry, type Inflate, MAX_ZIP_BYTES } from "./zip.js";
 import { parseSkill } from "./skills.js";
+import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
 
 /** Where a workspace keeps its skills unless `skillsDir` says otherwise. */
 export const DEFAULT_SKILLS_DIR = "/.agent/skills";
@@ -406,6 +407,29 @@ export class Workspace {
     const text = decodeText(data);
     if (text === null) throw new Error(`${normalizePath(path)} is a binary file (${data.byteLength} bytes)`);
     return text;
+  }
+
+  /**
+   * A file as text for reading: text files as they are, a PDF as the text
+   * of its pages (pdf.js, loaded on first use; the result is cached with
+   * the directory and redone when the file changes); null for other
+   * binary files.
+   */
+  async readAsText(path: string): Promise<{ text: string; kind: "text" | "pdf" } | null> {
+    const p = normalizePath(path);
+    const { data, size, contentType } = await this.read(p);
+    if (typeof data === "string") return { text: data, kind: "text" };
+    if (isPdf(p, contentType, data)) {
+      const st = await this.stat(p);
+      const key = `pdftext:${p}`;
+      const cached = await this.getData<{ size: number; mtime?: number; text: string }>(key).catch(() => undefined);
+      if (cached && cached.size === size && cached.mtime === st?.mtime) return { text: cached.text, kind: "pdf" };
+      const text = formatPdfText(p, await extractPdfText(data));
+      await this.putData(key, { size, mtime: st?.mtime, text }).catch(() => undefined);
+      return { text, kind: "pdf" };
+    }
+    const text = decodeText(data);
+    return text === null ? null : { text, kind: "text" };
   }
 
   async write(path: string, content: string | Uint8Array, contentType?: string): Promise<void> {

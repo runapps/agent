@@ -23,6 +23,7 @@ import { VirtualList, type VRow } from "./vlist.js";
 import { h, I, modal, modalConfirm, renderMD } from "./dom.js";
 import { filesPanel, freePath } from "./files-panel.js";
 import { debugPanel } from "./debug-panel.js";
+import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
 import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } from "./chat-theme.js";
 import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, ToolStatus } from "./types.js";
 
@@ -322,6 +323,8 @@ const CSS = tokenCSS() + `
 .ra-chat .ra-ib.on{background:var(--ra-accent-subtle);color:var(--ra-accent-fg)}
 .ra-edpv{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px}
 .ra-edpv img{max-width:100%;max-height:100%;border-radius:4px}
+.ra-edpv:has(.ra-edpdf){padding:0}
+.ra-edpdf{width:100%;height:100%;border:0;background:var(--ra-bg)}
 .ra-fpdrop{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-accent) 8%,transparent);border:2px dashed var(--ra-accent);color:var(--ra-accent-fg);font-weight:600;pointer-events:none}
 .ra-fp[data-drop="1"] .ra-fpdrop{display:flex}
 .ra-md .ra-path{display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:var(--ra-link);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--ra-link) 45%,transparent);text-underline-offset:3px}
@@ -1584,6 +1587,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         if (path !== a.path) await ws.write(path, a.text ?? a.bytes, type);
         lines.push(`- ${path} (${type}, ${fmtSize(a.file.size)})`);
         void panel.refresh();
+      } else if (isPdf(a.name, a.file.type, a.bytes)) {
+        // No directory to save it in: its text goes in the message (pdf.js, loaded now).
+        let text = "";
+        try { text = formatPdfText(a.name, await extractPdfText(a.bytes)); } catch (err) { text = `Could not read the PDF: ${(err as Error).message}`; }
+        if (text.length > MAX_INLINE_TEXT) text = text.slice(0, MAX_INLINE_TEXT) + "\n[… truncated]";
+        lines.push(`- ${a.name} (${type}, ${fmtSize(a.file.size)}) — its text below`);
+        parts.push({ type: "text", text: `<file name="${a.name}">\n${text}\n</file>` });
       } else if (a.text !== null && a.text.length <= MAX_INLINE_TEXT) {
         lines.push(`- ${a.name} (${type}, ${fmtSize(a.file.size)}) — contents below`);
         parts.push({ type: "text", text: `<file name="${a.name}">\n${a.text}\n</file>` });
