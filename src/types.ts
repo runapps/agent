@@ -301,7 +301,7 @@ export interface AgentOptions {
    * user first. `"auto"`: never ask. A function decides per call.
    */
   permissions?: Permissions;
-  /** Model calls per run (default 20). */
+  /** Model calls per run (default 100 — a safety net; pi, opencode and Claude Code have none, the loop guard and the user's stop button are the real limits). */
   maxTurns?: number;
   /** `max_tokens` of each model call; `"auto"` (default) uses the catalogue's maximum output for the model (8192 when unknown). */
   maxTokens?: number | "auto";

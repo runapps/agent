@@ -1345,7 +1345,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (cur.model && !Array.from(modelSel.options).some((o) => o.value === cur.model)) modelSel.append(new Option(cur.model, cur.model));
     modelSel.value = cur.model ?? "";
     showLim();
-    const turns = h("input"); turns.type = "number"; turns.min = "1"; turns.max = "500"; turns.step = "1"; turns.value = String(cur.maxTurns);
+    const turns = h("input"); turns.type = "number"; turns.min = "1"; turns.max = "1000"; turns.step = "1"; turns.value = String(cur.maxTurns);
     const tokMode = h("select"); tokMode.append(new Option(t.sAuto, "auto"), new Option(t.sMaxTokens, "n"));
     const tokN = h("input"); tokN.type = "number"; tokN.min = "256"; tokN.step = "256"; tokN.value = String(typeof cur.maxTokens === "number" ? cur.maxTokens : 8192);
     tokMode.value = typeof cur.maxTokens === "number" ? "n" : "auto"; tokN.style.display = tokMode.value === "n" ? "" : "none";
@@ -1362,14 +1362,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     btns.append(resetB, applyB);
     menu.append(btns);
     const applyTo = (ag: Agent, s: UserSettings, p: "ask" | "auto" | null) => {
-      ag.configure({ model: s.model ?? agentOpts.model, maxTurns: s.maxTurns ?? agentOpts.maxTurns ?? 20, maxTokens: s.maxTokens ?? (typeof agentOpts.maxTokens === "number" ? agentOpts.maxTokens : "auto"), permissions: p ?? agentOpts.permissions ?? "ask" });
+      ag.configure({ model: s.model ?? agentOpts.model, maxTurns: s.maxTurns ?? agentOpts.maxTurns ?? 100, maxTokens: s.maxTokens ?? (typeof agentOpts.maxTokens === "number" ? agentOpts.maxTokens : "auto"), permissions: p ?? agentOpts.permissions ?? "ask" });
       modelEl.textContent = ag.model ?? ""; modelEl.style.display = ag.model ? "" : "none";
     };
     resetB.addEventListener("click", () => { userSettings = {}; writeSettings({}); permChoice = null; for (const ag of live.values()) applyTo(ag, {}, null); closeMenu(); ui.notify(t.applied); showUsage_(agent); });
     applyB.addEventListener("click", () => {
       const next: UserSettings = {};
       if (modelSel.value) next.model = modelSel.value;
-      const n = parseInt(turns.value, 10); if (Number.isFinite(n) && n > 0) next.maxTurns = Math.min(500, n);
+      const n = parseInt(turns.value, 10); if (Number.isFinite(n) && n > 0) next.maxTurns = Math.min(1000, n);
       if (tokMode.value === "n") { const k = parseInt(tokN.value, 10); if (Number.isFinite(k) && k > 0) next.maxTokens = k; }
       userSettings = next; writeSettings(next);
       if (perm.value === "ask" || perm.value === "auto") permChoice = perm.value;

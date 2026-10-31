@@ -33,7 +33,7 @@ import type {
 import { askUserTool, domUI } from "./ui.js";
 import { titleOf, type Workspace } from "./workspace.js";
 
-const DEFAULT_MAX_TURNS = 20;
+const DEFAULT_MAX_TURNS = 100;
 const DEFAULT_MAX_TOKENS = 8192;
 const DEFAULT_INPUT_TOKENS = 128_000;
 const MEMORY_PATH = "/memory/notes.md";
