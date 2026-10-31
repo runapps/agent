@@ -921,14 +921,16 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const debugBtn = h("button", "ra-btn ghost"); debugBtn.type = "button"; debugBtn.innerHTML = I.bug() + `<span>${escapeHTML(t.debug)}</span>`;
   const filesBtn = h("button", "ra-btn ghost"); filesBtn.type = "button"; filesBtn.innerHTML = I.folder() + `<span>${escapeHTML(t.files)}</span>`;
   const skillsBtn = h("button", "ra-btn ghost"); skillsBtn.type = "button"; skillsBtn.innerHTML = I.puzzle() + `<span>${escapeHTML(t.skills)}</span>`;
-  // How many skills there are, beside the label (also on narrow screens, where the label hides); none: no number.
-  const skillCount = h("b", "ra-cnt"); skillCount.style.display = "none";
-  skillsBtn.append(skillCount);
-  const setSkillCount = (n: number) => {
-    skillCount.textContent = String(n); skillCount.style.display = n ? "" : "none";
-    skillsBtn.title = n ? `${t.skills} · ${n}` : t.skills;
+  /** A number beside a header button's label (also on narrow screens, where the label hides); 0: no number. */
+  const countBadge = (btn: HTMLElement, label: string) => {
+    const b = h("b", "ra-cnt"); b.style.display = "none";
+    btn.append(b);
+    return (n: number) => { b.textContent = String(n); b.style.display = n ? "" : "none"; btn.title = n ? `${label} · ${n}` : label; };
   };
+  const setSkillCount = countBadge(skillsBtn, t.skills);
   const histBtn = h("button", "ra-btn ghost"); histBtn.type = "button"; histBtn.innerHTML = I.hist() + `<span>${escapeHTML(t.history)}</span>`;
+  // Saved conversations other than the open one.
+  const setHistCount = countBadge(histBtn, t.history);
   const newBtn = h("button", "ra-btn ghost"); newBtn.type = "button"; newBtn.innerHTML = I.plus() + `<span>${escapeHTML(t.newChat)}</span>`;
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
   head.append(titleEl, modelEl, h("span", "ra-sp"), debugBtn, filesBtn, skillsBtn, histBtn, newBtn, setBtn);
@@ -1055,6 +1057,20 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const background = () => [...live.values()].filter((a) => a !== agent && (a.busy || a.queued.length > 0 || waiting.has(a.id)));
   const titleOfAgent = (a: Agent) => { const m = a.messages.find((x) => x.role === "user"); const text = m ? textOfContent(m.content as string | ContentPart[]).replace(/\s+/g, " ").trim() : ""; return text.length > 40 ? text.slice(0, 37) + "…" : text || t.untitled; };
   const markBackground = () => histBtn.classList.toggle("ra-bg", background().length > 0);
+  /** The History count: saved conversations, not counting the open one (redrawn after a run, a switch, a delete). */
+  let histTimer: ReturnType<typeof setTimeout> | null = null;
+  const refreshHistCount = () => {
+    if (histTimer) clearTimeout(histTimer);
+    histTimer = setTimeout(async () => {
+      histTimer = null;
+      const ws = agent?.workspace;
+      if (!ws || givenAgent) { setHistCount(0); return; }
+      try {
+        const all = await ws.sessions.list();
+        if (agent?.workspace === ws) setHistCount(all.filter((x) => x.id !== agent.id).length);
+      } catch { /* leave it */ }
+    }, 50);
+  };
   /** The work files as they are when a message is sent, so a rewind to it can put them back. */
   const checkpoint = async (a: Agent, msg: ChatMessage) => {
     const ts = tsOf(msg);
@@ -2334,6 +2350,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       showUsage_(a);
       void refreshCommands();
       void panel.refresh();
+      refreshHistCount();
     });
 
     try { await a.ready(); } catch (err) { addError((err as Error).message); }
@@ -2341,6 +2358,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     onSession?.(a);
     renderHistory(a.messages);
     showUsage_(a);
+    refreshHistCount();
     await refreshCommands();
   };
 
@@ -2400,6 +2418,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         live.delete(id); unwatchBackground(bg); release(bg); markBackground();
       }
       await ws.sessions.delete(id, space);
+      refreshHistCount();
       return;
     }
     // The open session: stop it, drop its directory (files, skills, the saved session) and start afresh.
@@ -2447,6 +2466,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     unmount() {
       if (!mounted) return;
       mounted = false;
+      if (histTimer) clearTimeout(histTimer);
       for (const u of unsub) u();
       ui.cancelAll(true);
       closeMenu();
