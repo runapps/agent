@@ -86,6 +86,10 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   let previewURL: string | null = null;
   let selectedDir = "/";
   const collapsed = new Set<string>(["/.agent"]);
+  let offChange: (() => void) | null = null;
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Many writes in a burst (a skills zip unpacking, a folder delete) redraw once. */
+  const scheduleRefresh = () => { if (refreshTimer) return; refreshTimer = setTimeout(() => { refreshTimer = null; void refresh(); }, 150); };
   const changedPaths = new Set<string>();
   let disposed = false;
 
@@ -323,7 +327,14 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     close,
     toggle: () => (visible ? close() : open()),
     setWorkspace(next) {
+      offChange?.(); offChange = null;
       ws = next;
+      if (next) offChange = next.onChange((c) => {
+        if (!visible) return;
+        scheduleRefresh();
+        // The open file changed under the editor: reload it unless the user has unsaved edits.
+        if (c.kind === "write" && c.path === active && draft === null) void openFile(c.path);
+      });
       active = null; loaded = null; setDraft(null); showEditor(false); changedPaths.clear(); selectedDir = "/";
       if (!next) { visible = false; el.style.display = "none"; root.classList.remove("ra-files-open"); } else void refresh();
     },
@@ -336,6 +347,8 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     download,
     dispose() {
       disposed = true;
+      offChange?.();
+      if (refreshTimer) clearTimeout(refreshTimer);
       if (previewURL) URL.revokeObjectURL(previewURL);
       el.remove();
       editor.remove();

@@ -405,3 +405,27 @@ test("zip — buildZip writes an archive listZip/readZipEntry read back (deflate
   assert.deepEqual([...await readZipEntry(zip, entries[1], inflate)], [1, 2, 3]);
   assert.equal(new TextDecoder().decode(await readZipEntry(zip, entries[2], inflate)), "# hi");
 });
+
+test("workspace — onChange reports writes and deletes (own, bulk, mounted) and relays another instance's changes as remote", async () => {
+  const idb = new IDBFactory();
+  const a = await Workspace.open(null, { id: "s1", project: "evt", indexedDB: idb });
+  const b = await Workspace.open(null, { id: "s1", project: "evt", indexedDB: idb });
+  const other = await Workspace.open(null, { id: "s2", project: "evt", indexedDB: idb });
+  const got = [], gotB = [], gotOther = [];
+  const off = a.onChange((c) => got.push(c));
+  b.onChange((c) => gotB.push(c));
+  other.onChange((c) => gotOther.push(c));
+  a.mount("/doc", memoryFS({}));
+  await a.write("/x.md", "1");
+  await a.write("/doc/d.md", "2");
+  await a.delete("/x.md");
+  await a.write("/k/one.md", "a"); await a.write("/k/two.md", "b");
+  await a.clearWork();
+  assert.deepEqual(got.map((c) => `${c.kind} ${c.path}${c.remote ? " (remote)" : ""}`), ["write /x.md", "write /doc/d.md", "delete /x.md", "write /k/one.md", "write /k/two.md", "delete /k/one.md", "delete /k/two.md"]);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.ok(gotB.length >= 1 && gotB.every((c) => c.remote === true), "the other instance of the same directory hears it as remote");
+  assert.equal(gotOther.length, 0, "another directory of the app hears nothing");
+  off();
+  await a.write("/y.md", "3");
+  assert.equal(got.length, 7, "unsubscribed");
+});

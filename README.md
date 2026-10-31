@@ -127,6 +127,8 @@ In the composer, Enter sends and Shift+Enter breaks a line; while the agent runs
 
 **Settings.** The gear in the header (on when the chat owns its agent; `settings: false` hides it) sets the model (with its context / output limits from the catalogue), the max turns per run, the max output per reply (the model's maximum, or a number) and tool permissions (ask / allow everything); model, turns and output are kept per app in localStorage and applied to every session over the host's options (`agent.settings` / `agent.configure(patch)`). A run that hits the turn limit says so with a "Continue" button, and an error card has "Retry": both call `agent.continue()`, which resumes the conversation as it stands — no new user message, a fresh turn count (pi's `continue`).
 
+**Files, live.** The directory reports every write and delete (`workspace.onChange(fn)` → `{path, kind, remote}`), whoever did it — the agent's tools, `fs.write` in `run_js`, the host's own code — and relays changes from other tabs of the app over a BroadcastChannel (`remote: true`). The files panel refreshes on it (bursts redraw once) and reloads the open file when it changes under the editor, unless there are unsaved edits.
+
 **Files, zipped.** A folder row's download icon, or the icon in the panel's header for the whole directory, builds a zip in the browser (`buildZip`, deflate through `CompressionStream` when available) and hands it to the browser to save.
 
 **Rewind.** Under each user message sit the time it was sent, a copy button and "rewind to here": the conversation after that message is dropped (`agent.rewind(index)`), and, when the session has a directory, the directory's files can be put back as they were when the message was sent — the chat snapshots the work files (not skills, not mounts, files up to 2 MB) at every prompt and keeps them with the directory (`workspace.putData`). The message goes back into the composer to edit and resend. User messages carry `ts` (when sent) in the saved session; the model never sees it.
@@ -140,7 +142,7 @@ Colours come from `--ra-*` custom properties on `.ra-chat`, so a host can restyl
 | | |
 |---|---|
 | `createAgent(client, opts)` → `Agent` | `prompt`, `steer`, `followUp`, `continue`, `dequeue`, `clearQueue`, `abort`, `rewind`, `configure`, `settings`, `limits`, `context`, `on`, `ready`, `useSkill`, `compact`, `systemPrompt`, `export`, `reset`; `messages`, `usage`, `busy`, `model`, `id` |
-| `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `mountOf`, `isSkillPath`, `getData`, `putData`, `skills`, `skillBody`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` (deleting a session saved from a directory of its own id drops that directory too) |
+| `openWorkspace(client, opts)` → `Workspace` | `list`, `read`, `readText`, `write`, `delete`, `stat`, `exists`, `isFolder`, `mount`, `unmount`, `mountOf`, `isSkillPath`, `getData`, `putData`, `onChange`, `skills`, `skillBody`, `refreshSkills`, `clearWork`, `destroy`; `sessions.list/get/save/delete/clear` (deleting a session saved from a directory of its own id drops that directory too) |
 | Tools | `defineTool`, `fileTools`, `sandboxTool`, `runInSandbox`, `askUserTool` |
 | UI | `domUI`, `nullUI`; implement `AgentUI` for your own |
 | Files | `memoryFS`; implement `AgentFS` to mount your document |

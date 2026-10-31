@@ -101,6 +101,9 @@ export interface WorkspaceOptions {
   indexedDB?: IDBFactory | null;
 }
 
+/** A file of the directory was written or deleted — by this page, or (`remote`) by another tab of the app. */
+export interface WorkspaceChange { path: string; kind: "write" | "delete"; remote?: boolean }
+
 export interface WorkspaceRead {
   data: string | Uint8Array;
   contentType?: string;
@@ -117,6 +120,8 @@ export class Workspace {
   private readonly root: AgentFS | null;
   private store!: Store;
   private readonly mounts = new Map<string, AgentFS>();
+  private readonly changeListeners = new Set<(c: WorkspaceChange) => void>();
+  private channel: BroadcastChannel | null | undefined;
   private readonly sources: string[];
   private readonly client: RunApps | null;
   private readonly inflate?: Inflate;
@@ -205,6 +210,39 @@ export class Workspace {
   }
 
   /** What the system prompt says about the tree. */
+  /**
+   * Called for every write and delete in this directory, from any code in
+   * this page and from other tabs of the app (`remote: true`, relayed over
+   * a BroadcastChannel). Returns the unsubscribe function. A files view
+   * refreshes on this instead of guessing when the agent wrote something.
+   */
+  onChange(fn: (change: WorkspaceChange) => void): () => void {
+    this.changeListeners.add(fn);
+    this.openChannel();
+    return () => { this.changeListeners.delete(fn); };
+  }
+
+  private openChannel(): void {
+    if (this.channel !== undefined) return;
+    if (typeof BroadcastChannel === "undefined") { this.channel = null; return; }
+    try {
+      const ch = new BroadcastChannel(`${this.dbName}:changes`);
+      ch.onmessage = (ev: MessageEvent<{ space?: string; path?: string; kind?: "write" | "delete" }>) => {
+        const m = ev.data;
+        if (m && m.space === this.id && typeof m.path === "string" && (m.kind === "write" || m.kind === "delete")) this.emitChange(m.path, m.kind, true);
+      };
+      (ch as unknown as { unref?: () => void }).unref?.();
+      this.channel = ch;
+    } catch { this.channel = null; }
+  }
+
+  private emitChange(path: string, kind: "write" | "delete", remote = false): void {
+    if (!remote) { this.openChannel(); try { this.channel?.postMessage({ space: this.id, path, kind }); } catch { /* channel closed */ } }
+    if (!this.changeListeners.size) return;
+    const c: WorkspaceChange = { path, kind, remote };
+    for (const fn of this.changeListeners) { try { fn(c); } catch (err) { console.warn("runapps agent: onChange listener failed", err); } }
+  }
+
   describe(): string {
     const lines = [
       this.root
@@ -237,9 +275,11 @@ export class Workspace {
     if (this.root) {
       if (!this.root.write) throw new Error("/ is read-only");
       await this.root.write(path, data, contentType ?? guessType(path, data));
+      this.emitChange(path, "write");
       return;
     }
     await this.store.put({ path, data, contentType: contentType ?? guessType(path, data), mtime: Date.now(), layer, source });
+    this.emitChange(path, "write");
   }
 
   private async rmFile(path: string): Promise<void> {
@@ -247,9 +287,11 @@ export class Workspace {
     if (this.root) {
       if (!this.root.delete) throw new Error("/ is read-only");
       await this.root.delete(path);
+      this.emitChange(path, "delete");
       return;
     }
     await this.store.delete(path);
+    this.emitChange(path, "delete");
   }
 
   /* ---------------- files ---------------- */
@@ -346,6 +388,7 @@ export class Workspace {
     if (r && r.prefix) {
       if (!r.fs.write) throw new Error(`${r.prefix} is read-only`);
       await r.fs.write(r.rel, content, contentType);
+      this.emitChange(p, "write");
       return;
     }
     await this.putFile(p, content, contentType, "work");
@@ -358,6 +401,7 @@ export class Workspace {
     if (r && r.prefix) {
       if (!r.fs.delete) throw new Error(`${r.prefix} is read-only`);
       await r.fs.delete(r.rel);
+      this.emitChange(p, "delete");
       return;
     }
     if (!(await this.stat(p))) throw new Error(`No such file: ${p}`);
@@ -554,6 +598,7 @@ export class Workspace {
   async destroy(): Promise<void> {
     await this.ready();
     await this.store.clear();
+    this.emitChange("/", "delete");
     this.store.close();
     this.opened = null;
     this.skillCache = null;
