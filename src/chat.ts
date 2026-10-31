@@ -22,6 +22,7 @@ import { listTemplates } from "./templates.js";
 import { VirtualList, type VRow } from "./vlist.js";
 import { h, I, modal, modalConfirm, renderMD } from "./dom.js";
 import { filesPanel, freePath } from "./files-panel.js";
+import { debugPanel } from "./debug-panel.js";
 import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } from "./chat-theme.js";
 import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, ToolStatus } from "./types.js";
 
@@ -78,6 +79,14 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   vars?: ChatVars | { light?: ChatVars; dark?: ChatVars };
   /** Extra class names on the chat's root, for host CSS. */
   className?: string;
+  /**
+   * Debug mode: a Debug button in the header opens what the agent did —
+   * the call chain (runs, turns, tool calls with arguments and results),
+   * the requests sent to the model with their responses, the event log,
+   * the context (system prompt, messages, limits) and the tools. Off by
+   * default; `setDebug()` switches it while mounted.
+   */
+  debug?: boolean;
   /** Show the run's cost and tokens under the composer (default on). */
   showUsage?: boolean;
   /**
@@ -115,6 +124,8 @@ export interface ChatHandle {
   deleteSession(id: string): Promise<void>;
   /** Re-reads the workspace's skills and templates for `/` completion (after installing a skill). */
   refresh(): Promise<void>;
+  /** Shows or hides the Debug button and panel. */
+  setDebug(on: boolean): void;
   /** Changes the look while mounted: light/dark, palette, token overrides (each left out stays). */
   setAppearance(opts: { theme?: "auto" | "light" | "dark"; palette?: keyof typeof CHAT_PALETTES | ChatPalette; vars?: ChatVars | { light?: ChatVars; dark?: ChatVars } }): void;
   /** Removes the chat; an agent the chat made is stopped (a host's `agent` is left running). */
@@ -138,7 +149,10 @@ const STRINGS = {
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove",
     toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed",
     actRead: "read {n} file(s)", actList: "listed {n} folder(s)", actSearch: "searched {n} time(s)", actWrite: "wrote {n} file(s)", actEdit: "edited {n} file(s)", actDelete: "deleted {n} file(s)", actRun: "ran {n} snippet(s)", actAsk: "asked you {n} time(s)", actOther: "used {name}",
-    ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", current: "Current", jumpEnd: "Jump to the latest", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
+    ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", current: "Current", jumpEnd: "Jump to the latest",
+    debug: "Debug", dCalls: "Calls", dRequests: "Requests", dEvents: "Events", dContext: "Context", dTools: "Tools", dClear: "Clear the record", dFilter: "Filter by type",
+    dNoCalls: "No tool calls yet.", dNoRequests: "No model requests yet. Each call to the model is listed here with what was sent and what came back.", dNoEvents: "No events yet.",
+    dSystem: "System prompt", dMessages: "Messages sent to the model", dPayload: "Request", dResponse: "Response", dRun: "Run", dTurn: "Turn {n}", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     settings: "Settings", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
@@ -158,7 +172,10 @@ const STRINGS = {
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除",
     toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败",
     actRead: "读取了 {n} 个文件", actList: "查看了 {n} 个目录", actSearch: "搜索了 {n} 次", actWrite: "写入了 {n} 个文件", actEdit: "修改了 {n} 个文件", actDelete: "删除了 {n} 个文件", actRun: "运行了 {n} 段代码", actAsk: "询问了你 {n} 次", actOther: "调用了 {name}",
-    ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", current: "当前", jumpEnd: "回到最新", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
+    ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", current: "当前", jumpEnd: "回到最新",
+    debug: "调试", dCalls: "调用", dRequests: "请求", dEvents: "事件", dContext: "上下文", dTools: "工具", dClear: "清空记录", dFilter: "按类型过滤",
+    dNoCalls: "还没有工具调用。", dNoRequests: "还没有模型请求。每次调用模型都会记在这里，包括发了什么、收到什么。", dNoEvents: "还没有事件。",
+    dSystem: "系统提示词", dMessages: "发给模型的消息", dPayload: "请求内容", dResponse: "响应", dRun: "运行", dTurn: "第 {n} 轮", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     settings: "设置", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
@@ -240,6 +257,40 @@ const CSS = tokenCSS() + `
 .ra-chat.ra-files-open .ra-ed{right:380px}
 @container (max-width:760px){.ra-fp{left:0;width:auto;border-left:0;box-shadow:none}.ra-chat.ra-files-open .ra-ed{right:0}.ra-chat.ra-editing .ra-fp{display:none}}
 @container (max-width:560px){.ra-head .ra-btn span{display:none}.ra-head .ra-btn{padding:0 7px}.ra-head{padding:8px 10px}.ra-badge{display:none}.ra-col{padding:0 12px}}
+@container (min-width:761px){.ra-dp{width:460px}}
+.ra-chat .ra-btn.on{background:var(--ra-muted);color:var(--ra-fg)}
+.ra-dtabs{display:flex;gap:2px;min-width:0;overflow-x:auto}
+.ra-chat .ra-dtab{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;border-radius:6px;font-size:12.5px;color:var(--ra-fg-muted);white-space:nowrap}
+.ra-chat .ra-dtab:hover{background:var(--ra-muted);color:var(--ra-fg)}
+.ra-chat .ra-dtab.on{background:var(--ra-muted);color:var(--ra-fg);font-weight:600}
+.ra-dcount{font-size:10.5px;font-weight:600;line-height:15px;padding:0 5px;border-radius:999px;background:var(--ra-accent-subtle);color:var(--ra-accent-fg)}
+.ra-dbody{flex:1;min-height:0;overflow:auto;padding:8px 10px 14px;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.ra-dfold{border:1px solid var(--ra-border);border-radius:6px;background:var(--ra-bg)}
+.ra-dfold>summary{display:flex;align-items:center;gap:6px;padding:5px 8px;cursor:pointer;list-style:none;min-width:0}
+.ra-dfold>summary::-webkit-details-marker{display:none}
+.ra-dfold>summary:hover{background:var(--ra-muted)}
+.ra-dfold>summary .ra-chev{display:inline-flex;color:var(--ra-fg-muted);transition:transform .15s;flex:none}
+.ra-dfold[open]>summary .ra-chev{transform:rotate(90deg)}
+.ra-dfold>summary>.ra-dmuted:last-child{margin-left:auto;flex:none}
+.ra-dfb{border-top:1px solid var(--ra-border);padding:6px 8px 8px;display:flex;flex-direction:column;gap:4px}
+.ra-dpre{margin:0;max-height:220px;overflow:auto;background:var(--ra-muted);border-radius:4px;padding:6px 8px;font:11.5px/1.5 var(--ra-mono);white-space:pre-wrap;word-break:break-word}
+.ra-dpre.tall{max-height:380px}
+.ra-dlabel{font-size:11.5px;color:var(--ra-fg-muted);margin-top:4px}
+.ra-dmuted{color:var(--ra-fg-muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ra-dmono{font:600 12.5px var(--ra-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ra-dst{display:inline-flex;flex:none;font-size:12px}
+.ra-dst.ok{color:var(--ra-ok)}.ra-dst.fail{color:var(--ra-red)}
+.ra-drun{display:flex;flex-direction:column;gap:4px;padding:6px 0 10px;border-bottom:1px dashed var(--ra-border)}
+.ra-drh{font-size:11.5px;font-weight:600;color:var(--ra-fg-muted);text-transform:uppercase;letter-spacing:.04em}
+.ra-dturn{display:flex;align-items:center;gap:2px;min-width:0;padding:2px 0 0 2px}
+.ra-dbadge{flex:none;font-size:10.5px;font-weight:600;line-height:16px;padding:0 6px;border-radius:4px;background:var(--ra-muted);color:var(--ra-fg-muted)}
+.ra-dbadge.ok{background:color-mix(in srgb,var(--ra-ok) 15%,transparent);color:var(--ra-ok)}
+.ra-dbadge.fail{background:var(--ra-red-subtle);color:var(--ra-red)}
+.ra-dbar{display:flex;gap:6px;align-items:center;margin-bottom:4px}
+.ra-dbar .ra-field{flex:1;border:1px solid var(--ra-border);border-radius:6px;padding:4px 8px;background:var(--ra-bg);font-size:12.5px}
+.ra-dkv{display:grid;grid-template-columns:76px 1fr;gap:3px 8px;align-items:baseline}
+.ra-dkv .ra-dmono{font-weight:500;white-space:normal;word-break:break-all}
+.ra-ddesc{font-size:12.5px;color:var(--ra-fg);white-space:pre-wrap}
 .ra-fph{display:flex;align-items:center;gap:2px;height:40px;padding:0 8px 0 12px;border-bottom:1px solid var(--ra-border);flex-shrink:0}
 .ra-fph .ra-fpt{font-size:12px;font-weight:600;color:var(--ra-fg-muted);text-transform:uppercase;letter-spacing:.04em}
 .ra-fph .ra-sp{flex:1}
@@ -771,7 +822,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, settings: _settingsOpt, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
+  const { client, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const project = (client as unknown as { projectName?: string } | undefined)?.projectName ?? agentOpts.appName ?? "app";
 
@@ -806,11 +857,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const head = h("div", "ra-head");
   const titleEl = h("div", "ra-title", title === false ? "" : title || agentOpts.appName || t.assistant);
   const modelEl = h("span", "ra-badge");
+  const debugBtn = h("button", "ra-btn ghost"); debugBtn.type = "button"; debugBtn.innerHTML = I.bug() + `<span>${escapeHTML(t.debug)}</span>`;
   const filesBtn = h("button", "ra-btn ghost"); filesBtn.type = "button"; filesBtn.innerHTML = I.folder() + `<span>${escapeHTML(t.files)}</span>`;
   const histBtn = h("button", "ra-btn ghost"); histBtn.type = "button"; histBtn.innerHTML = I.hist() + `<span>${escapeHTML(t.history)}</span>`;
   const newBtn = h("button", "ra-btn ghost"); newBtn.type = "button"; newBtn.innerHTML = I.plus() + `<span>${escapeHTML(t.newChat)}</span>`;
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
-  head.append(titleEl, modelEl, h("span", "ra-sp"), filesBtn, histBtn, newBtn, setBtn);
+  head.append(titleEl, modelEl, h("span", "ra-sp"), debugBtn, filesBtn, histBtn, newBtn, setBtn);
   if (title === false) head.style.display = "none";
   const log = h("div", "ra-log");
   const inner = h("div", "ra-col");
@@ -957,7 +1009,23 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const unwatchBackground = (a: Agent) => { bgSubs.get(a.id)?.forEach((u) => u()); bgSubs.delete(a.id); };
   const panel = filesPanel({ t, root, editorHost: chatCol, notify: (m, l) => ui.notify(m, l), onChange: () => void refreshCommands() });
   main.append(panel.el);
-  filesBtn.addEventListener("click", () => void panel.toggle());
+  const dpanel = debugPanel({ t, root });
+  main.append(dpanel.el);
+  let debugOn = !!debugOpt;
+  const applyDebug = () => {
+    debugBtn.style.display = debugOn ? "" : "none";
+    root.dataset.debug = debugOn ? "1" : "";
+    if (!debugOn) dpanel.close();
+    debugBtn.classList.toggle("on", debugOn && dpanel.visible);
+  };
+  applyDebug();
+  filesBtn.addEventListener("click", () => { if (dpanel.visible) { dpanel.close(); applyDebug(); } void panel.toggle(); });
+  debugBtn.addEventListener("click", async () => {
+    if (panel.visible) await panel.close();
+    if (panel.visible) return;  // closing was declined (unsaved edits)
+    dpanel.toggle();
+    applyDebug();
+  });
   /** Opens a path: the host's editor when it has one, else the files panel. */
   const openPath = (path: string) => { if (onOpenFile) onOpenFile(path); else void panel.open(path); };
   const openIfExists = async (path: string) => {
@@ -1792,6 +1860,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     histBtn.style.display = newBtn.style.display = hasSessions && a.workspace ? "" : "none";
     filesBtn.style.display = a.workspace ? "" : "none";
     panel.setWorkspace(a.workspace);
+    dpanel.setAgent(a);
     list.clear();
     showEmpty();
     setBusy(a.busy);
@@ -1984,6 +2053,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     newSession,
     resume,
     deleteSession: (id) => deleteSession(id),
+    setDebug(on) { debugOn = on; applyDebug(); },
     setAppearance(o) {
       if (o.theme) themeNow = o.theme;
       if (o.palette) paletteNow = o.palette;
@@ -2003,6 +2073,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (cmdFrame !== null) cancelAnimationFrame(cmdFrame);
       list.dispose();
       panel.dispose();
+      dpanel.dispose();
       for (const f of pendingFiles) if (f.preview) URL.revokeObjectURL(f.preview);
       for (const id of [...waiters.keys()]) wake(id, false);
       if (!givenAgent) for (const a of live.values()) { unwatchBackground(a); void a.abort().finally(() => release(a)); }

@@ -475,7 +475,17 @@ export class Agent {
         if (this.opts.temperature !== undefined) params.temperature = this.opts.temperature;
         if (this.opts.top_p !== undefined) params.top_p = this.opts.top_p;
 
-        const completion = await this.callModel(params, runId, signal);
+        // For debugging views: what went to the model and what came back.
+        this.emit("request", { runId, turn, params });
+        const asked = Date.now();
+        let completion: Awaited<ReturnType<Agent["callModel"]>>;
+        try {
+          completion = await this.callModel(params, runId, signal);
+        } catch (err) {
+          this.emit("response", { runId, turn, durationMs: Date.now() - asked, error: err instanceof Error ? err.message : String(err) });
+          throw err;
+        }
+        this.emit("response", { runId, turn, durationMs: Date.now() - asked, finishReason: completion.finishReason, usage: completion.usage, message: completion.message });
         if (completion.usage) this.addUsage(completion.usage);
         const assistant: ChatMessage = { role: "assistant", content: completion.message.content };
         if (completion.message.tool_calls?.length) assistant.tool_calls = completion.message.tool_calls;

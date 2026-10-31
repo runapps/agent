@@ -84,7 +84,7 @@ test("agent — tool round trip: call, result, final answer; events in order", a
   assert.deepEqual(JSON.parse(msgs[3].content), { city: "Paris", temp_c: 17 });
   assert.equal(requests[0].max_tokens, 8192);
   assert.equal(requests[0].tools.length, 1);
-  assert.deepEqual(events.filter((e) => e !== "text_delta"), ["run_start", "turn_start", "message_end", "turn_end", "tool_start", "tool_end", "turn_start", "message_end", "turn_end", "run_end"]);
+  assert.deepEqual(events.filter((e) => e !== "text_delta"), ["run_start", "turn_start", "request", "response", "message_end", "turn_end", "tool_start", "tool_end", "turn_start", "request", "response", "message_end", "turn_end", "run_end"]);
   assert.equal(agent.messages.length, 4);
 });
 

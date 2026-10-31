@@ -5,7 +5,7 @@
 // endpoint; everything an app owns — its dialogs, its document as
 // files, its skills zip, its tools — comes in through these interfaces.
 
-import type { ChatMessage, ContentPart, PromptInput } from "@runappsai/sdk";
+import type { ChatCompletionParams, ChatMessage, ContentPart, PromptInput } from "@runappsai/sdk";
 import type { Usage } from "@runappsai/sdk";
 import type { Agent } from "./agent.js";
 import type { CompactionSettings, CutPlan } from "./compaction.js";
@@ -226,6 +226,10 @@ export interface AgentEventMap {
   compaction: { runId?: string; summary: boolean; tokensBefore: number; tokensAfter: number; droppedTurns: number; elidedResults: number };
   /** The session was written to the workspace. */
   session_saved: { id: string };
+  /** A model call is about to be made: the request as sent (debugging views). */
+  request: { runId: string; turn: number; params: ChatCompletionParams };
+  /** A model call came back (or failed): timing, finish reason, usage, the assembled message. */
+  response: { runId: string; turn: number; durationMs: number; finishReason?: string; usage?: Usage; message?: ChatMessage; error?: string };
   /** Queued steering entered the history (at a turn, or before a new prompt): draw these messages now. */
   steered: { runId: string; messages: ChatMessage[] };
   /** `rewind(index)` dropped the messages from `index` on. */
