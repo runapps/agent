@@ -329,11 +329,12 @@ const CSS = `
 .ra-chat .ra-attach:hover{background:var(--ra-muted);color:var(--ra-fg)}
 .ra-bar .ra-left{display:flex;align-items:center;min-width:0}
 .ra-files{display:flex;flex-wrap:wrap;gap:6px;padding:0 0 6px}
-.ra-chip{display:inline-flex;align-items:center;gap:6px;max-width:260px;border:1px solid var(--ra-border);border-radius:6px;padding:3px 6px 3px 4px;font-size:12px;background:var(--ra-subtle)}
+.ra-chip{display:inline-flex;align-items:center;gap:6px;max-width:min(100%,320px);border:1px solid var(--ra-border);border-radius:6px;padding:3px 6px 3px 4px;font-size:12px;background:var(--ra-subtle);white-space:nowrap}
 .ra-chip img{width:28px;height:28px;object-fit:cover;border-radius:4px}
 .ra-chip .ra-ci{width:28px;height:28px;border-radius:4px;background:var(--ra-p-subtle);color:var(--ra-p-fg);display:inline-flex;align-items:center;justify-content:center}
-.ra-chip .ra-cn{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ra-chip small{color:var(--ra-fg-muted);font-size:11px}
+.ra-chip .ra-cn{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra-chip small{flex:none;color:var(--ra-fg-muted);font-size:11px;white-space:nowrap}
+.ra-chip img,.ra-chip .ra-ci,.ra-chip button{flex:none}
 .ra-chip button{width:18px;height:18px;border-radius:4px;color:var(--ra-fg-muted);display:inline-flex;align-items:center;justify-content:center}
 .ra-chip button:hover{background:var(--ra-muted);color:var(--ra-fg)}
 .ra-user .ra-files{justify-content:flex-end;padding:0;margin-top:6px}
