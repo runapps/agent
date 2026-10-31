@@ -116,6 +116,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   const editor = h("div", "ra-ed"); editor.style.display = "none";
   const edHead = h("div", "ra-edh");
   const edPath = h("span", "ra-edp");
+  const edRO = h("span", "ra-edro"); edRO.innerHTML = I.lock(11) + `<span>${t.readOnly}</span>`; edRO.style.display = "none";
   const edActs = h("div", "ra-eda");
   const saveBtn = h("button", "ra-btn xs solid"); saveBtn.type = "button"; saveBtn.innerHTML = I.save() + t.save; saveBtn.style.display = "none"; saveBtn.addEventListener("click", () => void save());
   // Word wrap (remembered) and a Markdown preview rendered by the same renderer as the chat's replies.
@@ -148,7 +149,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   const delBtn = ibtn(I.trash(), t.delete, () => { if (active) void remove(active); });
   const edClose = ibtn(I.x(14), t.close, () => void closeFile());
   edActs.append(saveBtn, wrapBtn, mdBtn, dlBtn, delBtn, edClose);
-  edHead.append(edPath, edActs);
+  edHead.append(edPath, edRO, edActs);
   const edBody = h("div", "ra-edb");
   const ta = h("textarea", "ra-edta"); ta.spellcheck = false; ta.setAttribute("aria-label", t.files);
   const preview = h("div", "ra-edpv");
@@ -159,6 +160,8 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   el.append(head, tree, fileInput, drop);
   editorHost.append(editor);
 
+  /** A read-only file: marked in the header, no download or delete, the text cannot be changed. */
+  const setRO = (ro: boolean) => { edRO.style.display = ro ? "" : "none"; delBtn.style.display = dlBtn.style.display = ro ? "none" : ""; };
   const setDraft = (v: string | null) => { draft = v; saveBtn.style.display = v === null ? "none" : ""; };
   ta.addEventListener("input", () => setDraft(ta.value === loaded ? null : ta.value));
   ta.addEventListener("keydown", (e) => {
@@ -168,7 +171,17 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
 
   const confirmDiscard = async (): Promise<boolean> => draft === null || modalConfirm(root, t.discard, "", { ok: t.ok, cancel: t.cancel, danger: true });
 
-  const render = (node: Node, depth: number, frag: DocumentFragment) => {
+  /** Read-only: a file the workspace refuses to write, a folder whose files are all such (the generated skills folder). */
+  const isRO = (path: string, folder: boolean): boolean => {
+    if (!ws) return false;
+    if (!folder) return ws.isReadOnly(path);
+    const under = (lastFiles ?? []).filter((f) => f.path.startsWith(path + "/"));
+    return under.length > 0 && under.every((f) => ws!.isReadOnly(f.path));
+  };
+  /** Where uploads and new files go: the selected folder, or the top when that folder is read-only. */
+  const writableDir = () => (selectedDir !== "/" && isRO(selectedDir, true) ? "/" : selectedDir);
+
+  const render = (node: Node, depth: number, frag: DocumentFragment, parentRO = false) => {
     for (const c of node.children) {
       const row = h("div", "ra-fr" + (c.path === active ? " ra-cur" : ""));
       row.style.paddingLeft = `${depth * 14 + 6}px`;
@@ -181,17 +194,24 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
       const name = h("span", "ra-frn", c.name); name.title = c.path;
       row.append(chev, icon, name);
       if (changedPaths.has(c.path)) { const dot = h("span", "ra-dot"); dot.title = t.changedByAgent; row.append(dot); }
-      const acts = h("span", "ra-fra");
-      acts.append(c.folder ? ibtn(I.download(13), t.downloadZip, () => void downloadFolder(c.path)) : ibtn(I.download(13), t.download, () => void download(c.path)));
-      acts.append(ibtn(I.trash(12), t.delete, () => void remove(c.path)));
-      row.append(acts);
+      const ro = parentRO || isRO(c.path, c.folder);
+      if (ro) {
+        // Read-only (generated): nothing to download or delete; the top of it says why.
+        row.classList.add("ra-ro"); row.title = `${c.path} · ${t.readOnly}`;
+        if (!parentRO) { const lk = h("span", "ra-frl"); lk.innerHTML = I.lock(); lk.title = t.readOnly; row.append(lk); }
+      } else {
+        const acts = h("span", "ra-fra");
+        acts.append(c.folder ? ibtn(I.download(13), t.downloadZip, () => void downloadFolder(c.path)) : ibtn(I.download(13), t.download, () => void download(c.path)));
+        acts.append(ibtn(I.trash(12), t.delete, () => void remove(c.path)));
+        row.append(acts);
+      }
       row.addEventListener("click", (e) => {
         if ((e.target as HTMLElement).closest(".ra-fra")) return;
         if (c.folder) { selectedDir = c.path; if (!collapsed.delete(c.path)) collapsed.add(c.path); draw(); }
         else { selectedDir = dirname(c.path); void openFile(c.path); }
       });
       frag.append(row);
-      if (c.folder && open) render(c, depth + 1, frag);
+      if (c.folder && open) render(c, depth + 1, frag, ro);
     }
   };
 
@@ -246,14 +266,14 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
         const frame = h("iframe", "ra-edpdf"); frame.src = previewURL; frame.title = basename(path);
         wrapBtn.style.display = "none";
         preview.replaceChildren(frame);
-        delBtn.style.display = ws.isReadOnly(path) ? "none" : "";
+        setRO(ws.isReadOnly(path));
         draw();
         return;
       }
       wrapBtn.style.display = "";
       if (text !== null && r.size > MAX_EDIT) text = null;
       const readOnly = ws.isReadOnly(path);
-      delBtn.style.display = readOnly ? "none" : "";
+      setRO(readOnly);
       if (text !== null) {
         loaded = text; ta.value = text; preview.style.display = "none"; ta.readOnly = readOnly;
         ta.title = readOnly ? t.readOnly : "";
@@ -344,7 +364,8 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
 
   const newFile = async () => {
     if (!ws) return;
-    const base = selectedDir === "/" ? "/" : selectedDir + "/";
+    const dir = writableDir();
+    const base = dir === "/" ? "/" : dir + "/";
     const p = await modalInput(root, t.newFilePath, { ok: t.ok, cancel: t.cancel, initial: `${base}untitled.md` });
     if (!p) return;
     const path = "/" + p.replace(/^\/+/, "");
@@ -362,7 +383,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
     let last: string | null = null;
     for (const file of Array.from(list)) {
       try {
-        const path = await freePath(ws, selectedDir, basename(file.name.replace(/\\/g, "/")) || "file");
+        const path = await freePath(ws, writableDir(), basename(file.name.replace(/\\/g, "/")) || "file");
         await ws.write(path, new Uint8Array(await file.arrayBuffer()), file.type || undefined);
         last = path;
       } catch (err) { notify((err as Error).message, "error"); }

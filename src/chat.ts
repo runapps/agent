@@ -145,15 +145,15 @@ const STRINGS = {
     send: "Send", stop: "Stop", steer: "Steer", followUp: "Follow-up", steerTip: "Insert into the current task", followUpTip: "Queue after the current task",
     usageLine: "{cost} · {tokens} tokens · {calls} calls", emptyResult: "(empty)",
     queued: "Queued messages", clear: "Clear queue", thinking: "Thinking…", thought: "Thought process",
-    enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "History", newChat: "New chat", noSessions: "No saved conversations",
+    enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "History", newChat: "New chat", noSessions: "No other conversations yet",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
     other: "Other…", typeAnswer: "Type your answer", args: "Arguments", result: "Result", error: "Error", declined: "declined", blocked: "blocked", skipped: "skipped",
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Paused at the turn limit ({n})", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
-    delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every saved conversation and their files?", untitled: "New conversation",
+    delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every conversation in the history and their files? The open one stays.", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove",
     toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed",
     actRead: "read {n} file(s)", actList: "listed {n} folder(s)", actSearch: "searched {n} time(s)", actWrite: "wrote {n} file(s)", actEdit: "edited {n} file(s)", actDelete: "deleted {n} file(s)", actRun: "ran {n} snippet(s)", actAsk: "asked you {n} time(s)", actOther: "used {name}",
-    ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", current: "Current", jumpEnd: "Jump to the latest",
+    ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", jumpEnd: "Jump to the latest",
     debug: "Debug", dCalls: "Calls", dRequests: "Requests", dEvents: "Events", dContext: "Context", dTools: "Tools", dClear: "Clear the record", dFilter: "Filter by type",
     dNoCalls: "No tool calls yet.", dNoRequests: "No model requests yet. Each call to the model is listed here with what was sent and what came back.", dNoEvents: "No events yet.",
     dSystem: "System prompt", dMessages: "Messages sent to the model", dPayload: "Request", dResponse: "Response", dRun: "Run", dTurn: "Turn {n}", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
@@ -182,15 +182,15 @@ const STRINGS = {
     send: "发送", stop: "停止", steer: "插入", followUp: "排队", steerTip: "插入到当前任务，下一步就会看到", followUpTip: "排到当前任务结束之后",
     usageLine: "{cost} · {tokens} tokens · {calls} 次调用", emptyResult: "（空）",
     queued: "排队中的消息", clear: "清空队列", thinking: "思考中…", thought: "思考过程",
-    enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "历史", newChat: "新对话", noSessions: "还没有保存的对话",
+    enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "历史", newChat: "新对话", noSessions: "还没有其它对话",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
     other: "其他…", typeAnswer: "请输入", args: "参数", result: "结果", error: "错误", declined: "已拒绝", blocked: "已拦截", skipped: "已跳过",
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "已达最大轮数 {n}，暂停", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
-    delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有已保存的对话和它们的文件？", untitled: "新对话",
+    delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除历史里的所有对话和它们的文件？当前对话保留。", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除",
     toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败",
     actRead: "读取了 {n} 个文件", actList: "查看了 {n} 个目录", actSearch: "搜索了 {n} 次", actWrite: "写入了 {n} 个文件", actEdit: "修改了 {n} 个文件", actDelete: "删除了 {n} 个文件", actRun: "运行了 {n} 段代码", actAsk: "询问了你 {n} 次", actOther: "调用了 {name}",
-    ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", current: "当前", jumpEnd: "回到最新",
+    ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", jumpEnd: "回到最新",
     debug: "调试", dCalls: "调用", dRequests: "请求", dEvents: "事件", dContext: "上下文", dTools: "工具", dClear: "清空记录", dFilter: "按类型过滤",
     dNoCalls: "还没有工具调用。", dNoRequests: "还没有模型请求。每次调用模型都会记在这里，包括发了什么、收到什么。", dNoEvents: "还没有事件。",
     dSystem: "系统提示词", dMessages: "发给模型的消息", dPayload: "请求内容", dResponse: "响应", dRun: "运行", dTurn: "第 {n} 轮", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
@@ -256,11 +256,9 @@ const CSS = tokenCSS() + `
 .ra-menu{position:absolute;right:12px;top:42px;z-index:6;width:min(360px,calc(100% - 24px));max-height:60%;overflow:auto;background:var(--ra-panel);border:1px solid var(--ra-border);border-radius:8px;box-shadow:var(--ra-shadow-md);padding:4px}
 .ra-menu .ra-mi{display:flex;align-items:center;gap:6px;border-radius:6px}
 .ra-menu .ra-mi:hover{background:var(--ra-muted)}
-.ra-menu .ra-mi.ra-cur{background:var(--ra-muted);box-shadow:inset 3px 0 0 var(--ra-accent)}
 .ra-menu .ra-mi>button:first-child>span.ra-mt{display:flex;align-items:center;gap:6px;min-width:0;overflow:visible}
 .ra-menu .ra-mi .ra-mtt{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ra-menu .ra-mi .ra-mt .ra-spin{flex:none}
-.ra-menu .ra-mi .ra-now{flex:none;display:inline-block;font-size:10.5px;font-weight:600;line-height:16px;padding:0 6px;border-radius:999px;background:var(--ra-accent-subtle);color:var(--ra-accent-fg);vertical-align:1px}
 .ra-menu .ra-mi>button:first-child{flex:1;min-width:0;text-align:left;padding:6px 8px;font-size:13px}
 .ra-menu .ra-mi>button:first-child>span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ra-menu .ra-mi small{display:block;color:var(--ra-fg-muted);font-size:11px}
@@ -349,6 +347,9 @@ const CSS = tokenCSS() + `
 .ra-fr .ra-frn{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ra-dot{width:6px;height:6px;border-radius:50%;background:#f97316;flex-shrink:0}
 .ra-fr .ra-fra{display:none;gap:0;flex-shrink:0}
+.ra-fr.ra-ro .ra-frn{color:var(--ra-fg-muted)}
+.ra-fr .ra-frl{display:inline-flex;flex-shrink:0;color:var(--ra-fg-muted);opacity:.7;padding:0 4px}
+.ra-edh .ra-edro{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;font-size:11px;color:var(--ra-fg-muted);background:var(--ra-muted);border-radius:999px;padding:1px 8px;margin-right:4px}
 .ra-fr:hover .ra-fra{display:inline-flex}
 .ra-fr .ra-fra .ra-ib{width:22px;height:22px}
 .ra-fpe{padding:8px 10px;font-size:12px;color:var(--ra-fg-muted)}
@@ -1959,11 +1960,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     menu = mine;
     root.append(mine);
     let found: SessionSummary[] = [];
-    try { found = await ws.sessions.list(); } catch { /* none */ }
+    // History: the other conversations, not the open one.
+    try { found = (await ws.sessions.list()).filter((x) => x.id !== agent.id); } catch { /* none */ }
     if (menu !== mine) return;
     if (!found.length) mine.append(h("div", "ra-none", t.noSessions));
     for (const s of found) {
-      const row = h("div", "ra-mi" + (s.id === agent.id ? " ra-cur" : ""));
+      const row = h("div", "ra-mi");
       const b = h("button"); b.type = "button";
       const bg = live.get(s.id);
       const state = bg && bg !== agent ? (waiting.has(s.id) ? ` · ${t.waitingAnswer}` : bg.busy || bg.queued.length ? ` · ${t.running}` : "") : "";
@@ -1971,7 +1973,6 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const name = h("span", "ra-mt");
       if (state && !waiting.has(s.id)) name.append(h("span", "ra-spin"));
       name.append(h("span", "ra-mtt", s.title || t.untitled));
-      if (s.id === agent.id) { name.append(h("span", "ra-now", t.current)); row.setAttribute("aria-current", "true"); }
       b.append(name, h("small", "", `${s.messages} ${t.messages} · ${new Date(s.savedAt).toLocaleString()}${state}`));
       b.addEventListener("click", () => { closeMenu(); void resume(s.id).catch((err) => ui.notify((err as Error).message, "error")); });
       const x = h("button", "ra-x"); x.type = "button"; x.innerHTML = I.trash(); x.title = t.delete; x.setAttribute("aria-label", t.delete);
@@ -1989,10 +1990,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       all.addEventListener("click", async () => {
         closeMenu();
         if (!(await modalConfirm(root, t.deleteAll, t.confirmDeleteAll, { danger: true, ok: t.deleteAll, cancel: t.cancel }))) return;
-        try {
-          for (const s of found) await deleteSession(s.id, true, s.workspace);
-          await newSession();
-        } catch (err) { ui.notify((err as Error).message, "error"); }
+        // The history goes; the open conversation stays.
+        try { for (const s of found) await deleteSession(s.id, true, s.workspace); } catch (err) { ui.notify((err as Error).message, "error"); }
       });
       foot.append(all);
       mine.append(foot);
