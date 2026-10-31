@@ -413,3 +413,27 @@ test("agent — user messages carry `ts` in the session but not in the request; 
   assert.equal(agent.messages[3].content, "three");
   await assert.rejects(agent.rewind(9), /no message at 9/);
 });
+
+test("agent — max_tokens follows the catalogue's maximum output for the model unless maxTokens is a number; limits() reports both", async () => {
+  const requests = [];
+  const fetchFn = async (url, init) => {
+    const u = String(url);
+    if (u.includes("/v1/models")) return new Response(JSON.stringify({ object: "list", data: [
+      { id: "small", object: "model", capability: "text", max_input_tokens: 32000, max_tokens: 4096, is_default: true },
+      { id: "big", object: "model", capability: "text", max_input_tokens: 200000, max_tokens: 65536 },
+    ] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    requests.push(JSON.parse(init.body));
+    return sse(reply({ text: "ok" }));
+  };
+  const client = new RunApps({ apiKey: "gw-test", fetch: fetchFn });
+  const big = createAgent(client, { model: "big", sandbox: false, askUser: false });
+  await big.prompt("hi");
+  assert.equal(requests[0].max_tokens, 65536);
+  assert.deepEqual(await big.limits(), { input: 200000, output: 65536 });
+  const dflt = createAgent(client, { sandbox: false, askUser: false });
+  await dflt.prompt("hi");
+  assert.equal(requests[1].max_tokens, 4096, "the default model's own limit");
+  const pinned = createAgent(client, { model: "big", maxTokens: 1000, sandbox: false, askUser: false });
+  await pinned.prompt("hi");
+  assert.equal(requests[2].max_tokens, 1000);
+});

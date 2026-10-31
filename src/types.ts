@@ -303,8 +303,8 @@ export interface AgentOptions {
   permissions?: Permissions;
   /** Model calls per run (default 20). */
   maxTurns?: number;
-  /** `max_tokens` of each model call (default 8192). */
-  maxTokens?: number;
+  /** `max_tokens` of each model call; `"auto"` (default) uses the catalogue's maximum output for the model (8192 when unknown). */
+  maxTokens?: number | "auto";
   /** Context budget in tokens; `"auto"` (default) reads the catalogue. */
   maxInputTokens?: number | "auto";
   /** Run a turn's tool calls at once instead of one after another. */

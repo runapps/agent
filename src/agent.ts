@@ -77,7 +77,7 @@ export class Agent {
   private current: { controller: AbortController; promise: Promise<RunResult> } | null = null;
   private chain: Promise<unknown> = Promise.resolve();
   private pendingSkills: string[] = [];
-  private inputTokens: Promise<number> | null = null;
+  private inputTokens: Promise<{ input: number; output: number }> | null = null;
   private lastBatches: string[] = [];
   private loopWarned = false;
   private readonly loaded: Promise<void>;
@@ -354,8 +354,7 @@ export class Agent {
     this.emit("run_start", { runId, message: prefaced });
 
     const maxTurns = this.opts.maxTurns ?? DEFAULT_MAX_TURNS;
-    const maxTokens = this.opts.maxTokens ?? DEFAULT_MAX_TOKENS;
-    const window = await this.contextTokens();
+    const { output: maxTokens, input: window } = await this.limits();
     const compaction = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
 
     try {
@@ -532,7 +531,7 @@ export class Agent {
         summary = await this.opts.compaction(plan, this);
       } else {
         const res = await this.client.chat.create(
-          { model: this.opts.model ?? "", messages: summarizationMessages(plan.toSummarize, plan.previousSummary), max_tokens: this.opts.maxTokens ?? DEFAULT_MAX_TOKENS },
+          { model: this.opts.model ?? "", messages: summarizationMessages(plan.toSummarize, plan.previousSummary), max_tokens: (await this.limits()).output },
           { signal },
         );
         if (res.usage) this.addUsage(res.usage);
@@ -742,18 +741,37 @@ export class Agent {
     return { used: estimateTokens(this.history, system), window };
   }
 
+  /**
+   * The model's limits as the agent uses them: `input` is the context
+   * window, `output` the `max_tokens` of each call — the catalogue's
+   * figures for the model (its `max_input_tokens` / `max_tokens`), unless
+   * `maxInputTokens` / `maxTokens` are given as numbers.
+   */
+  async limits(): Promise<{ input: number; output: number }> {
+    const fromCatalogue = typeof this.opts.maxInputTokens !== "number" || typeof this.opts.maxTokens !== "number";
+    const cat = fromCatalogue ? await this.catalogueLimits() : { input: DEFAULT_INPUT_TOKENS, output: DEFAULT_MAX_TOKENS };
+    return {
+      input: typeof this.opts.maxInputTokens === "number" ? this.opts.maxInputTokens : cat.input,
+      output: typeof this.opts.maxTokens === "number" ? this.opts.maxTokens : cat.output,
+    };
+  }
+
   private contextTokens(): Promise<number> {
-    if (typeof this.opts.maxInputTokens === "number") return Promise.resolve(this.opts.maxInputTokens);
+    return this.limits().then((l) => l.input);
+  }
+
+  private catalogueLimits(): Promise<{ input: number; output: number }> {
     if (!this.inputTokens) {
       this.inputTokens = (async () => {
         try {
           const models = await this.client.models.list();
           const want = this.opts.model?.toLowerCase();
-          const m = want ? models.find((x) => x.id.toLowerCase() === want) : models.find((x) => x.is_default && (x.capability === "text"));
-          const n = (m as { max_input_tokens?: number } | undefined)?.max_input_tokens;
-          return typeof n === "number" && n > 0 ? n : DEFAULT_INPUT_TOKENS;
+          const m = (want ? models.find((x) => x.id.toLowerCase() === want) : models.find((x) => x.is_default && (x.capability === "text"))) as { max_input_tokens?: number; max_tokens?: number } | undefined;
+          const input = typeof m?.max_input_tokens === "number" && m.max_input_tokens > 0 ? m.max_input_tokens : DEFAULT_INPUT_TOKENS;
+          const output = typeof m?.max_tokens === "number" && m.max_tokens > 0 ? m.max_tokens : DEFAULT_MAX_TOKENS;
+          return { input, output };
         } catch {
-          return DEFAULT_INPUT_TOKENS;
+          return { input: DEFAULT_INPUT_TOKENS, output: DEFAULT_MAX_TOKENS };
         }
       })();
     }

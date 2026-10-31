@@ -51,7 +51,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   if (input.workspaceDescription) {
     out.push(
       "# Workspace\nYou have a file tree (absolute POSIX paths).\n" + input.workspaceDescription +
-      "\nUse list_files and read_file to look around, edit_file for small changes (old_text must match exactly once), write_file for new files or rewrites." +
+      "\nUse list_files and read_file to look around, edit_file for small changes (old_text must match exactly once), write_file for new files or rewrites. A reply has an output limit: a file longer than you can emit in one call is written in parts — write_file the first part, then edit_file to append the rest (old_text = the last lines written) — never one huge write_file." +
       (input.canWrite ? "\nTo remember something for later conversations (a preference, a decision, a fact about the user's project), append a short line to /memory/notes.md; it is shown to you at the start of every conversation." : ""),
     );
   }
