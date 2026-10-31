@@ -43,6 +43,11 @@ function addRange(ranges: Array<[number, number]>, start: number, end: number): 
   return !covered;
 }
 
+/** An overwrite refused because the model read only lines 1..coveredTo of the file (write_file shows it the rest). */
+export class PartialReadError extends Error {
+  constructor(message: string, readonly path: string, readonly coveredTo: number) { super(message); this.name = "PartialReadError"; }
+}
+
 export interface FileGuard {
   /** Whether it checks anything (`readBeforeWrite`). */
   readonly enabled: boolean;
@@ -66,6 +71,8 @@ export interface FileGuard {
    * that does not exist passes; so does deleting one it never read.
    */
   check(path: string, verb: "overwrite" | "edit" | "delete"): Promise<void>;
+  /** How much of the file as it is now the model has read: all of it, part of it, or none (never, or before it changed). */
+  known(path: string): Promise<"all" | "part" | "none">;
   forget(path: string): void;
   /** Forget every file but these (after compaction or a rewind: the ones whose contents the model still has). */
   retain(paths: Iterable<string>): void;
@@ -130,8 +137,15 @@ export function fileGuard(ws: Workspace, opts: { enabled?: boolean } = {}): File
       }
       if (was.version !== now) throw new Error(`${p} has changed since you last read it (the user or another process edited it): read it again with read_file, then ${verb === "delete" ? "decide whether to delete it" : "make your change on the current content"}.`);
       if (verb === "overwrite" && was.coveredTo < was.total) {
-        throw new Error(`You have read only lines 1-${was.coveredTo} of ${p}: read the rest (read_file with offset=${was.coveredTo + 1}) before overwriting it, or change it with edit_file instead.`);
+        throw new PartialReadError(`You have read only lines 1-${was.coveredTo} of ${p}: read the rest (read_file with offset=${was.coveredTo + 1}) before overwriting it, or change it with edit_file instead.`, p, was.coveredTo);
       }
+    },
+    async known(p) {
+      const was = seen.get(p);
+      if (!was) return "none";
+      const now = await versionOf(p).catch(() => null);
+      if (now !== was.version) return "none";
+      return was.coveredTo >= was.total ? "all" : was.coveredTo > 0 ? "part" : "none";
     },
     forget(p) { seen.delete(p); },
     retain(paths) {

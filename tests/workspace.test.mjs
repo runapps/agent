@@ -328,7 +328,7 @@ test("file guard — a partial read allows edits but not an overwrite until the 
   // 2500 lines: one read_file shows 2000.
   await ws.write("/big.log", Array.from({ length: 2500 }, (_, i) => `line ${i + 1}`).join("\n"));
   await tools.read_file.execute({ path: "/big.log" }, ctx);
-  await assert.rejects(tools.write_file.execute({ path: "/big.log", content: "short" }, ctx), /read only lines 1-2000 .*offset=2001/);
+  await assert.rejects(tools.write_file.execute({ path: "/big.log", content: "short" }, ctx), /not overwritten: you had read only lines 1-2000 of its 2500\. Here are lines 2001-2500[\s\S]*\nline 2500$/);
   await tools.edit_file.execute({ path: "/big.log", oldText: "line 7\n", newText: "line seven\n" }, ctx);
   await tools.read_file.execute({ path: "/big.log", offset: 2001 }, ctx);
   await tools.write_file.execute({ path: "/big.log", content: "rewritten" }, ctx);
@@ -734,4 +734,47 @@ test("pdf — read_file and run_js read a PDF's text page by page through a (stu
   assert.equal(r.result, "true");
   assert.equal(loads, 1, "pdf.js is loaded once");
   configurePdf({ load: undefined });
+});
+
+test("write_file — a refused overwrite after a partial read shows the rest (then the write goes through); replace: true overwrites unread and says what it threw away", async () => {
+  const ws = await Workspace.open(null, { id: "guard3", project: "guard3-test", indexedDB: null, userSkills: false });
+  const tools = Object.fromEntries(fileTools(ws).map((t) => [t.name, t]));
+  let progress = null;
+  const ctx = { signal: new AbortController().signal, ui: nullUI(), workspace: ws, update() {}, progress(v) { progress = v; } };
+  // Read 40 of 100 lines: the overwrite is refused with lines 41-100, and the next write needs no read.
+  await ws.write("/styles.css", Array.from({ length: 100 }, (_, i) => `.r${i + 1}{}`).join("\n"));
+  await tools.read_file.execute({ path: "/styles.css", limit: 40 }, ctx);
+  const err = await tools.write_file.execute({ path: "/styles.css", content: "x" }, ctx).catch((e) => e);
+  assert.match(err.message, /you had read only lines 1-40 of its 100\. Here are lines 41-100, which now count as read\. Make sure/);
+  assert.ok(err.message.endsWith(".r41{}\n" + Array.from({ length: 59 }, (_, i) => `.r${i + 42}{}`).join("\n")));
+  assert.equal(progress, true, "the lines shown are new to it");
+  assert.equal(await ws.readText("/styles.css").then((t) => t.split("\n").length), 100, "nothing written yet");
+  assert.match(await tools.write_file.execute({ path: "/styles.css", content: ".all{}" }, ctx), /^Updated \/styles\.css/);
+  // A rest longer than one read: shows 2000 lines and says where the unread part starts; still refused until it is read.
+  await ws.write("/big.txt", Array.from({ length: 5000 }, (_, i) => `l${i + 1}`).join("\n"));
+  await tools.read_file.execute({ path: "/big.txt" }, ctx);
+  await assert.rejects(tools.write_file.execute({ path: "/big.txt", content: "x" }, ctx), /Here are lines 2001-4000, which now count as read\. Lines 4001-5000 are still unread: read them with read_file offset=4001/);
+  await assert.rejects(tools.write_file.execute({ path: "/big.txt", content: "x" }, ctx), /read only lines 1-4000 of its 5000\. Here are lines 4001-5000/);
+  await tools.write_file.execute({ path: "/big.txt", content: "x" }, ctx);
+  // replace: never read, partly read, changed since read — all overwritten, the result says what went unread.
+  await ws.write("/a.js", "one\ntwo\nthree");
+  assert.equal(await tools.write_file.execute({ path: "/a.js", content: "new", replace: true }, ctx), "Replaced /a.js (3 bytes). Its previous content (3 lines) was replaced without being read.");
+  assert.equal(await ws.readText("/a.js"), "new");
+  await ws.write("/b.js", Array.from({ length: 10 }, (_, i) => `b${i}`).join("\n"));
+  await tools.read_file.execute({ path: "/b.js", limit: 3 }, ctx);
+  assert.match(await tools.write_file.execute({ path: "/b.js", content: "new", replace: true }, ctx), /^Replaced \/b\.js .*\(10 lines\) was replaced, including the part you had not read\.$/);
+  await tools.read_file.execute({ path: "/b.js" }, ctx);
+  await new Promise((r) => setTimeout(r, 2));
+  await ws.write("/b.js", "the user's version");
+  assert.match(await tools.write_file.execute({ path: "/b.js", content: "mine", replace: true }, ctx), /without being read/);
+  // Fully read and current: a replace is an ordinary update.
+  await tools.read_file.execute({ path: "/b.js" }, ctx);
+  assert.equal(await tools.write_file.execute({ path: "/b.js", content: "again", replace: true }, ctx), "Updated /b.js (5 bytes).");
+  // replace: false is the ordinary check.
+  await ws.write("/c.js", "c");
+  await assert.rejects(tools.write_file.execute({ path: "/c.js", content: "x", replace: false }, ctx), /not read it/);
+  // Without the guard there is nothing to replace past: no such parameter.
+  assert.equal(fileTools(ws, { readBeforeWrite: false }).find((t) => t.name === "write_file").parameters.properties.replace, undefined);
+  assert.match(tools.write_file.description, /pass replace: true/);
+  assert.ok(tools.write_file.parameters.properties.replace);
 });

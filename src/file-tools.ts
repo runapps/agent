@@ -7,7 +7,7 @@ import type { TextEdit } from "./edit.js";
 import { defineTool } from "./tool.js";
 import type { Tool } from "./types.js";
 import { normalizePath, type Workspace } from "./workspace.js";
-import { fileGuard, type FileGuard } from "./file-guard.js";
+import { fileGuard, PartialReadError, type FileGuard } from "./file-guard.js";
 
 const MAX_LIST = 500;
 const MAX_READ_LINES = 2000;
@@ -138,24 +138,59 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
       },
     }),
 
-    defineTool<{ path: string; content: string }>({
+    defineTool<{ path: string; content: string; replace?: boolean }>({
       name: "write_file",
       description:
         "Create or overwrite a text file in the workspace with the given content. Folders are implied by the path. Prefer edit_file for small changes to an existing file." +
-        (guard ? " To overwrite an existing file, read it with read_file first; if it changed since you read it, read it again." : ""),
+        (guard ? " To overwrite an existing file, read it with read_file first; if it changed since you read it, read it again. Only when the user asked for the file to be rewritten from scratch, keeping nothing of it, pass replace: true to overwrite it without reading it." : ""),
       parameters: {
         type: "object",
-        properties: { path: { type: "string" }, content: { type: "string" } },
+        properties: {
+          path: { type: "string" },
+          content: { type: "string" },
+          ...(guard ? { replace: { type: "boolean", description: "Overwrite an existing file without reading it first. Only when the user asked to rewrite it from scratch and keep nothing of it; never to skip reading a file whose content you are changing." } } : {}),
+        },
         required: ["path", "content"],
         additionalProperties: false,
       },
-      async execute({ path, content }) {
+      async execute({ path, content, replace }, ctx) {
         const p = normalizePath(path);
         const existed = await ws.exists(p);
-        if (existed) await files.check(p, "overwrite");
+        // What a replace threw away unread, said in the result (and so in the chat's tool card).
+        let discarded = "";
+        if (existed && replace === true && guard) {
+          const known = await files.known(p);
+          if (known !== "all") {
+            const old = await ws.readAsText(p).catch(() => null);
+            const n = old?.kind === "text" ? old.text.split("\n").length : 0;
+            const size = n ? ` (${n} line${n === 1 ? "" : "s"})` : "";
+            discarded = known === "part" ? ` Its previous content${size} was replaced, including the part you had not read.` : ` Its previous content${size} was replaced without being read.`;
+          }
+        } else if (existed) {
+          try {
+            await files.check(p, "overwrite");
+          } catch (err) {
+            if (!(err instanceof PartialReadError)) throw err;
+            // Read only in part: show the rest now (it counts as read), so the next write knows the whole file.
+            const doc = await ws.readAsText(p).catch(() => null);
+            if (doc?.kind !== "text") throw err;
+            const lines = doc.text.split("\n"), total = lines.length, start = err.coveredTo + 1;
+            const out: string[] = [];
+            let bytes = 0, end = err.coveredTo;
+            for (let i = start - 1; i < total && out.length < MAX_READ_LINES; i++) {
+              const b = new TextEncoder().encode(lines[i]!).byteLength + 1;
+              if (bytes + b > MAX_READ_BYTES && out.length > 0) break;
+              out.push(lines[i]!); bytes += b; end = i + 1;
+            }
+            const fresh = await files.saw(p, { start, end, total, text: doc.text });
+            if (fresh !== undefined) ctx.progress?.(fresh);
+            const more = end < total ? ` Lines ${end + 1}-${total} are still unread: read them with read_file offset=${end + 1} before overwriting.` : "";
+            throw new Error(`${p} was not overwritten: you had read only lines 1-${err.coveredTo} of its ${total}. Here are lines ${start}-${end}, which now count as read.${more} Make sure your new content keeps what it should, then call write_file again, or change the file with edit_file.\n\n${out.join("\n")}`);
+          }
+        }
         await ws.write(p, content);
         await files.wrote(p);
-        return `${existed ? "Updated" : "Created"} ${p} (${new TextEncoder().encode(content).byteLength} bytes).`;
+        return `${existed ? (discarded ? "Replaced" : "Updated") : "Created"} ${p} (${new TextEncoder().encode(content).byteLength} bytes).${discarded}`;
       },
     }),
 
