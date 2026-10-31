@@ -22,6 +22,7 @@ import { listTemplates } from "./templates.js";
 import { VirtualList, type VRow } from "./vlist.js";
 import { h, I, modal, modalConfirm, renderMD } from "./dom.js";
 import { filesPanel, freePath } from "./files-panel.js";
+import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } from "./chat-theme.js";
 import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, ToolStatus } from "./types.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
@@ -62,6 +63,21 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   locale?: "zh" | "en";
   /** `"auto"` (default) follows the system; `"light"` / `"dark"` force one. */
   theme?: "auto" | "light" | "dark";
+  /**
+   * Colours: a built-in palette by name — `"claude"` (default: ivory and
+   * warm charcoal, coral accent), `"violet"`, `"slate"` (neutral, blue
+   * accent), `"forest"` — or a palette of your own (`{ light, dark }`
+   * token values; tokens left out keep the default's).
+   */
+  palette?: keyof typeof CHAT_PALETTES | ChatPalette;
+  /**
+   * Token overrides on top of the palette, by name (`accent`, `font`) or
+   * property (`--ra-accent`); `{ light, dark }` sets them per scheme.
+   * A host stylesheet can do the same: `.ra-chat { --ra-accent: … }`.
+   */
+  vars?: ChatVars | { light?: ChatVars; dark?: ChatVars };
+  /** Extra class names on the chat's root, for host CSS. */
+  className?: string;
   /** Show the run's cost and tokens under the composer (default on). */
   showUsage?: boolean;
   /**
@@ -99,6 +115,8 @@ export interface ChatHandle {
   deleteSession(id: string): Promise<void>;
   /** Re-reads the workspace's skills and templates for `/` completion (after installing a skill). */
   refresh(): Promise<void>;
+  /** Changes the look while mounted: light/dark, palette, token overrides (each left out stays). */
+  setAppearance(opts: { theme?: "auto" | "light" | "dark"; palette?: keyof typeof CHAT_PALETTES | ChatPalette; vars?: ChatVars | { light?: ChatVars; dark?: ChatVars } }): void;
   /** Removes the chat; an agent the chat made is stopped (a host's `agent` is left running). */
   unmount(): void;
 }
@@ -120,7 +138,7 @@ const STRINGS = {
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove",
     toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed",
     actRead: "read {n} file(s)", actList: "listed {n} folder(s)", actSearch: "searched {n} time(s)", actWrite: "wrote {n} file(s)", actEdit: "edited {n} file(s)", actDelete: "deleted {n} file(s)", actRun: "ran {n} snippet(s)", actAsk: "asked you {n} time(s)", actOther: "used {name}",
-    ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", jumpEnd: "Jump to the latest", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
+    ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", current: "Current", jumpEnd: "Jump to the latest", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     settings: "Settings", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
@@ -140,7 +158,7 @@ const STRINGS = {
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除",
     toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败",
     actRead: "读取了 {n} 个文件", actList: "查看了 {n} 个目录", actSearch: "搜索了 {n} 次", actWrite: "写入了 {n} 个文件", actEdit: "修改了 {n} 个文件", actDelete: "删除了 {n} 个文件", actRun: "运行了 {n} 段代码", actAsk: "询问了你 {n} 次", actOther: "调用了 {name}",
-    ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", jumpEnd: "回到最新", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
+    ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", current: "当前", jumpEnd: "回到最新", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     settings: "设置", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
@@ -158,17 +176,12 @@ function pickLocale(opt?: "zh" | "en"): "zh" | "en" {
 }
 
 /* ------------------------------------------------------------------ */
-/* Styles — Chakra's purple palette and gray scale, as the harness app  */
+/* Styles — every colour and font is a --ra-* variable (chat-theme.ts)  */
 /* ------------------------------------------------------------------ */
 
 const STYLE_ID = "runapps-agent-chat-style";
-const LIGHT = "--ra-bg:#faf9f5;--ra-panel:#ffffff;--ra-subtle:#f5f4ee;--ra-muted:#f0eee6;--ra-fg:#141413;--ra-fg-muted:#73726c;--ra-border:#e5e3da;--ra-p-subtle:#f7e8e1;--ra-p-muted:#efcbbd;--ra-p-fg:#b85a3a;--ra-p-solid:#d97757;--ra-user-bg:#f0eee6;--ra-link:#2b6cb0;--ra-ok:#3d8b5a;--ra-red:#b53333;--ra-red-subtle:#f9ebe9;--ra-warn-fg:#a15c07;--ra-warn-bg:#fdf6e7;--ra-warn-border:#f0d9a8;--ra-shadow:0 1px 2px rgba(31,30,29,.06);--ra-shadow-md:0 6px 20px rgba(31,30,29,.12),0 1px 3px rgba(31,30,29,.08)";
-const DARK = "--ra-bg:#262624;--ra-panel:#30302e;--ra-subtle:#2b2a28;--ra-muted:#343432;--ra-fg:#f5f4ee;--ra-fg-muted:#a3a19a;--ra-border:#3d3d3a;--ra-p-subtle:rgba(217,119,87,.14);--ra-p-muted:rgba(217,119,87,.32);--ra-p-fg:#e8957a;--ra-p-solid:#d97757;--ra-user-bg:#1f1e1d;--ra-link:#7aaeea;--ra-ok:#6bbf86;--ra-red:#e57373;--ra-red-subtle:rgba(229,115,115,.12);--ra-warn-fg:#f0b45c;--ra-warn-bg:rgba(240,180,92,.08);--ra-warn-border:rgba(240,180,92,.28);--ra-shadow:0 1px 2px rgba(0,0,0,.3);--ra-shadow-md:0 6px 20px rgba(0,0,0,.45),0 1px 3px rgba(0,0,0,.3);color-scheme:dark";
-const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace';
-const CSS = `
-.ra-chat{${LIGHT};display:flex;flex-direction:column;height:100%;min-height:0;box-sizing:border-box;background:var(--ra-bg);color:var(--ra-fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",Arial,sans-serif;position:relative;overflow:hidden;-webkit-font-smoothing:antialiased}
-.ra-chat[data-theme=dark]{${DARK}}
-@media (prefers-color-scheme:dark){.ra-chat[data-theme=auto]{${DARK}}}
+const CSS = tokenCSS() + `
+.ra-chat{display:flex;flex-direction:column;height:100%;min-height:0;box-sizing:border-box;background:var(--ra-bg);color:var(--ra-fg);font:14px/1.5 var(--ra-font);position:relative;overflow:hidden;-webkit-font-smoothing:antialiased}
 .ra-chat *,.ra-chat *::before,.ra-chat *::after{box-sizing:border-box}
 .ra-chat button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0;margin:0;line-height:inherit}
 .ra-chat button:disabled{opacity:.5;cursor:default}
@@ -180,9 +193,9 @@ const CSS = `
 .ra-chat .ra-btn.xs{height:24px;padding:0 8px;font-size:12px}
 .ra-chat .ra-btn.ghost{border-color:transparent;background:transparent}
 .ra-chat .ra-btn.ghost:hover{background:var(--ra-muted)}
-.ra-chat .ra-btn.subtle{border-color:transparent;background:var(--ra-p-subtle);color:var(--ra-p-fg)}
-.ra-chat .ra-btn.subtle:hover{background:var(--ra-p-muted)}
-.ra-chat .ra-btn.solid{border-color:var(--ra-p-solid);background:var(--ra-p-solid);color:#fff}
+.ra-chat .ra-btn.subtle{border-color:transparent;background:var(--ra-accent-subtle);color:var(--ra-accent-fg)}
+.ra-chat .ra-btn.subtle:hover{background:var(--ra-accent-muted)}
+.ra-chat .ra-btn.solid{border-color:var(--ra-accent);background:var(--ra-accent);color:#fff}
 .ra-chat .ra-btn.solid:hover{filter:brightness(1.08)}
 .ra-chat .ra-btn.red{border-color:#dc2626;background:#dc2626;color:#fff}
 .ra-chat .ra-btn.red:hover{filter:brightness(1.08)}
@@ -190,12 +203,16 @@ const CSS = `
 .ra-head{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--ra-border);flex-shrink:0;min-height:44px}
 .ra-head .ra-title{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ra-badge{display:inline-flex;align-items:center;font-size:11px;font-weight:500;color:var(--ra-fg-muted);border:1px solid var(--ra-border);border-radius:4px;padding:0 6px;line-height:18px;white-space:nowrap}
-.ra-badge.p{background:var(--ra-p-subtle);color:var(--ra-p-fg);border-color:transparent}
+.ra-badge.p{background:var(--ra-accent-subtle);color:var(--ra-accent-fg);border-color:transparent}
 .ra-head .ra-sp{flex:1}
 .ra-menu{position:absolute;right:12px;top:42px;z-index:6;width:min(360px,calc(100% - 24px));max-height:60%;overflow:auto;background:var(--ra-panel);border:1px solid var(--ra-border);border-radius:8px;box-shadow:var(--ra-shadow-md);padding:4px}
 .ra-menu .ra-mi{display:flex;align-items:center;gap:6px;border-radius:6px}
 .ra-menu .ra-mi:hover{background:var(--ra-muted)}
-.ra-menu .ra-mi.ra-cur{background:var(--ra-p-subtle)}
+.ra-menu .ra-mi.ra-cur{background:var(--ra-muted);box-shadow:inset 3px 0 0 var(--ra-accent)}
+.ra-menu .ra-mi>button:first-child>span.ra-mt{display:flex;align-items:center;gap:6px;min-width:0;overflow:visible}
+.ra-menu .ra-mi .ra-mtt{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ra-menu .ra-mi .ra-mt .ra-spin{flex:none}
+.ra-menu .ra-mi .ra-now{flex:none;display:inline-block;font-size:10.5px;font-weight:600;line-height:16px;padding:0 6px;border-radius:999px;background:var(--ra-accent-subtle);color:var(--ra-accent-fg);vertical-align:1px}
 .ra-menu .ra-mi>button:first-child{flex:1;min-width:0;text-align:left;padding:6px 8px;font-size:13px}
 .ra-menu .ra-mi>button:first-child>span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ra-menu .ra-mi small{display:block;color:var(--ra-fg-muted);font-size:11px}
@@ -206,7 +223,7 @@ const CSS = `
 .ra-set{padding:10px 12px;display:flex;flex-direction:column;gap:10px;width:min(360px,calc(100% - 24px))}
 .ra-set label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ra-fg-muted)}
 .ra-set select,.ra-set input[type=number]{font:inherit;font-size:13px;color:var(--ra-fg);background:var(--ra-bg);border:1px solid var(--ra-border);border-radius:6px;padding:5px 8px;outline:0;width:100%;margin:0}
-.ra-set select:focus,.ra-set input:focus{border-color:var(--ra-p-solid)}
+.ra-set select:focus,.ra-set input:focus{border-color:var(--ra-accent)}
 .ra-set .ra-row{display:flex;gap:8px;align-items:center}
 .ra-set .ra-row>*{flex:1;min-width:0}
 .ra-set .ra-lim{font-size:11px;color:var(--ra-fg-muted);margin-top:-4px}
@@ -214,7 +231,7 @@ const CSS = `
 .ra-card .ra-btn{margin-top:8px}
 .ra-menu .ra-mi .ra-spin{margin-right:6px}
 .ra-chat .ra-btn.ra-bg{position:relative}
-.ra-chat .ra-btn.ra-bg::after{content:"";position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;background:var(--ra-p-solid)}
+.ra-chat .ra-btn.ra-bg::after{content:"";position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;background:var(--ra-accent)}
 .ra-menu .ra-mf{border-top:1px solid var(--ra-border);margin-top:4px;padding-top:4px;display:flex;justify-content:flex-end}
 .ra-main{flex:1;min-height:0;display:flex;position:relative;overflow:hidden}
 .ra-chat{container-type:inline-size}
@@ -231,7 +248,7 @@ const CSS = `
 .ra-tree{flex:1;min-height:0;overflow:auto;padding:4px}
 .ra-fr{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;cursor:pointer;font-size:13px;min-height:26px}
 .ra-fr:hover{background:var(--ra-panel)}
-.ra-fr.ra-cur{background:var(--ra-p-subtle)}
+.ra-fr.ra-cur{background:var(--ra-accent-subtle)}
 .ra-fr .ra-frc{width:12px;display:inline-flex;color:var(--ra-fg-muted);flex-shrink:0}
 .ra-fr .ra-fri{display:inline-flex;color:var(--ra-fg-muted);flex-shrink:0}
 .ra-fr .ra-frn{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -242,20 +259,20 @@ const CSS = `
 .ra-fpe{padding:8px 10px;font-size:12px;color:var(--ra-fg-muted)}
 .ra-ed{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;background:var(--ra-bg)}
 .ra-edh{display:flex;align-items:center;gap:6px;height:40px;padding:0 8px 0 16px;border-bottom:1px solid var(--ra-border);flex-shrink:0;background:var(--ra-subtle)}
-.ra-edh .ra-edp{flex:1;min-width:0;font:12px ${MONO};color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra-edh .ra-edp{flex:1;min-width:0;font:12px var(--ra-mono);color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ra-edh .ra-eda{display:inline-flex;align-items:center;gap:2px}
 .ra-edb{flex:1;min-height:0;display:flex;flex-direction:column}
-.ra-edta{flex:1;min-height:0;resize:none;padding:14px 20px;font:13.5px/1.6 ${MONO};tab-size:2;white-space:pre;overflow:auto}
+.ra-edta{flex:1;min-height:0;resize:none;padding:14px 20px;font:13.5px/1.6 var(--ra-mono);tab-size:2;white-space:pre;overflow:auto}
 .ra-edta.ra-wrap{white-space:pre-wrap;word-break:break-word}
 .ra-edmd{flex:1;min-height:0;overflow:auto;padding:16px 24px;max-width:860px}
-.ra-chat .ra-ib.on{background:var(--ra-p-subtle);color:var(--ra-p-fg)}
+.ra-chat .ra-ib.on{background:var(--ra-accent-subtle);color:var(--ra-accent-fg)}
 .ra-edpv{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px}
 .ra-edpv img{max-width:100%;max-height:100%;border-radius:4px}
-.ra-fpdrop{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-p-solid) 8%,transparent);border:2px dashed var(--ra-p-solid);color:var(--ra-p-fg);font-weight:600;pointer-events:none}
+.ra-fpdrop{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-accent) 8%,transparent);border:2px dashed var(--ra-accent);color:var(--ra-accent-fg);font-weight:600;pointer-events:none}
 .ra-fp[data-drop="1"] .ra-fpdrop{display:flex}
 .ra-md .ra-path{display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:var(--ra-link);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--ra-link) 45%,transparent);text-underline-offset:3px}
 .ra-md .ra-path:hover{text-decoration-color:var(--ra-link)}
-.ra-md .ra-path:hover{background:var(--ra-p-muted)}
+.ra-md .ra-path:hover{background:var(--ra-accent-muted)}
 .ra-tool .ra-tacts{display:flex;gap:10px}
 .ra-log{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .ra-jumpwrap{position:relative;height:0;flex-shrink:0;z-index:2}
@@ -263,7 +280,7 @@ const CSS = `
   background:color-mix(in srgb,var(--ra-panel) 82%,transparent);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid var(--ra-border);color:var(--ra-fg-muted);box-shadow:var(--ra-shadow);
   opacity:0;transform:translate(-50%,6px);pointer-events:none;transition:opacity .18s,transform .18s,color .15s,border-color .15s}
 .ra-chat .ra-jump.show{opacity:.7;transform:translate(-50%,0);pointer-events:auto}
-.ra-chat .ra-jump:hover,.ra-chat .ra-jump:focus-visible{opacity:1;color:var(--ra-fg);border-color:var(--ra-p-muted)}
+.ra-chat .ra-jump:hover,.ra-chat .ra-jump:focus-visible{opacity:1;color:var(--ra-fg);border-color:var(--ra-accent-muted)}
 .ra-log .ra-col{padding-top:6px;padding-bottom:6px}
 .ra-row{padding:10px 0}
 .ra-empty{padding:48px 0 24px;text-align:center;color:var(--ra-fg-muted)}
@@ -280,24 +297,24 @@ const CSS = `
 .ra-uf .ra-ut::after{content:"·";margin-left:4px}
 .ra-uf .ra-ib{width:22px;height:22px}
 .ra-modal label.ra-ck{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
-.ra-modal label.ra-ck input{width:auto;accent-color:var(--ra-p-solid)}
+.ra-modal label.ra-ck input{width:auto;accent-color:var(--ra-accent)}
 .ra-modal .ra-dn{font-size:12px;color:var(--ra-fg-muted);margin:-4px 0 0 24px}
 .ra-asst{display:flex;gap:10px;align-items:flex-start}
-.ra-avatar{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:transparent;color:var(--ra-p-solid);display:flex;align-items:center;justify-content:center;margin-top:2px}
+.ra-avatar{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:transparent;color:var(--ra-accent);display:flex;align-items:center;justify-content:center;margin-top:2px}
 .ra-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
 .ra-md{font-size:14px;line-height:1.65;word-break:break-word;overflow-wrap:anywhere}
 .ra-md>:first-child{margin-top:0}.ra-md>:last-child{margin-bottom:0}
 .ra-md p{margin:.5em 0}.ra-md h1,.ra-md h2,.ra-md h3,.ra-md h4{margin:1em 0 .4em;line-height:1.3;font-weight:650}.ra-md h1{font-size:1.35em}.ra-md h2{font-size:1.2em}.ra-md h3{font-size:1.05em}
 .ra-md strong{font-weight:650}
 .ra-md ul,.ra-md ol{margin:.4em 0;padding-left:1.4em}.ra-md li{margin:.15em 0}
-.ra-md code{font:.88em/1.5 ${MONO};background:var(--ra-muted);padding:.1em .35em;border-radius:4px}
+.ra-md code{font:.88em/1.5 var(--ra-mono);background:var(--ra-muted);padding:.1em .35em;border-radius:4px}
 .ra-md .ra-cb{margin:.7em 0;border:1px solid var(--ra-border);border-radius:6px;overflow:hidden}
-.ra-md .ra-cbh{display:flex;align-items:center;justify-content:space-between;padding:4px 10px;border-bottom:1px solid var(--ra-border);background:var(--ra-muted);color:var(--ra-fg-muted);font:12px ${MONO}}
+.ra-md .ra-cbh{display:flex;align-items:center;justify-content:space-between;padding:4px 10px;border-bottom:1px solid var(--ra-border);background:var(--ra-muted);color:var(--ra-fg-muted);font:12px var(--ra-mono)}
 .ra-md .ra-cbh button{display:inline-flex;padding:3px;border-radius:4px;color:inherit}
 .ra-md .ra-cbh button:hover{background:var(--ra-panel)}
-.ra-md pre{margin:0;padding:10px 12px;overflow:auto;font:12.5px/1.55 ${MONO}}
+.ra-md pre{margin:0;padding:10px 12px;overflow:auto;font:12.5px/1.55 var(--ra-mono)}
 .ra-md pre code{background:none;padding:0;font:inherit}
-.ra-md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--ra-p-solid);color:var(--ra-fg-muted)}
+.ra-md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--ra-accent);color:var(--ra-fg-muted)}
 .ra-md .ra-tw{margin:.7em 0;overflow:auto;border:1px solid var(--ra-border);border-radius:6px}
 .ra-md table{border-collapse:collapse;width:100%;font-size:.95em}
 .ra-md th,.ra-md td{padding:6px 10px;border-bottom:1px solid var(--ra-border);text-align:left}.ra-md thead{background:var(--ra-muted)}.ra-md th{font-weight:600}.ra-md tr:last-child td{border-bottom:0}
@@ -316,7 +333,7 @@ const CSS = `
 .ra-tg>summary::-webkit-details-marker{display:none}
 .ra-tg>summary:hover{color:var(--ra-fg)}
 .ra-tg>summary .ra-tgt{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ra-tg>summary .ra-tgt code{font:12px ${MONO};background:none;padding:0;color:inherit}
+.ra-tg>summary .ra-tgt code{font:12px var(--ra-mono);background:none;padding:0;color:inherit}
 .ra-tg>summary .ra-tgf{color:var(--ra-red);flex-shrink:0}
 .ra-tg>summary .ra-chev{display:inline-flex;transition:transform .15s;flex-shrink:0}
 .ra-tg[open]>summary .ra-chev{transform:rotate(90deg)}
@@ -328,19 +345,19 @@ const CSS = `
 .ra-tool>summary:hover{background:var(--ra-muted)}
 .ra-tool>summary .ra-chev{color:var(--ra-fg-muted);transition:transform .15s}
 .ra-tool[open]>summary .ra-chev{transform:rotate(90deg)}
-.ra-tool .ra-ticon{width:20px;height:20px;border-radius:4px;background:var(--ra-p-subtle);color:var(--ra-p-fg);display:inline-flex;align-items:center;justify-content:center}
+.ra-tool .ra-ticon{width:20px;height:20px;border-radius:4px;background:var(--ra-accent-subtle);color:var(--ra-accent-fg);display:inline-flex;align-items:center;justify-content:center}
 .ra-tool.fail .ra-ticon{background:var(--ra-red-subtle);color:var(--ra-red)}
 .ra-tool .ra-tname{font-weight:600;white-space:nowrap}
-.ra-tool .ra-tsum{flex:1;min-width:0;color:var(--ra-fg-muted);font:13px ${MONO};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra-tool .ra-tsum{flex:1;min-width:0;color:var(--ra-fg-muted);font:13px var(--ra-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ra-tool .ra-tend{display:inline-flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:var(--ra-fg-muted);white-space:nowrap}
 .ra-tool .ra-tend .ok{color:var(--ra-ok);display:inline-flex}.ra-tool .ra-tend .fail{color:var(--ra-red);display:inline-flex}
-.ra-spin{width:12px;height:12px;border:2px solid var(--ra-border);border-top-color:var(--ra-p-solid);border-radius:50%;animation:ra-spin .8s linear infinite;flex-shrink:0}
+.ra-spin{width:12px;height:12px;border:2px solid var(--ra-border);border-top-color:var(--ra-accent);border-radius:50%;animation:ra-spin .8s linear infinite;flex-shrink:0}
 @keyframes ra-spin{to{transform:rotate(360deg)}}
 .ra-tool .ra-tbody{border-top:1px solid var(--ra-border);padding:4px 10px 10px;display:flex;flex-direction:column;gap:8px}
 .ra-tool .ra-tlabel{font-size:12px;color:var(--ra-fg-muted);margin:4px 0}
-.ra-tool pre{margin:0;background:var(--ra-muted);border-radius:4px;padding:8px;max-height:280px;overflow:auto;font:12px/1.5 ${MONO};white-space:pre-wrap;word-break:break-word}
+.ra-tool pre{margin:0;background:var(--ra-muted);border-radius:4px;padding:8px;max-height:280px;overflow:auto;font:12px/1.5 var(--ra-mono);white-space:pre-wrap;word-break:break-word}
 .ra-tool .ra-tupd{font-size:12px;color:var(--ra-fg-muted);padding:0 10px 8px;white-space:pre-wrap}
-.ra-tool .ra-open{font-size:12px;color:var(--ra-p-fg);align-self:flex-start;text-decoration:underline;text-underline-offset:2px}
+.ra-tool .ra-open{font-size:12px;color:var(--ra-accent-fg);align-self:flex-start;text-decoration:underline;text-underline-offset:2px}
 .ra-card{border:1px solid var(--ra-border);background:var(--ra-muted);border-radius:6px;padding:12px}
 .ra-card .ra-ct{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;margin-bottom:6px}
 .ra-card .ra-ct.only{margin-bottom:0;font-weight:500;color:var(--ra-fg-muted)}
@@ -349,17 +366,17 @@ const CSS = `
 .ra-err .ra-btn{margin-top:6px}
 .ra-ask{flex-shrink:0;max-height:45%;overflow-y:auto}
 .ra-ask .ra-col{display:flex;flex-direction:column;gap:8px;padding-top:8px;padding-bottom:8px}
-.ra-q{border:1px solid var(--ra-p-muted);border-radius:8px;padding:12px;background:var(--ra-subtle);display:flex;flex-direction:column;gap:10px}
+.ra-q{border:1px solid var(--ra-accent-muted);border-radius:8px;padding:12px;background:var(--ra-subtle);display:flex;flex-direction:column;gap:10px}
 .ra-q .ra-qt{font-weight:600;font-size:14px}
 .ra-q .ra-qm{font-size:14px;white-space:pre-wrap}
 .ra-q .ra-opts{display:flex;flex-direction:column;gap:4px}
 .ra-q .ra-opt{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--ra-border);border-radius:6px;padding:6px 12px;text-align:left;width:100%;background:var(--ra-bg);font-size:14px;min-height:32px}
 .ra-q .ra-opt:hover{background:var(--ra-muted)}
-.ra-q .ra-opt input[type=radio],.ra-q .ra-opt input[type=checkbox]{width:auto;flex:none;margin:4px 0 0;accent-color:var(--ra-p-solid)}
+.ra-q .ra-opt input[type=radio],.ra-q .ra-opt input[type=checkbox]{width:auto;flex:none;margin:4px 0 0;accent-color:var(--ra-accent)}
 .ra-q .ra-opt>div,.ra-q .ra-opt>span{flex:1;min-width:0}
 .ra-q .ra-opt small{display:block;color:var(--ra-fg-muted);font-size:12px}
 .ra-q .ra-field{border:1px solid var(--ra-border);border-radius:6px;padding:6px 10px;background:var(--ra-bg);width:100%;font-size:14px}
-.ra-q .ra-field:focus{border-color:var(--ra-p-solid)}
+.ra-q .ra-field:focus{border-color:var(--ra-accent)}
 .ra-q textarea.ra-field{min-height:96px;max-height:200px;resize:vertical}
 .ra-btns{display:flex;justify-content:flex-end;gap:8px}
 .ra-status{font-size:14px;color:var(--ra-fg-muted);padding:4px 0}
@@ -379,14 +396,14 @@ const CSS = `
 .ra-box textarea{resize:none;height:96px;overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
 .ra-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;min-height:32px}
 .ra-bar .ra-hint{font-size:12px;color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.01em}
-.ra-kbd{display:inline-block;font:11px/1.4 ${MONO};border:1px solid var(--ra-border);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--ra-muted);color:var(--ra-fg)}
+.ra-kbd{display:inline-block;font:11px/1.4 var(--ra-mono);border:1px solid var(--ra-border);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--ra-muted);color:var(--ra-fg)}
 .ra-bar .ra-acts{display:flex;gap:6px;align-items:center}
-.ra-chat .ra-send{width:32px;height:32px;border-radius:50%;background:var(--ra-p-solid);color:#fff;display:inline-flex;align-items:center;justify-content:center}
+.ra-chat .ra-send{width:32px;height:32px;border-radius:50%;background:var(--ra-accent);color:#fff;display:inline-flex;align-items:center;justify-content:center}
 .ra-chat .ra-send:hover{filter:brightness(1.08)}
 .ra-cmds{position:absolute;left:0;right:0;bottom:calc(100% + 6px);z-index:5;background:var(--ra-panel);border:1px solid var(--ra-border);border-radius:6px;box-shadow:var(--ra-shadow-md);padding:4px;max-height:260px;overflow:auto}
 .ra-cmds button{display:flex;gap:8px;align-items:center;width:100%;text-align:left;padding:6px 8px;border-radius:4px;font-size:13px}
 .ra-cmds button:hover,.ra-cmds button.ra-cur{background:var(--ra-muted)}
-.ra-cmds .ra-cn{font:600 14px ${MONO}}
+.ra-cmds .ra-cn{font:600 14px var(--ra-mono)}
 .ra-cmds .ra-cd{font-size:12px;color:var(--ra-fg-muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ra-chat .ra-attach{width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--ra-fg-muted);margin-right:4px}
 .ra-chat .ra-attach:hover{background:var(--ra-muted);color:var(--ra-fg)}
@@ -404,13 +421,13 @@ const CSS = `
 .ra-user .ra-files{justify-content:flex-end;padding:0;margin-top:8px}
 .ra-chip-link{cursor:pointer}
 .ra-chip-link:hover{border-color:color-mix(in srgb,var(--ra-fg) 25%,transparent);background:var(--ra-subtle)}
-.ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-p-solid) 8%,transparent);border:2px dashed var(--ra-p-solid);border-radius:8px;color:var(--ra-p-fg);font-weight:600;pointer-events:none}
+.ra-drop{position:absolute;inset:0;z-index:8;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ra-accent) 8%,transparent);border:2px dashed var(--ra-accent);border-radius:8px;color:var(--ra-accent-fg);font-weight:600;pointer-events:none}
 .ra-chat[data-drop="1"] .ra-drop{display:flex}
 .ra-usage{display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:11px;color:var(--ra-fg-muted);margin-top:6px;min-height:16px}
 .ra-ring{display:inline-flex;cursor:default}
 .ra-ring circle{fill:none;stroke-width:2.5}
 .ra-ring .tr{stroke:var(--ra-border)}
-.ra-ring .pr{stroke:var(--ra-p-solid);stroke-linecap:round;transition:stroke-dashoffset .3s}
+.ra-ring .pr{stroke:var(--ra-accent);stroke-linecap:round;transition:stroke-dashoffset .3s}
 .ra-ring.mid .pr{stroke:var(--ra-warn-fg)}
 .ra-ring.hi .pr{stroke:var(--ra-red)}
 .ra-warn{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:5px 6px 5px 10px;border:1px solid var(--ra-warn-border);background:var(--ra-warn-bg);color:var(--ra-warn-fg);border-radius:8px;font-size:12.5px;font-weight:500;line-height:1.4}
@@ -432,7 +449,8 @@ function injectStyles(): void {
   const s = document.createElement("style");
   s.id = STYLE_ID;
   s.textContent = CSS;
-  document.head.append(s);
+  // First in <head>, so a host stylesheet's rules of equal weight come later and win.
+  document.head.prepend(s);
 }
 
 /* ------------------------------------------------------------------ */
@@ -753,13 +771,38 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, settings: _settingsOpt, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
+  const { client, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, settings: _settingsOpt, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const project = (client as unknown as { projectName?: string } | undefined)?.projectName ?? agentOpts.appName ?? "app";
 
   // Shell.
   const root = h("div", "ra-chat");
-  root.dataset.theme = theme ?? "auto";
+  if (className) root.classList.add(...className.split(/\s+/).filter(Boolean));
+  // Appearance: data-theme is what was asked (auto/light/dark), data-scheme what applies; the palette and
+  // overrides are applied for the scheme in effect (a custom palette inline, since it has no CSS of its own).
+  let themeNow = theme ?? "auto";
+  let paletteNow: keyof typeof CHAT_PALETTES | ChatPalette = paletteOpt ?? "claude";
+  let varsNow = varsOpt;
+  const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+  let inlineProps: string[] = [];
+  const applyAppearance = () => {
+    const scheme = themeNow === "auto" ? (media?.matches ? "dark" : "light") : themeNow;
+    root.dataset.theme = themeNow;
+    root.dataset.scheme = scheme;
+    if (typeof paletteNow === "string") root.dataset.palette = paletteNow; else delete root.dataset.palette;
+    for (const prop of inlineProps) root.style.removeProperty(prop);
+    inlineProps = [];
+    const set = (vals: Record<string, string | undefined> | undefined) => {
+      for (const [k, v] of Object.entries(vals ?? {})) if (v !== undefined) { const prop = tokenProp(k); root.style.setProperty(prop, v); inlineProps.push(prop); }
+    };
+    if (typeof paletteNow !== "string") set(paletteNow[scheme]);
+    const v = varsNow as { light?: ChatVars; dark?: ChatVars } | ChatVars | undefined;
+    if (v && ("light" in v || "dark" in v)) set((v as { light?: ChatVars; dark?: ChatVars })[scheme] as Record<string, string | undefined>);
+    else set(v as Record<string, string | undefined>);
+  };
+  applyAppearance();
+  const onScheme = () => { if (themeNow === "auto") applyAppearance(); };
+  media?.addEventListener?.("change", onScheme);
   const head = h("div", "ra-head");
   const titleEl = h("div", "ra-title", title === false ? "" : title || agentOpts.appName || t.assistant);
   const modelEl = h("span", "ra-badge");
@@ -1673,8 +1716,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const b = h("button"); b.type = "button";
       const bg = live.get(s.id);
       const state = bg && bg !== agent ? (waiting.has(s.id) ? ` · ${t.waitingAnswer}` : bg.busy || bg.queued.length ? ` · ${t.running}` : "") : "";
-      const name = h("span", "", s.title || t.untitled);
-      if (state && !waiting.has(s.id)) name.prepend(h("span", "ra-spin"));
+      // The title line: the title shortens, the "Current" tag (and a spinner for a running session) always shows.
+      const name = h("span", "ra-mt");
+      if (state && !waiting.has(s.id)) name.append(h("span", "ra-spin"));
+      name.append(h("span", "ra-mtt", s.title || t.untitled));
+      if (s.id === agent.id) { name.append(h("span", "ra-now", t.current)); row.setAttribute("aria-current", "true"); }
       b.append(name, h("small", "", `${s.messages} ${t.messages} · ${new Date(s.savedAt).toLocaleString()}${state}`));
       b.addEventListener("click", () => { closeMenu(); void resume(s.id).catch((err) => ui.notify((err as Error).message, "error")); });
       const x = h("button", "ra-x"); x.type = "button"; x.innerHTML = I.trash(); x.title = t.delete; x.setAttribute("aria-label", t.delete);
@@ -1938,6 +1984,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     newSession,
     resume,
     deleteSession: (id) => deleteSession(id),
+    setAppearance(o) {
+      if (o.theme) themeNow = o.theme;
+      if (o.palette) paletteNow = o.palette;
+      if (o.vars !== undefined) varsNow = o.vars;
+      applyAppearance();
+    },
     refresh: refreshCommands,
     unmount() {
       if (!mounted) return;
@@ -1946,6 +1998,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       ui.cancelAll(true);
       closeMenu();
       document.removeEventListener("click", onDocClick, true);
+      media?.removeEventListener?.("change", onScheme);
       if (renderTimer !== null) clearTimeout(renderTimer);
       if (cmdFrame !== null) cancelAnimationFrame(cmdFrame);
       list.dispose();
