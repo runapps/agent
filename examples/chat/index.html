@@ -9,8 +9,10 @@
 <style>
   body { margin: 0; height: 100vh; display: grid; grid-template-columns: 1fr 320px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111; background: #fff; }
   @media (prefers-color-scheme: dark) { body { color: #e5e7eb; background: #0b0d11; } aside { background: #14171d !important; border-color: #2a2f3a !important; } .box { border-color: #2a2f3a !important; } }
-  #agent { min-height: 0; border-right: 1px solid #e5e7eb; }
-  @media (max-width: 720px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } #agent { border-right: 0; } aside { max-height: 40vh; border-top: 1px solid #e5e7eb; } }
+  /* the render target: everything inside this dashed box is drawn by renderChat(); the page owns the rest */
+  #agent { min-height: 0; margin: 10px; border: 2px dashed #f59e0b; border-radius: 10px; position: relative; overflow: hidden; }
+  #agent::before { content: 'renderChat(<div id="agent">)'; position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 5; padding: 1px 8px; font: 11px ui-monospace, Menlo, monospace; color: #fff; background: #f59e0b; border-radius: 0 0 6px 6px; pointer-events: none; }
+  @media (max-width: 720px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } #agent { margin: 6px; } aside { max-height: 40vh; border-top: 1px solid #e5e7eb; } }
   aside { padding: 12px 14px; font-size: 12px; background: #fafafa; overflow: auto; }
   aside h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
   label { display: block; margin-bottom: 6px; }
