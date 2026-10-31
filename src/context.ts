@@ -63,7 +63,11 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   if (visible.length) {
     const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     out.push(
-      "# Skills\nThe following skills provide specialized instructions for specific tasks.\nUse read_file to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (the folder of SKILL.md) and use that absolute path in tool calls.\n\n<available_skills>\n" +
+      "# Skills\nThe following skills provide specialized instructions for specific tasks.\nUse read_file to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (the folder of SKILL.md) and use that absolute path in tool calls." +
+      (input.hasSandbox
+        ? "\nThe only runtime here is run_js (JavaScript in a sandbox: no shell, no Python, no network). A skill's scripts written for another language (Python, shell, Ruby…) cannot be run as they are: read the script, port its logic to JavaScript and run that with run_js, keeping the same inputs, outputs and behaviour (fs.read for files the script reads; browser-safe APIs only — no npm imports, no subprocesses, no network); tell the user it was ported. If a script truly needs what the sandbox lacks (a binary, a network service), say so and do the part that can be done."
+        : "\nThere is no runtime for scripts here: a skill's scripts (Python, shell, JavaScript…) cannot be executed; follow their logic by hand where feasible and say so, or tell the user what cannot be done.") +
+      "\n\n<available_skills>\n" +
       visible.map((s) => `  <skill>\n    <name>${esc(s.name)}</name>\n    <description>${esc(s.description)}</description>\n    <location>${esc(s.path)}</location>\n  </skill>`).join("\n") +
       "\n</available_skills>",
     );
