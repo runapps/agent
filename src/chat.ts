@@ -25,7 +25,7 @@ import { filesPanel, freePath } from "./files-panel.js";
 import { debugPanel } from "./debug-panel.js";
 import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
 import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } from "./chat-theme.js";
-import type { AgentOptions, AgentUI, RunResult, SelectOption, SessionSummary, Skill, ToolStatus } from "./types.js";
+import type { AgentOptions, AgentUI, RunEnd, RunResult, SelectOption, SessionSummary, Skill, ToolStatus } from "./types.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   /** The client the agent calls the gateway with (required unless `agent` is given). */
@@ -2283,6 +2283,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     });
   };
 
+  /** How a run ended when it did not finish — stopped, turn limit (with Continue), error (with Retry); also drawn for a reopened session until its next run. */
+  const addEnd = (a: Agent, end: RunEnd | null) => {
+    if (!end) return;
+    const go = () => { try { void a.continue().catch((e) => ui.notify((e as Error).message, "error")); } catch (e) { ui.notify((e as Error).message, "error"); } };
+    if (end.reason === "error") addError(end.error ?? t.error, a.messages.length ? go : undefined);
+    else if (end.reason === "max_turns") addWarn(t.maxTurns.replace("{n}", String(a.settings.maxTurns)), { label: t.continueRun, onClick: go }, t.maxTurnsHint);
+    else addNote(t.stopped);
+  };
+
   const attach = async (a: Agent) => {
     for (const u of unsub) u();
     unsub = [];
@@ -2413,9 +2422,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     on("run_end", (r: RunResult) => {
       closeActive();
       ui.cancelAll();
-      if (r.reason === "error" && r.error) addError(r.error.message, a.messages.length ? () => void a.continue().catch((e) => ui.notify((e as Error).message, "error")) : undefined);
-      else if (r.reason === "max_turns") addWarn(t.maxTurns.replace("{n}", String(a.settings.maxTurns)), { label: t.continueRun, onClick: () => { try { void a.continue().catch((e) => ui.notify((e as Error).message, "error")); } catch (e) { ui.notify((e as Error).message, "error"); } } }, t.maxTurnsHint);
-      else if (r.reason === "aborted") addNote(t.stopped);
+      addEnd(a, r.reason === "done" ? null : { reason: r.reason, error: r.error?.message, at: Date.now() });
       setBusy(false);
       showUsage_(a);
       void refreshCommands();
@@ -2427,6 +2434,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (agent !== a || !mounted) return;
     onSession?.(a);
     renderHistory(a.messages);
+    if (!a.busy) addEnd(a, a.lastEnd);
     showUsage_(a);
     refreshHistCount();
     await refreshCommands();

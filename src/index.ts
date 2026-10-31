@@ -51,6 +51,7 @@ export type {
   FileStat,
   JSONSchema,
   Permissions,
+  RunEnd,
   RunEndReason,
   RunResult,
   SelectOption,

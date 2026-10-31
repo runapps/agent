@@ -24,6 +24,7 @@ import type {
   AgentUI,
   AgentUsage,
   Permissions,
+  RunEnd,
   RunEndReason,
   RunResult,
   SessionData,
@@ -108,6 +109,7 @@ export class Agent {
   private createdAt = Date.now();
   /** The session's title, fixed once known (a later compaction must not turn it into the summary's first words). */
   private title: string | undefined;
+  private _ended: RunEnd | null = null;
   private persist: boolean;
 
   constructor(client: RunApps, opts: AgentOptions = {}) {
@@ -157,6 +159,7 @@ export class Agent {
     this.droppedTurns = data.droppedTurns ?? 0;
     this._usage = { ...data.usage };
     this.createdAt = data.createdAt ?? data.savedAt ?? Date.now();
+    this._ended = data.ended ?? null;
     // Titles saved before titleOf skipped summaries and expanded commands are worked out again.
     this.title = data.title && !isMachineTitle(data.title) ? data.title : undefined;
     if (data.model && !this.opts.model) { this.opts.model = data.model; this.inputTokens = null; }
@@ -215,6 +218,11 @@ export class Agent {
     return { ...this._usage };
   }
 
+  /** How the last run ended when it did not finish (stopped, turn limit, error) — kept with the session until another run starts. */
+  get lastEnd(): RunEnd | null {
+    return this._ended;
+  }
+
   get busy(): boolean {
     return this.current !== null;
   }
@@ -259,6 +267,7 @@ export class Agent {
       droppedTurns: this.droppedTurns,
       createdAt: this.createdAt,
       savedAt: Date.now(),
+      ...(this._ended ? { ended: this._ended } : {}),
     };
     if (!this.title) { const tt = titleOf(data); if (tt !== UNTITLED) this.title = tt; }
     data.title = this.title ?? UNTITLED;
@@ -270,6 +279,7 @@ export class Agent {
     if (this.current) throw new Error("runapps agent: cannot reset while a run is active; abort() first");
     this.history = [];
     this.title = undefined;
+    this._ended = null;
     this.committed = 0;
     this.droppedTurns = 0;
     this.lastBatches = [];
@@ -364,6 +374,7 @@ export class Agent {
     this.clearQueue();
     this.history = this.history.slice(0, index);
     this.committed = this.history.length;
+    this._ended = null;
     this.lastBatches = [];
     this.loopWarned = false;
     await this.saveSession();
@@ -430,6 +441,7 @@ export class Agent {
       }
       this.history.push(prefaced);
     }
+    this._ended = null;
     this.emit("run_start", { runId, message: prefaced });
 
     const maxTurns = this.opts.maxTurns ?? DEFAULT_MAX_TURNS;
@@ -560,6 +572,7 @@ export class Agent {
     this.committed = this.history.length;
     this.lastBatches = [];
     this.loopWarned = false;
+    this._ended = reason === "done" ? null : { reason, ...(error ? { error: error.message } : {}), at: Date.now() };
     await this.saveSession();
     const result: RunResult = {
       runId,

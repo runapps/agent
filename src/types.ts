@@ -276,7 +276,12 @@ export interface SessionData {
   droppedTurns: number;
   createdAt?: number;
   savedAt: number;
+  /** How the last run ended when it did not finish (stopped, turn limit, error); gone once another run starts. */
+  ended?: RunEnd;
 }
+
+/** A run that did not finish: why, and when. */
+export interface RunEnd { reason: Exclude<RunEndReason, "done">; error?: string; at: number }
 
 /** What a workspace lists for each saved session. */
 export interface SessionSummary {

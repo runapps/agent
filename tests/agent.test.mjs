@@ -545,6 +545,24 @@ test("agent — a session's title is the user's first words, kept after compacti
   assert.doesNotMatch((await ws.sessions.list())[0].title, /^The conversation history/);
 });
 
+test("agent — how an unfinished run ended is saved with the session and cleared by the next run", async () => {
+  const ws = await Workspace.open(null, { id: "ended", project: "ended-test", indexedDB: null });
+  const { client } = scripted([reply({ calls: [{ name: "get_weather", args: { city: "Rome" } }] }), reply({ text: "done" })]);
+  const agent = createAgent(client, { model: "m", tools: [weather], workspace: ws, sandbox: false, askUser: false, maxTurns: 1 });
+  assert.equal(agent.lastEnd, null);
+  const r = await agent.prompt("x");
+  assert.equal(r.reason, "max_turns");
+  assert.equal(agent.lastEnd.reason, "max_turns");
+  assert.equal((await ws.sessions.get(agent.id)).ended.reason, "max_turns");
+  // Reopened: still there.
+  const again = createAgent(client, { model: "m", tools: [weather], workspace: ws, sandbox: false, askUser: false, id: agent.id });
+  await again.ready();
+  assert.equal(again.lastEnd.reason, "max_turns");
+  await again.continue();
+  assert.equal(again.lastEnd, null);
+  assert.equal((await ws.sessions.get(agent.id)).ended, undefined);
+});
+
 test("agent — a follow-up whose preface fails settles with an error; leftover steering goes before the next prompt", async () => {
   const { client, requests } = scripted([reply({ calls: [{ name: "get_weather", args: { city: "Rome" } }] }), reply({ text: "after" })]);
   const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false, maxTurns: 1 });
