@@ -1,6 +1,7 @@
 {
   "name": "@runappsai/agent",
   "version": "0.1.0",
+  "type": "module",
   "description": "Agent harness: the model ↔ tool loop with a workspace, skills, sessions, compaction, a sandbox and a chat UI. Bring any OpenAI-compatible model provider (RunApps included); no runtime dependencies.",
   "license": "MIT",
   "author": "RunApps",
@@ -9,7 +10,6 @@
     "type": "git",
     "url": "git+https://github.com/runapps/agent.git"
   },
-  "type": "module",
   "engines": {
     "node": ">=18"
   },
