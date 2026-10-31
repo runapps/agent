@@ -29,18 +29,19 @@
   code { font: 11.5px var(--mono); background: var(--muted); padding: 1px 5px; border-radius: 4px; }
 
   label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fg2); }
-  select, input[type=url], input[type=text] { font: inherit; font-size: 13px; width: 100%; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; outline: 0; }
-  select { appearance: none; -webkit-appearance: none; padding-right: 26px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
-  select:focus, input:focus { border-color: var(--p); }
-  button { font: inherit; font-size: 12.5px; font-weight: 500; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-  button:hover { background: var(--muted); }
-  button.pri { background: var(--p); border-color: var(--p); color: #fff; }
-  button.pri:hover { filter: brightness(1.08); }
-  button.ghost { border-color: transparent; background: transparent; color: var(--fg2); }
-  button.ghost:hover { background: var(--muted); color: var(--fg); }
-  button.danger { color: var(--red); }
-  button.danger:hover { background: var(--red-subtle); }
-  button.xs { height: 24px; padding: 0 8px; font-size: 12px; }
+  /* Sidebar controls only: a page-wide button/input rule would also restyle the SDK's sign-in badge (a <button> it draws on the page). */
+  aside select, aside input[type=url], aside input[type=text] { font: inherit; font-size: 13px; width: 100%; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; outline: 0; }
+  aside select { appearance: none; -webkit-appearance: none; padding-right: 26px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+  aside select:focus, aside input:focus { border-color: var(--p); }
+  aside button { font: inherit; font-size: 12.5px; font-weight: 500; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  aside button:hover { background: var(--muted); }
+  aside button.pri { background: var(--p); border-color: var(--p); color: #fff; }
+  aside button.pri:hover { filter: brightness(1.08); }
+  aside button.ghost { border-color: transparent; background: transparent; color: var(--fg2); }
+  aside button.ghost:hover { background: var(--muted); color: var(--fg); }
+  aside button.danger { color: var(--red); }
+  aside button.danger:hover { background: var(--red-subtle); }
+  aside button.xs { height: 24px; padding: 0 8px; font-size: 12px; }
   .filebtn { position: relative; overflow: hidden; }
   .filebtn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
   .fname { font-size: 12px; color: var(--fg2); min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
