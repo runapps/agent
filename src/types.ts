@@ -173,6 +173,8 @@ export interface Skill {
   builtin?: boolean;
   /** Where the user's skill is kept: its zip (`/skills/pack.zip`) or folder (`/skills/name`) in `userSkillsDir`. */
   from?: string;
+  /** Its zip is loaded the first time it is used (a LazySkill of the app's). */
+  lazy?: boolean;
   license?: string;
   compatibility?: string;
   allowedTools?: string[];

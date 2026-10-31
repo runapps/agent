@@ -364,6 +364,38 @@ test("workspace — skills from before the generated folder move: a directory's 
   assert.equal(await ws.exists("/skills/one/SKILL.md"), false, "the app's copy is not kept");
 });
 
+test("workspace — lazy skills: listed from name and description, the zip loaded on first use (once per page), from a callback; a failed load is reported and tried again", async () => {
+  let loads = 0, fail = true;
+  const pdf = { name: "pdf-tools", description: "Read PDFs. Use when a PDF is attached.", load: async () => { loads++; return new Blob([makeZip(SKILLS)]); } };
+  const flaky = { name: "flaky", description: "Sometimes offline", load: async () => { if (fail) throw new Error("offline"); return makeZip({ "SKILL.md": "---\ndescription: back\n---\nok" }); } };
+  let calls = 0;
+  const list = async () => { calls++; return [pdf, flaky]; };
+  const ws = await Workspace.open(null, { id: "lazy", project: "lazy-test", indexedDB: null, inflate, skills: list });
+  const skills = await ws.skills();
+  assert.deepEqual(skills.map((x) => [x.name, x.description, x.lazy, x.builtin]), [["flaky", "Sometimes offline", true, true], ["pdf-tools", "Read PDFs. Use when a PDF is attached.", true, true]]);
+  assert.equal(loads, 0, "listing loads nothing");
+  assert.equal(calls, 1);
+  // Before loading, SKILL.md is listed as a placeholder; reading it loads the zip.
+  assert.deepEqual((await ws.list("/.agent/skills/pdf-tools")).map((f) => f.path), ["/.agent/skills/pdf-tools/SKILL.md"]);
+  assert.equal(loads, 0);
+  const seen = [];
+  ws.onChange((c) => seen.push(c.path));
+  assert.match(await ws.readText("/.agent/skills/pdf-tools/SKILL.md"), /name: pdf-tools/);
+  assert.equal(loads, 1);
+  assert.equal(await ws.readText("/.agent/skills/pdf-tools/references/formats.md"), "PDF 1.7 …");
+  assert.ok((await ws.list("/.agent/skills/pdf-tools")).length > 1, "the real tree once loaded");
+  assert.ok(seen.includes("/.agent/skills/pdf-tools"), "listeners hear it loaded");
+  // Another directory of the page reuses the loaded zip.
+  const other = await Workspace.open(null, { id: "lazy-2", project: "lazy-test", indexedDB: null, inflate, skills: list });
+  assert.match((await other.skillBody("pdf-tools")).body, /formats\.md/);
+  assert.equal(loads, 1, "loaded once per page");
+  // A load that fails says so, and is tried again next time.
+  await assert.rejects(ws.readText("/.agent/skills/flaky/SKILL.md"), /the skill "flaky" could not be loaded: offline/);
+  fail = false;
+  assert.match(await ws.readText("/.agent/skills/flaky/SKILL.md"), /ok/);
+  await assert.rejects(ws.write("/.agent/skills/pdf-tools/x.md", "x"), /read-only/);
+});
+
 test("workspace — the user's skills are shared by every directory of the app; a change in one shows in the others", async () => {
   const idb = new IDBFactory();
   const a = await Workspace.open(null, { id: "lib-a", project: "lib", indexedDB: idb, inflate });

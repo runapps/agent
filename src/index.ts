@@ -28,7 +28,7 @@ export function openWorkspace(provider: ModelProvider | RunAppsClientLike | null
   const p = provider ? toProvider(provider) : null;
   return Workspace.open(p, { ...opts, project: opts.project ?? p?.name ?? undefined });
 }
-export { Workspace, memoryFS, normalizePath, DEFAULT_SKILLS_DIR, DEFAULT_USER_SKILLS_DIR, type SkillSource, type WorkspaceOptions, type WorkspaceRead, type WorkspaceChange, type SessionStore } from "./workspace.js";
+export { Workspace, memoryFS, normalizePath, DEFAULT_SKILLS_DIR, DEFAULT_USER_SKILLS_DIR, type SkillSource, type LazySkill, type WorkspaceOptions, type WorkspaceRead, type WorkspaceChange, type SessionStore } from "./workspace.js";
 export { directoryFS } from "./directory-fs.js";
 export { planCut, serializeConversation, summaryOf, type CompactionSettings, type CutPlan } from "./compaction.js";
 export { parseCommandArgs, substituteArgs, listTemplates, expandSlash, type PromptTemplate } from "./templates.js";

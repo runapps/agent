@@ -30,8 +30,23 @@ export const DEFAULT_USER_SKILLS_DIR = "/skills";
 /** The app's shared skills (the user's skills folder): a space no directory id can be. */
 const LIB_SPACE = "\u0000skills";
 
-/** A skills zip the app provides: a URL / bundle path / `files:<path>`, the bytes, or either with a name. */
-export type SkillSource = string | Blob | Uint8Array | { name: string; data: string | Blob | Uint8Array };
+/**
+ * A skill known up front by its name and description, whose zip is fetched only the first time
+ * it is used (the agent reads a file of it, or `/skill:name`): `load` returns the zip — a Blob,
+ * an ArrayBuffer, a Uint8Array, or a URL / `files:` path to fetch. Loaded once per page.
+ */
+export interface LazySkill {
+  name: string;
+  description: string;
+  load: () => Blob | ArrayBuffer | Uint8Array | string | Promise<Blob | ArrayBuffer | Uint8Array | string>;
+  /** Only used when asked for (`/skill:name`), never picked by the model. */
+  disableModelInvocation?: boolean;
+}
+/** A skills zip the app provides: a URL / bundle path / `files:<path>`, the bytes, either with a name, or a LazySkill. */
+export type SkillSource = string | Blob | Uint8Array | { name: string; data: string | Blob | Uint8Array } | LazySkill;
+const isLazy = (s: SkillSource): s is LazySkill => typeof s === "object" && !(s instanceof Uint8Array) && typeof (s as LazySkill).load === "function";
+/** A LazySkill's zip, once asked for (per page: every workspace shares it). */
+const lazyLoads = new WeakMap<LazySkill, Promise<Uint8Array>>();
 
 /** The app's zips, per page: a URL is fetched once (the browser's HTTP cache does the rest). */
 const builtinFetches = new Map<string, Promise<{ bytes: Uint8Array; at: number }>>();
@@ -39,8 +54,8 @@ const objectIds = new WeakMap<object, number>();
 let nextObjectId = 1;
 const idOf = (o: object) => { let id = objectIds.get(o); if (!id) { id = nextObjectId++; objectIds.set(o, id); } return id; };
 
-/** One skill in the generated skills folder. */
-interface SkillView { fs: AgentFS; builtin: boolean; from?: string }
+/** One skill in the generated skills folder; `lazy` ones are listed from what the app said, before their zip is loaded. */
+interface SkillView { fs: AgentFS; builtin: boolean; from?: string; lazy?: LazySkill }
 
 type Layer = "skills" | "work";
 
@@ -118,9 +133,12 @@ export interface WorkspaceOptions {
    * storage (fetched with the SDK's token), a Blob / File / Uint8Array,
    * or `{ name, data }`. Read in place each time the page opens them —
    * never stored; a URL is fetched once per page. They are the app's:
-   * the user cannot remove them.
+   * the user cannot remove them. A `LazySkill` (`{ name, description,
+   * load }`) is listed at once and its zip fetched only when first used.
+   * A function returning the list (sync or async) is called at open and
+   * on `refreshSkills()`.
    */
-  skills?: SkillSource | SkillSource[];
+  skills?: SkillSource | SkillSource[] | (() => SkillSource[] | Promise<SkillSource[]>);
   /** The generated, read-only skills folder, `<skillsDir>/<name>/SKILL.md` (default `/.agent/skills`). */
   skillsDir?: string;
   /**
@@ -171,9 +189,13 @@ export class Workspace {
   private skillViews = new Map<string, SkillView>();
   /** The app's zips, loaded at open. */
   private builtins: Array<{ name: string; bytes: Uint8Array; key: string; at: number }> = [];
+  /** The app's skills that load on first use. */
+  private lazySkills: LazySkill[] = [];
+  /** The `skills` option resolved (a function called): what loadBuiltins worked from. */
+  private resolvedSources: SkillSource[] = [];
   private readonly changeListeners = new Set<(c: WorkspaceChange) => void>();
   private channel: BroadcastChannel | null | undefined;
-  private readonly sources: SkillSource[];
+  private readonly sources: SkillSource[] | (() => SkillSource[] | Promise<SkillSource[]>);
   /** Reads `files:` skills sources (the provider's own storage). */
   private readonly provider: ModelProvider | null;
   private readonly inflate?: Inflate;
@@ -228,7 +250,7 @@ export class Workspace {
     this.provider = provider ? toProvider(provider) : null;
     this.id = opts.id || "default";
     this.dbName = `${DB_PREFIX}:${opts.project || this.provider?.name || "app"}`;
-    this.sources = opts.skills ? ([] as SkillSource[]).concat(opts.skills) : [];
+    this.sources = typeof opts.skills === "function" ? opts.skills : opts.skills ? ([] as SkillSource[]).concat(opts.skills) : [];
     this.skillsDir = normalizePath(opts.skillsDir || DEFAULT_SKILLS_DIR);
     if (this.skillsDir === "/") throw new Error("runapps agent: skillsDir cannot be /");
     this.userSkillsDir = opts.userSkillsDir === false ? null : normalizePath(opts.userSkillsDir || DEFAULT_USER_SKILLS_DIR);
@@ -575,6 +597,14 @@ export class Workspace {
     const out: Skill[] = [];
     const seen = new Set<string>();
     for (const [folder, v] of this.skillViews) {
+      // Known by what the app said: nothing is loaded to list it.
+      if (v.lazy) {
+        if (seen.has(v.lazy.name)) continue;
+        seen.add(v.lazy.name);
+        const dir = `${this.skillsDir}/${folder}`;
+        out.push({ name: v.lazy.name, description: v.lazy.description, path: `${dir}/SKILL.md`, dir, builtin: true, lazy: true, ...(v.lazy.disableModelInvocation ? { disableModelInvocation: true } : {}) });
+        continue;
+      }
       let text: string | null;
       try { const d = await v.fs.read("/SKILL.md"); text = typeof d === "string" ? d : decodeText(d); } catch { continue; }
       if (text === null) continue;
@@ -662,10 +692,11 @@ export class Workspace {
     return { skill, body: parsed?.body ?? "" };
   }
 
-  /** Fetches the app's skills zips again (bypassing the page's copy) and regenerates the skills folder. */
+  /** Fetches the app's skills zips again (bypassing the page's copy; lazy ones load again when next used) and regenerates the skills folder. */
   async refreshSkills(): Promise<void> {
     await this.ready();
-    for (const src of this.sources) {
+    for (const src of this.resolvedSources) {
+      if (isLazy(src)) { lazyLoads.delete(src); continue; }
       const url = typeof src === "string" ? src : !(src instanceof Uint8Array) && !isBlob(src) && typeof src.data === "string" ? src.data : null;
       if (url) builtinFetches.delete(`${this.dbName}|${this.fetchKey}|${url}`);
     }
@@ -674,12 +705,17 @@ export class Workspace {
     this.emitChange(this.skillsDir, "write");
   }
 
-  /** The app's zips, from the `skills` option (a failed one is left out and logged). */
+  /** The app's zips, from the `skills` option (a failed one is left out and logged); lazy ones are only noted. */
   private async loadBuiltins(): Promise<Workspace["builtins"]> {
     const out: Workspace["builtins"] = [];
-    for (const src of this.sources) {
+    let list: SkillSource[] = [];
+    try { list = typeof this.sources === "function" ? ([] as SkillSource[]).concat(await this.sources()) : this.sources; } catch (err) { console.warn("[runapps agent] the skills list failed:", err); }
+    this.resolvedSources = list;
+    this.lazySkills = list.filter(isLazy);
+    for (const src of list) {
+      if (isLazy(src)) continue;
       try {
-        const named = typeof src === "object" && !(src instanceof Uint8Array) && !isBlob(src) ? src : null;
+        const named = typeof src === "object" && !(src instanceof Uint8Array) && !isBlob(src) ? (src as { name: string; data: string | Blob | Uint8Array }) : null;
         const data = named ? named.data : (src as string | Blob | Uint8Array);
         let bytes: Uint8Array, key: string, at = 0;
         if (typeof data === "string") {
@@ -717,6 +753,10 @@ export class Workspace {
         for (const [folder, prefix] of parsed.folders) if (!views.has(folder)) views.set(folder, { fs: skillZipFS(parsed, prefix, b.at, this.inflate), builtin: true });
       } catch (err) { console.warn(`[runapps agent] skills zip "${b.name}":`, err); }
     }
+    for (const l of this.lazySkills) {
+      const folder = /^[A-Za-z0-9][\w.-]*$/.test(l.name) ? l.name : zipBaseName(l.name);
+      if (!views.has(folder)) views.set(folder, { fs: this.lazyFS(l, folder), builtin: true, lazy: l });
+    }
     // A project folder opened with `dir` may bring skill folders of its own.
     if (this.root) {
       for (const f of await this.root.list(this.skillsDir).catch(() => [] as FileStat[])) {
@@ -743,6 +783,47 @@ export class Workspace {
     }
     this.skillViews = views;
     this.skillCache = null;
+  }
+
+  /**
+   * A lazy skill's files: its SKILL.md is listed before anything is loaded; the first read (or a
+   * look at any other file) loads the zip — once per page — and from then on it is the zip's tree.
+   */
+  private lazyFS(l: LazySkill, folder: string): AgentFS {
+    let fs: AgentFS | null = null;
+    const ensure = async (): Promise<AgentFS> => {
+      if (fs) return fs;
+      let p = lazyLoads.get(l);
+      if (!p) {
+        p = (async () => {
+          const d = await l.load();
+          if (typeof d === "string") { const r = await this.fetchSource(d); if (!r) throw new Error("nothing fetched"); return r.bytes; }
+          return d instanceof Uint8Array ? d : d instanceof ArrayBuffer ? new Uint8Array(d) : new Uint8Array(await d.arrayBuffer());
+        })();
+        lazyLoads.set(l, p);
+        p.catch(() => { if (lazyLoads.get(l) === p) lazyLoads.delete(l); });  // tried again next time
+      }
+      let bytes: Uint8Array;
+      try { bytes = await p; } catch (err) { throw new Error(`the skill "${l.name}" could not be loaded: ${(err as Error).message}`); }
+      if (bytes.byteLength > MAX_ZIP_BYTES) throw new Error(`the skill "${l.name}": zip too large`);
+      const parsed = parseSkillZip(folder, bytes, `lazy:${idOf(l)}:${bytes.byteLength}`);
+      const prefix = parsed.folders.get(folder) ?? [...parsed.folders.values()][0];
+      if (prefix === undefined) throw new Error(`the skill "${l.name}": its zip has no SKILL.md`);
+      fs = skillZipFS(parsed, prefix, Date.now(), this.inflate);
+      // Its real files replace the placeholder in listings (the files panel redraws).
+      this.emitChange(`${this.skillsDir}/${folder}`, "write");
+      return fs;
+    };
+    const placeholder = (at: string): FileStat[] => (at === "/" || at === "/SKILL.md" ? [{ path: "/SKILL.md", size: 0 }] : []);
+    return {
+      list: async (at) => (fs ? fs.list(at) : placeholder(at)),
+      stat: async (rel) => {
+        if (!fs && rel === "/SKILL.md") return { path: rel, size: 0 };
+        const f = await ensure();
+        return f.stat ? f.stat(rel) : null;
+      },
+      read: async (rel) => (await ensure()).read(rel),
+    };
   }
 
   /** The generated skills folder: read-only, one subtree per skill. */

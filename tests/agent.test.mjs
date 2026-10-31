@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { RunApps, APIError } from "@runappsai/sdk";
-import { createAgent, defineTool, fitBudget, groupTurns, estimateTokens, applyEdits, Workspace } from "../dist/index.js";
+import { createAgent, defineTool, fitBudget, groupTurns, estimateTokens, applyEdits, Workspace, buildZip } from "../dist/index.js";
 
 /** SSE body from chunk objects (the gateway's framing). */
 function sse(chunks) {
@@ -561,6 +561,20 @@ test("agent — how an unfinished run ended is saved with the session and cleare
   await again.continue();
   assert.equal(again.lastEnd, null);
   assert.equal((await ws.sessions.get(agent.id)).ended, undefined);
+});
+
+test("agent — a lazy skill is in the prompt without loading; /skill:name loads it", async () => {
+  let loads = 0;
+  const skill = { name: "haiku", description: "Write a haiku. Use when asked for one.", load: async () => { loads++; return buildZip([{ path: "SKILL.md", data: "---\nname: haiku\ndescription: x\n---\nThree lines, 5-7-5." }]); } };
+  const ws = await Workspace.open(null, { id: "lazy-agent", project: "lazy-agent-test", indexedDB: null, skills: [skill] });
+  const { client, requests } = scripted([reply({ text: "a" }), reply({ text: "b" })]);
+  const agent = createAgent(client, { model: "m", workspace: ws, sandbox: false, askUser: false, persist: false });
+  await agent.prompt("hi");
+  assert.match(requests[0].messages[0].content, /<name>haiku<\/name>[\s\S]*Write a haiku/);
+  assert.equal(loads, 0, "the prompt lists it without loading");
+  await agent.prompt("/skill:haiku autumn");
+  assert.equal(loads, 1);
+  assert.match(JSON.stringify(requests[1].messages), /Three lines, 5-7-5/);
 });
 
 test("agent — a follow-up whose preface fails settles with an error; leftover steering goes before the next prompt", async () => {
