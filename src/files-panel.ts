@@ -93,7 +93,7 @@ export function filesPanel(opts: FilesPanelOptions): FilesPanel {
   const changedPaths = new Set<string>();
   let disposed = false;
 
-  const el = h("aside", "ra-fp");
+  const el = h("div", "ra-fp"); el.setAttribute("role", "complementary");
   el.style.display = "none";
   const head = h("div", "ra-fph");
   const title = h("span", "ra-fpt", t.files);
