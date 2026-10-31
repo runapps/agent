@@ -31,7 +31,7 @@ import type {
   ToolStatus,
 } from "./types.js";
 import { askUserTool, domUI } from "./ui.js";
-import { titleOf, type Workspace } from "./workspace.js";
+import { isMachineTitle, titleOf, UNTITLED, type Workspace } from "./workspace.js";
 
 const DEFAULT_MAX_TURNS = 100;
 const DEFAULT_MAX_TOKENS = 8192;
@@ -106,6 +106,8 @@ export class Agent {
   private loopWarned = false;
   private readonly loaded: Promise<void>;
   private createdAt = Date.now();
+  /** The session's title, fixed once known (a later compaction must not turn it into the summary's first words). */
+  private title: string | undefined;
   private persist: boolean;
 
   constructor(client: RunApps, opts: AgentOptions = {}) {
@@ -155,6 +157,8 @@ export class Agent {
     this.droppedTurns = data.droppedTurns ?? 0;
     this._usage = { ...data.usage };
     this.createdAt = data.createdAt ?? data.savedAt ?? Date.now();
+    // Titles saved before titleOf skipped summaries and expanded commands are worked out again.
+    this.title = data.title && !isMachineTitle(data.title) ? data.title : undefined;
     if (data.model && !this.opts.model) { this.opts.model = data.model; this.inputTokens = null; }
   }
 
@@ -256,7 +260,8 @@ export class Agent {
       createdAt: this.createdAt,
       savedAt: Date.now(),
     };
-    data.title = titleOf(data);
+    if (!this.title) { const tt = titleOf(data); if (tt !== UNTITLED) this.title = tt; }
+    data.title = this.title ?? UNTITLED;
     return data;
   }
 
@@ -264,6 +269,7 @@ export class Agent {
   reset(): void {
     if (this.current) throw new Error("runapps agent: cannot reset while a run is active; abort() first");
     this.history = [];
+    this.title = undefined;
     this.committed = 0;
     this.droppedTurns = 0;
     this.lastBatches = [];

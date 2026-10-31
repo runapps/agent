@@ -16,6 +16,7 @@ import type { RunApps } from "@runappsai/sdk";
 import type { AgentFS, FileStat, SessionData, SessionSummary, Skill } from "./types.js";
 import { listZip, readZipEntry, type Inflate, MAX_ZIP_BYTES } from "./zip.js";
 import { parseSkill } from "./skills.js";
+import { summaryOf } from "./compaction.js";
 import { parseSkillZip, skillFoldersOf, skillZipFS, subFS, zipFiles } from "./skill-zips.js";
 import { extractPdfText, formatPdfText, isPdf } from "./pdf.js";
 
@@ -192,7 +193,7 @@ export class Workspace {
     list: async () => {
       await this.ready();
       return (await this.store.listSessions())
-        .map((d) => ({ id: d.id ?? "", title: d.title ?? titleOf(d), model: d.model, messages: d.messages.length, createdAt: d.createdAt ?? d.savedAt, savedAt: d.savedAt, workspace: d.space }))
+        .map((d) => ({ id: d.id ?? "", title: d.title && !isMachineTitle(d.title) ? d.title : titleOf(d), model: d.model, messages: d.messages.length, createdAt: d.createdAt ?? d.savedAt, savedAt: d.savedAt, workspace: d.space }))
         .sort((a, b) => b.savedAt - a.savedAt);
     },
     // This directory's session of that id, else the session in the directory named after it (the chat
@@ -1049,11 +1050,23 @@ function memoryStore(name: string, space: string): Store {
 }
 
 /** A title for a session without one: its first user message, shortened. */
+export const UNTITLED = "Untitled";
+/** The first thing the user wrote: what they typed for an expanded command, never a compaction summary, an agent note or an attachment list. */
 export function titleOf(d: SessionData): string {
-  const first = d.messages.find((m) => m.role === "user");
-  const text = !first ? "" : typeof first.content === "string" ? first.content : (first.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join(" ");
-  const line = text.replace(/\s+/g, " ").trim();
-  return line.length > 80 ? line.slice(0, 77) + "…" : line || "Untitled";
+  for (const m of d.messages) {
+    if (m.role !== "user" || summaryOf(m) !== null) continue;
+    const typed = (m as { typed?: unknown }).typed;
+    const text = typeof typed === "string" ? typed : typeof m.content === "string" ? m.content : (m.content ?? []).find((p) => p.type === "text")?.text ?? "";
+    // An attachment list the chat put after the typed words is not part of the title.
+    const line = text.replace(/\s*\[attachments\][\s\S]*$/, "").replace(/\s+/g, " ").trim();
+    if (!line || isMachineTitle(line)) continue;
+    return line.length > 80 ? line.slice(0, 77) + "…" : line;
+  }
+  return UNTITLED;
+}
+/** A title that is not the user's words: a compaction summary, an expanded skill, an agent note, an attachment list. */
+export function isMachineTitle(title: string): boolean {
+  return /^(The conversation history before this point|<skill[\s>]|\[environment\]|\[attachments\])|\[attachments\]/.test(title);
 }
 
 /** Runs fn holding the origin-wide Web Lock `name`; without Web Locks it just runs fn. */

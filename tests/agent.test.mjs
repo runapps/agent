@@ -530,6 +530,21 @@ test("agent — compact(focus): the plan and the summarisation prompt carry what
   assert.match(short.messages[2].content, /^c2/);
 });
 
+test("agent — a session's title is the user's first words, kept after compaction; summaries and expanded commands never become it", async () => {
+  const ws = await Workspace.open(null, { id: "titles", project: "titles-test", indexedDB: null });
+  const { client } = scripted([reply({ text: "a1" }), reply({ text: "a2" })]);
+  const agent = createAgent(client, { model: "m", workspace: ws, sandbox: false, askUser: false, compaction: async () => "SUM" });
+  await agent.prompt("How tall is the Great Wall? " + "x".repeat(400));
+  await agent.prompt("And its length? " + "x".repeat(400));
+  assert.equal(await agent.compact(), true);
+  const [s] = await ws.sessions.list();
+  assert.match(s.title, /^How tall is the Great Wall\?/);
+  // A title saved by an older version from a summary is worked out again.
+  const data = await ws.sessions.get(agent.id);
+  await ws.sessions.save({ ...data, title: "The conversation history before this point was compacted" });
+  assert.doesNotMatch((await ws.sessions.list())[0].title, /^The conversation history/);
+});
+
 test("agent — a follow-up whose preface fails settles with an error; leftover steering goes before the next prompt", async () => {
   const { client, requests } = scripted([reply({ calls: [{ name: "get_weather", args: { city: "Rome" } }] }), reply({ text: "after" })]);
   const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false, maxTurns: 1 });

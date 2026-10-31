@@ -15,7 +15,7 @@
 import type { RunApps } from "@runappsai/sdk";
 import type { ChatMessage, ContentPart } from "@runappsai/sdk";
 import { Agent } from "./agent.js";
-import type { Workspace } from "./workspace.js";
+import { titleOf, UNTITLED, type Workspace } from "./workspace.js";
 import { summaryOf } from "./compaction.js";
 import { escapeHTML } from "./markdown.js";
 import { listTemplates } from "./templates.js";
@@ -145,15 +145,15 @@ const STRINGS = {
     send: "Send", stop: "Stop", steer: "Steer", followUp: "Follow-up", steerTip: "Insert into the current task", followUpTip: "Queue after the current task",
     usageLine: "{cost} · {tokens} tokens · {calls} calls", emptyResult: "(empty)",
     queued: "Queued messages", clear: "Clear queue", thinking: "Thinking…", thought: "Thought process",
-    enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "History", newChat: "New chat", noSessions: "No other conversations yet",
+    enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "Chats", newChat: "New chat", noSessions: "No other conversations yet", notSaved: "not saved yet",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
     other: "Other…", typeAnswer: "Type your answer", args: "Arguments", result: "Result", error: "Error", declined: "declined", blocked: "blocked", skipped: "skipped",
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Paused at the turn limit ({n})", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
-    delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every conversation in the history and their files? The open one stays.", untitled: "New conversation",
+    delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every conversation, this one included, and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove",
     toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed",
     actRead: "read {n} file(s)", actList: "listed {n} folder(s)", actSearch: "searched {n} time(s)", actWrite: "wrote {n} file(s)", actEdit: "edited {n} file(s)", actDelete: "deleted {n} file(s)", actRun: "ran {n} snippet(s)", actAsk: "asked you {n} time(s)", actOther: "used {name}",
-    ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", jumpEnd: "Jump to the latest",
+    ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", current: "Current", jumpEnd: "Jump to the latest",
     debug: "Debug", dCalls: "Calls", dRequests: "Requests", dEvents: "Events", dContext: "Context", dTools: "Tools", dClear: "Clear the record", dFilter: "Filter by type",
     dNoCalls: "No tool calls yet.", dNoRequests: "No model requests yet. Each call to the model is listed here with what was sent and what came back.", dNoEvents: "No events yet.",
     dSystem: "System prompt", dMessages: "Messages sent to the model", dPayload: "Request", dResponse: "Response", dRun: "Run", dTurn: "Turn {n}", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
@@ -182,15 +182,15 @@ const STRINGS = {
     send: "发送", stop: "停止", steer: "插入", followUp: "排队", steerTip: "插入到当前任务，下一步就会看到", followUpTip: "排到当前任务结束之后",
     usageLine: "{cost} · {tokens} tokens · {calls} 次调用", emptyResult: "（空）",
     queued: "排队中的消息", clear: "清空队列", thinking: "思考中…", thought: "思考过程",
-    enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "历史", newChat: "新对话", noSessions: "还没有其它对话",
+    enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "会话", newChat: "新对话", noSessions: "还没有其它对话", notSaved: "尚未保存",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
     other: "其他…", typeAnswer: "请输入", args: "参数", result: "结果", error: "错误", declined: "已拒绝", blocked: "已拦截", skipped: "已跳过",
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "已达最大轮数 {n}，暂停", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
-    delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除历史里的所有对话和它们的文件？当前对话保留。", untitled: "新对话",
+    delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有对话（包括当前这个）和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除",
     toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败",
     actRead: "读取了 {n} 个文件", actList: "查看了 {n} 个目录", actSearch: "搜索了 {n} 次", actWrite: "写入了 {n} 个文件", actEdit: "修改了 {n} 个文件", actDelete: "删除了 {n} 个文件", actRun: "运行了 {n} 段代码", actAsk: "询问了你 {n} 次", actOther: "调用了 {name}",
-    ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", jumpEnd: "回到最新",
+    ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", current: "当前", jumpEnd: "回到最新",
     debug: "调试", dCalls: "调用", dRequests: "请求", dEvents: "事件", dContext: "上下文", dTools: "工具", dClear: "清空记录", dFilter: "按类型过滤",
     dNoCalls: "还没有工具调用。", dNoRequests: "还没有模型请求。每次调用模型都会记在这里，包括发了什么、收到什么。", dNoEvents: "还没有事件。",
     dSystem: "系统提示词", dMessages: "发给模型的消息", dPayload: "请求内容", dResponse: "响应", dRun: "运行", dTurn: "第 {n} 轮", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
@@ -256,6 +256,9 @@ const CSS = tokenCSS() + `
 .ra-menu{position:absolute;right:12px;top:42px;z-index:6;width:min(360px,calc(100% - 24px));max-height:60%;overflow:auto;background:var(--ra-panel);border:1px solid var(--ra-border);border-radius:8px;box-shadow:var(--ra-shadow-md);padding:4px}
 .ra-menu .ra-mi{display:flex;align-items:center;gap:6px;border-radius:6px}
 .ra-menu .ra-mi:hover{background:var(--ra-muted)}
+.ra-menu .ra-mi.ra-cur{background:var(--ra-muted);box-shadow:inset 3px 0 0 var(--ra-accent)}
+.ra-menu .ra-mi .ra-now{flex:none;display:inline-block;font-size:10.5px;font-weight:600;line-height:16px;padding:0 6px;border-radius:999px;background:var(--ra-accent-subtle);color:var(--ra-accent-fg);vertical-align:1px}
+.ra-menu .ra-sep{border-top:1px solid var(--ra-border);margin:4px 6px}
 .ra-menu .ra-mi>button:first-child>span.ra-mt{display:flex;align-items:center;gap:6px;min-width:0;overflow:visible}
 .ra-menu .ra-mi .ra-mtt{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ra-menu .ra-mi .ra-mt .ra-spin{flex:none}
@@ -930,7 +933,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
   const setSkillCount = countBadge(skillsBtn, t.skills);
   const histBtn = h("button", "ra-btn ghost"); histBtn.type = "button"; histBtn.innerHTML = I.hist() + `<span>${escapeHTML(t.history)}</span>`;
-  // Saved conversations other than the open one.
+  // How many conversations there are (none shown while the open one is the only one).
   const setHistCount = countBadge(histBtn, t.history);
   const newBtn = h("button", "ra-btn ghost"); newBtn.type = "button"; newBtn.innerHTML = I.plus() + `<span>${escapeHTML(t.newChat)}</span>`;
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
@@ -1056,9 +1059,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   /** Whether rewinding may restore files: only a directory of the session's own, kept in IndexedDB (not a folder on disk, not shared). */
   const restorable = (a: Agent) => !!a.workspace && typeof wsOpt === "function" && !a.workspace.root;
   const background = () => [...live.values()].filter((a) => a !== agent && (a.busy || a.queued.length > 0 || waiting.has(a.id)));
-  const titleOfAgent = (a: Agent) => { const m = a.messages.find((x) => x.role === "user"); const text = m ? textOfContent(m.content as string | ContentPart[]).replace(/\s+/g, " ").trim() : ""; return text.length > 40 ? text.slice(0, 37) + "…" : text || t.untitled; };
+  const titleOfAgent = (a: Agent) => { const text = titleOf({ v: 2, id: a.id, messages: a.messages, usage: a.usage, droppedTurns: 0, savedAt: 0 }); return text === UNTITLED ? t.untitled : text.length > 40 ? text.slice(0, 37) + "…" : text; };
   const markBackground = () => histBtn.classList.toggle("ra-bg", background().length > 0);
-  /** The History count: saved conversations, not counting the open one (redrawn after a run, a switch, a delete). */
+  /** The Chats count: the conversations, open one included, shown once there is another (redrawn after a run, a switch, a delete). */
   let histTimer: ReturnType<typeof setTimeout> | null = null;
   const refreshHistCount = () => {
     if (histTimer) clearTimeout(histTimer);
@@ -1068,7 +1071,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (!ws || givenAgent) { setHistCount(0); return; }
       try {
         const all = await ws.sessions.list();
-        if (agent?.workspace === ws) setHistCount(all.filter((x) => x.id !== agent.id).length);
+        // Every conversation, the open one included; nothing while the open one is the only one.
+        const others = all.filter((x) => x.id !== agent.id).length;
+        if (agent?.workspace === ws) setHistCount(others ? others + 1 : 0);
       } catch { /* leave it */ }
     }, 50);
   };
@@ -1959,41 +1964,54 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const mine = h("div", "ra-menu");
     menu = mine;
     root.append(mine);
-    let found: SessionSummary[] = [];
-    // History: the other conversations, not the open one.
-    try { found = (await ws.sessions.list()).filter((x) => x.id !== agent.id); } catch { /* none */ }
+    let all: SessionSummary[] = [];
+    try { all = await ws.sessions.list(); } catch { /* none */ }
     if (menu !== mine) return;
-    if (!found.length) mine.append(h("div", "ra-none", t.noSessions));
-    for (const s of found) {
-      const row = h("div", "ra-mi");
+    // The conversations: the open one first, marked (also before it is saved), then the others, newest first.
+    const cur = agent;
+    const others = all.filter((x) => x.id !== cur.id);
+    const saved = all.find((x) => x.id === cur.id);
+    const sessionRow = (s: SessionSummary | null) => {
+      const isCur = !s || s.id === cur.id;
+      const row = h("div", "ra-mi" + (isCur ? " ra-cur" : ""));
       const b = h("button"); b.type = "button";
-      const bg = live.get(s.id);
-      const state = bg && bg !== agent ? (waiting.has(s.id) ? ` · ${t.waitingAnswer}` : bg.busy || bg.queued.length ? ` · ${t.running}` : "") : "";
+      const bg = s ? live.get(s.id) : undefined;
+      const state = s && bg && bg !== cur ? (waiting.has(s.id) ? ` · ${t.waitingAnswer}` : bg.busy || bg.queued.length ? ` · ${t.running}` : "") : "";
       // The title line: the title shortens, the "Current" tag (and a spinner for a running session) always shows.
       const name = h("span", "ra-mt");
-      if (state && !waiting.has(s.id)) name.append(h("span", "ra-spin"));
-      name.append(h("span", "ra-mtt", s.title || t.untitled));
-      b.append(name, h("small", "", `${s.messages} ${t.messages} · ${new Date(s.savedAt).toLocaleString()}${state}`));
-      b.addEventListener("click", () => { closeMenu(); void resume(s.id).catch((err) => ui.notify((err as Error).message, "error")); });
-      const x = h("button", "ra-x"); x.type = "button"; x.innerHTML = I.trash(); x.title = t.delete; x.setAttribute("aria-label", t.delete);
-      x.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        closeMenu();
-        if (await modalConfirm(root, t.delete, t.confirmDelete, { danger: true, ok: t.delete, cancel: t.cancel })) await deleteSession(s.id, false, s.workspace).catch((err) => ui.notify((err as Error).message, "error"));
-      });
-      row.append(b, x);
-      mine.append(row);
-    }
-    if (found.length) {
+      if (state && !waiting.has(s!.id)) name.append(h("span", "ra-spin"));
+      name.append(h("span", "ra-mtt", (s ? s.title : titleOfAgent(cur)) || t.untitled));
+      if (isCur) { name.append(h("span", "ra-now", t.current)); row.setAttribute("aria-current", "true"); }
+      b.append(name, h("small", "", s ? `${s.messages} ${t.messages} · ${new Date(s.savedAt).toLocaleString()}${state}` : t.notSaved));
+      b.addEventListener("click", () => { closeMenu(); if (s && !isCur) void resume(s.id).catch((err) => ui.notify((err as Error).message, "error")); });
+      row.append(b);
+      if (s) {
+        const x = h("button", "ra-x"); x.type = "button"; x.innerHTML = I.trash(); x.title = t.delete; x.setAttribute("aria-label", t.delete);
+        x.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          closeMenu();
+          if (await modalConfirm(root, t.delete, t.confirmDelete, { danger: true, ok: t.delete, cancel: t.cancel })) await deleteSession(s.id, false, s.workspace).catch((err) => ui.notify((err as Error).message, "error"));
+        });
+        row.append(x);
+      }
+      return row;
+    };
+    mine.append(sessionRow(saved ?? null));
+    if (!others.length) mine.append(h("div", "ra-none", t.noSessions));
+    else mine.append(h("div", "ra-sep"));
+    for (const s of others) mine.append(sessionRow(s));
+    if (others.length) {
       const foot = h("div", "ra-mf");
-      const all = h("button", "ra-btn xs ghost"); all.type = "button"; all.innerHTML = I.trash() + escapeHTML(t.deleteAll);
-      all.addEventListener("click", async () => {
+      const del = h("button", "ra-btn xs ghost"); del.type = "button"; del.innerHTML = I.trash() + escapeHTML(t.deleteAll);
+      del.addEventListener("click", async () => {
         closeMenu();
         if (!(await modalConfirm(root, t.deleteAll, t.confirmDeleteAll, { danger: true, ok: t.deleteAll, cancel: t.cancel }))) return;
-        // The history goes; the open conversation stays.
-        try { for (const s of found) await deleteSession(s.id, true, s.workspace); } catch (err) { ui.notify((err as Error).message, "error"); }
+        try {
+          for (const s of all) await deleteSession(s.id, true, s.workspace);
+          await newSession();
+        } catch (err) { ui.notify((err as Error).message, "error"); }
       });
-      foot.append(all);
+      foot.append(del);
       mine.append(foot);
     }
   };
