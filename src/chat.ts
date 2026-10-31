@@ -708,7 +708,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   if (attachOpt === false) attachBtn.style.display = "none";
   const hint = h("span", "ra-hint");
   // ⌘ on a Mac, Ctrl elsewhere (the symbols read like the app's own placeholder: "↵ to send, ⌘↵ to queue").
-  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test((navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? "");
+  // Chrome's userAgentData says "macOS", navigator.platform says "MacIntel": match either, any case.
+  const isMac = typeof navigator !== "undefined" && /mac|iphone|ipad|ipod/i.test(`${(navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? ""} ${navigator.platform ?? ""}`);
   const MOD = isMac ? "⌘" : "Ctrl+";
   const fill = (x: string) => x.replace("{mod}", MOD).replace("{enter}", t.enter).replace("{newline}", t.newline);
   hint.textContent = fill(t.hintIdle);
