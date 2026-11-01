@@ -21,7 +21,7 @@ import { debugPanel } from "./debug-panel.js";
 import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } from "./chat-theme.js";
 // The core comes in through its entry, so a CommonJS build of the UI requires the core package instead of bundling a copy.
 import { Agent, toProvider, titleOf, UNTITLED, summaryOf, listTemplates, extractPdfText, formatPdfText, isPdf, modelAccepts } from "./index.js";
-import type { ModelProvider, ModelInfo, RunAppsClientLike, ChatMessage, ContentPart, Workspace, AgentOptions, AgentUI, RunEnd, RunResult, SelectOption, SessionSummary, Skill, ToolStatus, ToolDisplay } from "./index.js";
+import type { ModelProvider, ModelInfo, RunAppsClientLike, ChatMessage, ContentPart, Workspace, AgentOptions, AgentUI, RunEnd, RunResult, SelectOption, SessionSummary, Skill, Tool, ToolStatus, ToolDisplay } from "./index.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   /**
@@ -135,6 +135,13 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   rewindState?: { label: string; take(): unknown | Promise<unknown>; restore(value: unknown): void | Promise<void> };
   /** The Files button and panel (default: on with a workspace). `false` for a host with its own file view (file links then go to `onOpenFile`). */
   files?: boolean;
+  /**
+   * Suggest the user's next message: a built-in tool the model calls with
+   * its final reply when an obvious next request follows (it ends the run,
+   * so it costs no further call); the suggestion shows greyed in the empty
+   * input and Tab takes it. Off by default.
+   */
+  nextPrompt?: boolean;
   /** Buttons of your own for the header, placed before the settings gear. */
   headerActions?: HTMLElement[];
   /**
@@ -246,7 +253,7 @@ const STRINGS = {
     send: "Send", stop: "Stop", steer: "Steer", followUp: "Follow-up", steerTip: "Insert into the current task", followUpTip: "Queue after the current task",
     usageLine: "{cost} · {tokens} tokens · {calls} calls", uCost: "Cost", uIn: "Input", uOut: "Output", uCalls: "Calls", uOf: "{used} of {window} tokens", compactNow: "Compact now", emptyResult: "(empty)",
     queued: "Queued messages", queuedN: "{n} message queued", queuedNs: "{n} messages queued", queueNext: "Next:", sendNow: "Send now (insert into the current task)", editQueued: "Edit", expand: "Show all", collapse: "Collapse", clear: "Clear queue", thinking: "Thinking…", thought: "Thought process",
-    enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "Chats", newChat: "New chat", clearChat: "Clear", confirmClear: "Clear this conversation? Its messages are removed; the files stay.", noSessions: "No other conversations yet", notSaved: "not saved yet",
+    enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintNext: "Tab to use the suggestion · ↵ {enter}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "Chats", newChat: "New chat", clearChat: "Clear", confirmClear: "Clear this conversation? Its messages are removed; the files stay.", noSessions: "No other conversations yet", notSaved: "not saved yet",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
     other: "Other…", typeAnswer: "Type your answer", args: "Arguments", result: "Result", error: "Error", declined: "declined", blocked: "blocked", skipped: "skipped",
     open: "Open in editor", stopped: "Stopped.", maxTurns: "Paused at the turn limit ({n})", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
@@ -257,7 +264,7 @@ const STRINGS = {
     ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", current: "Current", jumpEnd: "Jump to the latest",
     sTabModel: "Model", debug: "Debug", dCalls: "Calls", dRequests: "Requests", dEvents: "Events", dContext: "Context", dTools: "Tools", dClear: "Clear the record", dFilter: "Filter by type",
     dNoCalls: "No tool calls yet.", dNoRequests: "No model requests yet. Each call to the model is listed here with what was sent and what came back.", dNoEvents: "No events yet.",
-    dSystem: "System prompt", dMessages: "Messages sent to the model", dPayload: "Request", dResponse: "Response", dRun: "Run", dTurn: "Turn {n}", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
+    dSystem: "System prompt", dMessages: "Messages sent to the model", dPayload: "Request", dResponse: "Response", dRun: "Run", dTurn: "Turn {n}", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message", regen: "Answer again", regenTitle: "Answer this question again", regenMsg: "This answer and what follows are dropped and the question is sent again.", delTurn: "Delete", delTurnTitle: "Delete this question and its answer?", delTurnMsg: "They are removed from the conversation; files stay as they are.", replyCost: "Cost: {cost}", replyUsage: "{in} in · {out} out · {calls} calls",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
     settings: "Settings", sVision: "sees pictures", sVisionYes: "sees pictures", sVisionNo: "text only", noVision: "{model} cannot see pictures: they are saved as files, but the model will not see what is in them.", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sPrice: "Price", sPriceLine: "input {in} · output {out} per M tokens", sPerCall: "{amount} per call", sAuto: "Model's maximum", sCustomN: "Set a number", filter: "Filter…", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
@@ -283,7 +290,7 @@ const STRINGS = {
     send: "发送", stop: "停止", steer: "插入", followUp: "排队", steerTip: "插入到当前任务，下一步就会看到", followUpTip: "排到当前任务结束之后",
     usageLine: "{cost} · {tokens} tokens · {calls} 次调用", uCost: "花费", uIn: "输入", uOut: "输出", uCalls: "调用", uOf: "{used} / {window} tokens", compactNow: "立即压缩", emptyResult: "（空）",
     queued: "排队中的消息", queuedN: "{n} 条消息排队中", queuedNs: "{n} 条消息排队中", queueNext: "下一条：", sendNow: "立即发送（插入当前任务）", editQueued: "编辑", expand: "展开", collapse: "收起", clear: "清空队列", thinking: "思考中…", thought: "思考过程",
-    enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "会话", newChat: "新对话", clearChat: "清除", confirmClear: "清除这次对话？消息会被删除，文件保留。", noSessions: "还没有其它对话", notSaved: "尚未保存",
+    enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintNext: "Tab 使用建议 · ↵ {enter}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "会话", newChat: "新对话", clearChat: "清除", confirmClear: "清除这次对话？消息会被删除，文件保留。", noSessions: "还没有其它对话", notSaved: "尚未保存",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
     other: "其他…", typeAnswer: "请输入", args: "参数", result: "结果", error: "错误", declined: "已拒绝", blocked: "已拦截", skipped: "已跳过",
     open: "在编辑器中打开", stopped: "已停止。", maxTurns: "已达最大轮数 {n}，暂停", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
@@ -294,7 +301,7 @@ const STRINGS = {
     ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", current: "当前", jumpEnd: "回到最新",
     sTabModel: "模型", debug: "调试", dCalls: "调用", dRequests: "请求", dEvents: "事件", dContext: "上下文", dTools: "工具", dClear: "清空记录", dFilter: "按类型过滤",
     dNoCalls: "还没有工具调用。", dNoRequests: "还没有模型请求。每次调用模型都会记在这里，包括发了什么、收到什么。", dNoEvents: "还没有事件。",
-    dSystem: "系统提示词", dMessages: "发给模型的消息", dPayload: "请求内容", dResponse: "响应", dRun: "运行", dTurn: "第 {n} 轮", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
+    dSystem: "系统提示词", dMessages: "发给模型的消息", dPayload: "请求内容", dResponse: "响应", dRun: "运行", dTurn: "第 {n} 轮", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息", regen: "重新回答", regenTitle: "重新回答这个问题", regenMsg: "这个回答及之后的对话会被删除，问题重新发送。", delTurn: "删除", delTurnTitle: "删除这一轮问答？", delTurnMsg: "这条提问和它的回答会从对话中删除，文件不受影响。", replyCost: "费用：{cost}", replyUsage: "输入 {in} · 输出 {out} · {calls} 次调用",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
     settings: "设置", sVision: "可看图", sVisionYes: "可看图", sVisionNo: "仅文字", noVision: "{model} 不能看图：图片已保存为文件，但模型看不到图里的内容。", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sPrice: "单价", sPriceLine: "每百万 tokens 输入 {in} · 输出 {out}", sPerCall: "每次调用 {amount}", sAuto: "模型上限", sCustomN: "自定义", filter: "搜索…", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
@@ -335,7 +342,6 @@ const CSS = tokenCSS() + `
 /* The chat's own controls start bare; what the host puts in (.ra-host: header actions, the empty state, composerTop, a tool's own content) keeps the host's styles. */
 .ra-chat button:where(:not(.ra-host,.ra-host *)){font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0;margin:0;line-height:inherit}
 /* Debug mode: a dashed frame around the chat shows where on the page it is mounted. */
-.ra-chat[data-debug="1"]::after{content:"";position:absolute;inset:0;z-index:60;pointer-events:none;border:2px dashed #f76707}
 .ra-chat button:disabled{opacity:.5;cursor:default}
 .ra-chat textarea:where(:not(.ra-host *)),.ra-chat input[type=text]:where(:not(.ra-host *)){font:inherit;color:inherit;background:transparent;border:0;outline:0;width:100%;margin:0}
 .ra-chat svg{flex-shrink:0}
@@ -516,6 +522,10 @@ const CSS = tokenCSS() + `
 .ra-user{flex-direction:column;align-items:flex-end}
 .ra-uf{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ra-fg-muted);margin-top:4px;height:22px;padding-right:2px;opacity:0;transition:opacity .15s}
 .ra-user:hover .ra-uf,.ra-uf:focus-within{opacity:1}
+.ra-af{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ra-fg-muted);margin-top:2px;height:22px;opacity:0;transition:opacity .15s}
+.ra-af .ra-ib{width:22px;height:22px}
+.ra-af .ra-cost{margin-left:auto;font-variant-numeric:tabular-nums;cursor:default}
+.ra-asst:hover .ra-af,.ra-af:focus-within{opacity:1}
 .ra-uf .ra-ut{display:inline-flex;align-items:center;gap:5px;margin-right:4px}
 .ra-uf .ra-ut::after{content:"·";margin-left:4px}
 .ra-uf .ra-ib{width:22px;height:22px}
@@ -1148,7 +1158,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onLink, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, permissionsSetting, rewindState, ...agentOpts } = opts;
+  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onLink, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, permissionsSetting, rewindState, nextPrompt, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const provider: ModelProvider | null = providerOpt ? toProvider(providerOpt) : clientOpt ? toProvider(clientOpt) : givenAgent?.provider ?? null;
   const project = provider?.name ?? agentOpts.appName ?? "app";
@@ -1536,7 +1546,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   /** A dialog for rewinding: drop what follows the message, optionally put the files back as they were. */
   /** Asks before rewinding; the file option shows only when there is a snapshot to restore (and says what it holds). */
-  const rewindDialog = async (ckpt: Checkpoint | undefined, host: HostState | undefined): Promise<{ files: boolean; host: boolean } | null> => {
+  const rewindDialog = async (ckpt: Checkpoint | undefined, host: HostState | undefined, texts: { title: string; message: string; ok: string } = { title: t.rewindTitle, message: t.rewindMsg, ok: t.rewind }): Promise<{ files: boolean; host: boolean } | null> => {
     const ck = h("input"); ck.type = "checkbox"; ck.checked = !!ckpt;
     const hostCk = h("input"); hostCk.type = "checkbox"; hostCk.checked = true;
     const body: HTMLElement[] = [];
@@ -1546,19 +1556,22 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const size = ckpt.files.reduce((n, f) => n + (typeof f.data === "string" ? new TextEncoder().encode(f.data).length : f.data.byteLength), 0);
       body.push(lab, h("div", "ra-dn", t.rewindSnapshot.replace("{n}", String(ckpt.files.length)).replace("{size}", fmtSize(size)).replace("{time}", clockTime(ckpt.at)) + (ckpt.partial ? ` ${t.rewindPartial}` : "")));
     }
-    const ok = await modal(root, { title: t.rewindTitle, message: t.rewindMsg, body, ok: t.rewind, cancel: t.cancel, focus: "ok" });
+    const ok = await modal(root, { title: texts.title, message: texts.message, body, ok: texts.ok, cancel: t.cancel, focus: "ok" });
     return ok ? { files: !!ckpt && ck.checked, host: !!host && hostCk.checked } : null;
   };
-  const rewindTo = async (row: UserRow) => {
-    if (!row.msg || !agent) return;
+  const rewindTo = (row: UserRow) => (row.msg ? rewindToMessage(row.msg, row.text) : Promise.resolve());
+  /** Rewinds to a user message: its text and attachments go back into the composer; `resend` sends it again at once (Answer again). */
+  const rewindToMessage = async (msg: ChatMessage, text: string, resend = false) => {
+    if (!agent) return;
     const a = agent;
+    const row = { msg, text };
     const index = a.messages.indexOf(row.msg);
     if (index < 0) { ui.notify(t.rewindGone, "warning"); return; }
     const ws = a.workspace;
     const ts = tsOf(row.msg);
     const ckpt = ws && ts && restorable(a) ? await ws.getData<Checkpoint>(ckptKey(ts)) : undefined;
     const hostState = ws && ts && rewindState ? await ws.getData<HostState>(hostKey(ts)) : undefined;
-    const choice = await rewindDialog(ckpt, hostState);
+    const choice = await rewindDialog(ckpt, hostState, resend ? { title: t.regenTitle, message: t.regenMsg, ok: t.regen } : undefined);
     if (!choice || agent !== a) return;
     let rewound = false;
     try {
@@ -1581,6 +1594,56 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (!rewound || agent !== a) return;
     ta.value = row.text; ta.focus(); renderCmds();
     await reattach(row.msg);
+    if (resend) await send("prompt");
+  };
+
+  /* --- a reply's footer, shown on hover: copy, answer again, delete; what the reply cost --- */
+  /** A message the user wrote (not a compaction summary or the agent's own note). */
+  const isUserTurn = (m: ChatMessage) => m.role === "user" && !(typeof m.content === "string" && (summaryOf(m) !== null || m.content.startsWith("[environment]")));
+  /** The question-and-answer a reply belongs to: from its user message up to the next one. */
+  const turnOf = (a: Agent, last: ChatMessage): { start: number; end: number } | null => {
+    const msgs = a.messages, i = msgs.indexOf(last);
+    if (i < 0) return null;
+    let start = i; while (start >= 0 && !isUserTurn(msgs[start]!)) start--;
+    let end = i + 1; while (end < msgs.length && !isUserTurn(msgs[end]!)) end++;
+    return start < 0 ? null : { start, end };
+  };
+  const replyFoot = (last: ChatMessage): HTMLElement => {
+    const foot = h("div", "ra-af");
+    const btn = (icon: string, label: string, onClick: () => void) => { const b = h("button", "ra-ib"); b.type = "button"; b.innerHTML = icon; b.title = label; b.setAttribute("aria-label", label); b.addEventListener("click", onClick); return b; };
+    const copy = btn(I.copy(13), t.copy, () => {
+      const a = agent, turn = a && turnOf(a, last);
+      // The answer: the reply's last text (what came before it is the work behind it).
+      const texts = turn ? a!.messages.slice(turn.start + 1, turn.end).filter((m) => m.role === "assistant").map((m) => textOfContent(m.content).trim()).filter(Boolean) : [textOfContent(last.content).trim()];
+      void navigator.clipboard?.writeText(texts.at(-1) ?? "").then(() => ui.notify(t.copied));
+    });
+    const again = btn(I.refresh(13), t.regen, () => {
+      const a = agent, turn = a && turnOf(a, last);
+      if (!a || !turn) { ui.notify(t.rewindGone, "warning"); return; }
+      const user = a.messages[turn.start]!;
+      void rewindToMessage(user, userRow(user.content as string | ContentPart[], user).text, true);
+    });
+    const del = btn(I.trash(13), t.delTurn, () => void (async () => {
+      const a = agent;
+      if (!a || !turnOf(a, last)) { ui.notify(t.rewindGone, "warning"); return; }
+      if (!(await modalConfirm(root, t.delTurnTitle, t.delTurnMsg, { danger: true, ok: t.delTurn, cancel: t.cancel }))) return;
+      const turn = agent === a ? turnOf(a, last) : null;
+      if (!turn) return;
+      try { if (a.busy) { ui.cancelAll(); await a.abort(); } await a.remove(turn.start, turn.end); } catch (err) { ui.notify((err as Error).message, "error"); }
+    })());
+    foot.append(copy, again, del);
+    const u = (last as ChatMessage & { runUsage?: { total_cost: number; prompt_tokens: number; completion_tokens: number; calls: number } }).runUsage;
+    if (u && u.calls) {
+      const show = (currency?: string) => { cost.textContent = t.replyCost.replace("{cost}", fmtCost(u.total_cost, currency)); };
+      const cost = h("span", "ra-cost");
+      show(costCurrency);
+      // In the model's currency: asked of its catalogue entry when not known yet.
+      const a = agent;
+      if (costCurrency === undefined && a) void a.modelInfo().then((info) => { if (info?.price?.currency) show(info.price.currency); }).catch(() => undefined);
+      cost.title = t.replyUsage.replace("{in}", fmtTokens(u.prompt_tokens)).replace("{out}", fmtTokens(u.completion_tokens)).replace("{calls}", String(u.calls));
+      foot.append(cost);
+    }
+    return foot;
   };
   /** Puts a rewound message's context and attachments back into the composer: files from the directory, or from what the message carried inline. */
   const reattach = async (msg: ChatMessage) => {
@@ -1976,7 +2039,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     type HistCall = { id: string; name: string; args: unknown; result?: string; status?: ToolStatus; images?: string[] };
     type Item = { kind: "think"; text: string } | { kind: "text"; text: string } | { kind: "call"; call: HistCall };
     // One row per reply, as live: every turn between two user messages; text-less turns (thinking + tool calls) share a group.
-    let last: { items: Item[]; calls: HistCall[]; start?: number; end?: number } | null = null;
+    let last: { items: Item[]; calls: HistCall[]; start?: number; end?: number; msg?: ChatMessage } | null = null;
     let lastUserTs: number | undefined;
     const flush = (atEnd = false) => {
       if (!last) return;
@@ -2005,6 +2068,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
             }
           }
           if (fold) foldReply(r.body, m.start !== undefined && m.end !== undefined ? m.end - m.start : undefined);
+          if (fold && m.msg) r.el!.append(replyFoot(m.msg));
           return r.el!;
         },
       });
@@ -2023,11 +2087,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
         const text = textOfContent(m.content);
         const rs = (m as { reasoning_content?: unknown }).reasoning_content; const reasoning = typeof rs === "string" ? rs : "";
         if (!last) last = { items: [], calls: [], start: lastUserTs };
+        last.msg = m;
         last.end = tsOf(m) ?? last.end;
         if (last.end) lastStamp = last.end;
         if (reasoning) last.items.push({ kind: "think", text: reasoning });
         if (text) last.items.push({ kind: "text", text });
         for (const c of m.tool_calls ?? []) {
+          if (hiddenTools.has(c.function.name)) continue;
           let args: unknown = c.function.arguments;
           try { args = JSON.parse(c.function.arguments); } catch { /* keep the string */ }
           const call: HistCall = { id: c.id ?? "", name: c.function.name, args };
@@ -2047,6 +2113,38 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
 
   /* --- composer --- */
+  /* --- the next-message suggestion (nextPrompt) --- */
+  /** Shown greyed in the empty input; Tab takes it. */
+  let nextSuggestion: string | null = null;
+  /** What the model suggested during the run in progress; shown when it ends. */
+  let pendingNext: string | null = null;
+  const clearNext = () => {
+    pendingNext = null;
+    if (nextSuggestion === null) return;
+    nextSuggestion = null;
+    setBusy(root.dataset.busy === "1");
+  };
+  const nextPromptTool: Tool<{ text: string }> = {
+    name: "suggest_next_prompt",
+    description:
+      "Offer the user their likely next message: it appears greyed in their input box and Tab sends it there. Call it only in the same reply as your final answer, after writing the answer, and only when an obvious next request follows (after writing a strategy: \"Backtest it over the last year\"). Write it as the user would type it — in the user's language, one short sentence, a request to you, nothing you already did. When no next step is clear, do not call it.",
+    parameters: {
+      type: "object",
+      properties: { text: { type: "string", description: "The suggested message, as the user would type it" } },
+      required: ["text"],
+      additionalProperties: false,
+    },
+    readOnly: true,
+    endsRun: true,
+    display: { hidden: true },
+    execute: ({ text }) => {
+      pendingNext = String(text ?? "").replace(/\s+/g, " ").trim().slice(0, 200) || null;
+      return "Shown to the user.";
+    },
+  };
+  /** Every tool the chat's agents get: the host's, plus the built-in suggestion tool. */
+  const chatTools: Tool[] = [...(agentOpts.tools ?? []), ...(nextPrompt ? [nextPromptTool as Tool] : [])];
+  const hiddenTools = new Set(chatTools.filter((x) => x.display?.hidden).map((x) => x.name));
   /** Send is there only while idle with something to send (text, a file, context); steer and follow-up only while busy with something to send. */
   const syncSend = () => {
     const busy = root.dataset.busy === "1", any = !!(ta.value.trim() || pendingFiles.length || pendingContext.length);
@@ -2055,8 +2153,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
   const setBusy = (busy: boolean) => {
     root.dataset.busy = busy ? "1" : "";
-    ta.placeholder = busy ? fill(t.placeholderBusy) : (placeholder ?? t.placeholder);
-    hint.textContent = fill(busy ? t.hintBusy : t.hintIdle);
+    ta.placeholder = busy ? fill(t.placeholderBusy) : (nextSuggestion ?? placeholder ?? t.placeholder);
+    hint.textContent = fill(busy ? t.hintBusy : nextSuggestion ? t.hintNext : t.hintIdle);
     syncSend();
     stopBtn.style.display = busy ? "" : "none";
     renderQueue();
@@ -2272,6 +2370,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     await reading;
     const text = ta.value.trim();
     if ((!text && !pendingFiles.length && !pendingContext.length) || !agent || sending) return;
+    clearNext();
     if (runBuiltin(text)) return;
     // While compacting, a message waits for it and then runs (Enter, Steer and Follow-up alike).
     if (compacting) mode = "followUp";
@@ -2322,7 +2421,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     } catch (err) { awaitingRow = null; setAlert((err as Error).message); }
   };
 
-  ta.addEventListener("input", () => { cmdsDismissed = false; syncSend(); scheduleCmds(); });
+  ta.addEventListener("input", () => { cmdsDismissed = false; if (ta.value) clearNext(); syncSend(); scheduleCmds(); });
   ta.addEventListener("keydown", (e) => {
     // Confirming a word in an input method is not sending (Safari reports it with keyCode 229).
     if (e.isComposing || e.keyCode === 229) return;
@@ -2334,6 +2433,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); pickCommand(found[cmdIndex]!); return; }
       if (e.key === "Escape") { cmdsDismissed = true; cmds.style.display = "none"; return; }
     }
+    // The suggested next message: Tab puts it in the empty input, Esc drops it.
+    if (nextSuggestion && !ta.value && e.key === "Tab" && !e.shiftKey) { e.preventDefault(); ta.value = nextSuggestion; clearNext(); syncSend(); return; }
+    if (nextSuggestion && !ta.value && e.key === "Escape") { clearNext(); return; }
     if (e.key !== "Enter" || e.shiftKey) return;
     e.preventDefault();
     // ⌘↵ on a Mac, Ctrl+↵ elsewhere queues a follow-up while the agent runs. Both modifiers are accepted
@@ -2395,6 +2497,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (provider?.models) { try { modelsCache ??= (await provider.models()).filter((m) => !m.capability || m.capability === "text" || m.capability === "vision") as CatModel[]; } catch { /* no catalogue */ } }
     return modelsCache ?? [];
   };
+  // A model chosen earlier that the catalogue no longer lists (the host removed it) is forgotten: the default applies again.
+  if (userSettings.model && provider?.models) {
+    void loadModels().then((list) => {
+      if (!list.length || !userSettings.model || list.some((m) => m.id === userSettings.model)) return;
+      const { model: _gone, ...rest } = userSettings;
+      saveSettings(rest);
+    });
+  }
   const kTok = (n?: number) => (typeof n === "number" ? (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)) : "?");
   /** The model's price as one line ("" when the catalogue gives none). */
   const priceOf = (m?: CatModel): string => {
@@ -2441,7 +2551,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       // The platform default names the model it is; each model shows its context / output limits.
       modelOpts.push({ value: "", label: t.sDefault, note: def?.id });
       // A model that sees pictures says so next to its limits.
-      for (const m of modelsCache ?? []) modelOpts.push({ value: m.id, label: m.id, note: `${modelAccepts(m, "image") ? `${t.sVision} · ` : ""}${kTok(m.max_input_tokens)} / ${kTok(m.max_tokens)}` });
+      // Each model: whether it sees pictures, its context / output limits and its price (input / output per M tokens).
+      for (const m of modelsCache ?? []) {
+        const p = m.price, price = p && (p.input !== undefined || p.output !== undefined) ? ` · ${fmtPrice(p.input ?? 0, p.currency)} / ${fmtPrice(p.output ?? 0, p.currency)}` : "";
+        modelOpts.push({ value: m.id, label: m.id, note: `${modelAccepts(m, "image") ? `${t.sVision} · ` : ""}${kTok(m.max_input_tokens)} / ${kTok(m.max_tokens)}${price}` });
+      }
     } else modelOpts.push({ value: "", label: t.sDefault });
     if (cur.model && !modelOpts.some((o) => o.value === cur.model)) modelOpts.push({ value: cur.model, label: cur.model });
     modelSel.setOptions(modelOpts);
@@ -2515,7 +2629,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     applyB.addEventListener("click", () => {
       const next: UserSettings = {};
       if (modelSel.value) next.model = modelSel.value;
-      const n = parseInt(turns.value, 10); if (Number.isFinite(n) && n > 0) next.maxTurns = Math.min(1000, n);
+      // Saved only when it differs from the app's default, so a later change of that default still reaches this user.
+      const n = parseInt(turns.value, 10); if (Number.isFinite(n) && n > 0 && Math.min(1000, n) !== (agentOpts.maxTurns ?? 100)) next.maxTurns = Math.min(1000, n);
       if (tokMode.value === "n") { const k = parseInt(tokN.value, 10); if (Number.isFinite(k) && k > 0) next.maxTokens = k; }
       if (effortSel.value && !effortSel.disabled) next.reasoningEffort = effortSel.value;
       if (perm.value === "ask" || perm.value === "auto") permChoice = perm.value;
@@ -2679,7 +2794,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const text = textOfContent(m.content as string | ContentPart[]).trim();
       const s = m.role === "user" && typeof m.content === "string" ? summaryOf(m) : null;
       if (s !== null) { out.push(`> **${t.compacted}**`, ">", ...s.split("\n").map((l) => `> ${l}`), ""); continue; }
-      const calls = m.role === "assistant" ? (m.tool_calls ?? []) : [];
+      const calls = m.role === "assistant" ? (m.tool_calls ?? []).filter((c) => !hiddenTools.has(c.function.name)) : [];
       if (!text && !calls.length) continue;
       out.push(`## ${m.role === "user" ? t.user : t.assistant}`, "");
       if (text) out.push(text, "");
@@ -2875,6 +2990,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     // Skills added or removed anywhere (the menu, the agent, another tab): the count and the / list follow.
     if (a.workspace) { const ws = a.workspace; unsub.push(ws.onChange((c) => { if (ws.isSkillPath(c.path)) void refreshCommands(); })); }
     if (agent && agent !== a) parked.set(agent.id, ui.park());
+    if (agent !== a) clearNext();
     agent = a;
     live.set(a.id, a);
     unwatchBackground(a);
@@ -2961,6 +3077,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     on("message_reset", () => { if (active) { active.md = ""; active.reasoning = ""; active.text?.remove(); active.text = null; active.think?.remove(); active.think = null; active.thinkBody = null; showPending(); } });
     on("message_end", () => { clearPending(); flushActive(true); lastStamp = Date.now(); });
     on("tool_start", (ev: { id: string; name: string; args: unknown }) => {
+      if (hiddenTools.has(ev.name)) return;
       flushActive(true);
       const card = addCard(ev.id, ev.name, ev.args, ensureActive().body);
       // The folded group says which tool; the preview shows what it is doing.
@@ -3002,7 +3119,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       addNote(ev.summary ? t.compacted : t.trimmed, ev.summary && s ? s : undefined);
     });
     on("run_end", (r: RunResult) => {
+      // A finished run's suggestion goes into the input (setBusy below shows it); a stopped or failed one's is dropped.
+      nextSuggestion = r.reason === "done" && !ta.value.trim() ? pendingNext : null;
+      pendingNext = null;
+      const row = active;
       closeActive();
+      // The finished reply gets its footer: actions and what the run cost (on its last assistant message).
+      const lastMsg = [...a.messages].reverse().find((m) => m.role === "assistant");
+      if (row && row.body.childElementCount && lastMsg && !row.el!.querySelector(":scope>.ra-af")) { row.el!.append(replyFoot(lastMsg)); list.schedule(); }
       ui.cancelAll();
       addEnd(a, r.reason === "done" ? null : { reason: r.reason, error: r.error?.message, at: Date.now() });
       setBusy(false);
@@ -3037,7 +3161,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (userSettings.maxTokens) over.maxTokens = userSettings.maxTokens;
     if (userSettings.reasoningEffort) over.extra = { ...(agentOpts.extra ?? {}), reasoning_effort: userSettings.reasoningEffort };
     if (permChoice) over.permissions = permChoice;
-    return new Agent(provider!, { ...agentOpts, ...over, instructions, id: sid, workspace, ui: agentOpts.ui ?? uiFor(sid) });
+    return new Agent(provider!, { ...agentOpts, ...over, tools: chatTools, instructions, id: sid, workspace, ui: agentOpts.ui ?? uiFor(sid) });
   };
 
   /** Closes the workspace the chat opened for a session it no longer holds (it reopens on resume). */

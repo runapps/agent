@@ -47,6 +47,8 @@ await agent.abort();                      // stop now
 - **`abort()`** — stops the run; pending tool calls get a "skipped" result so the conversation stays valid, and open dialogs close as dismissed.
 - **`continue()`** — carries on from where the conversation stands, without a new user message: after `max_turns`, or to retry after an error.
 - **`rewind(index)`** — drops the messages from `index` on (`agent.messages[index]` is usually a user message).
+- **`remove(start, end?)`** — deletes messages `start` to `end` (exclusive, default the end) and saves: delete whole turns (a user message up to the next one) so every tool call keeps its result. Listeners get `rewind` with `start`.
+- Each run puts what it spent on the last reply it wrote, as `runUsage` (`{ total_cost, prompt_tokens, completion_tokens, calls }`; compaction included). It is saved with the conversation and never sent to the model.
 
 Content is a string or content parts:
 

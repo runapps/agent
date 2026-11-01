@@ -31,7 +31,8 @@
 - **Files** — the header's *Files* button opens the directory: a tree, an editor (⌘S, word wrap, Markdown preview), picture and PDF previews, upload, new file, download (folders as zip). File paths in replies open there. Live: changes by the agent show at once.
 - **Skills** — the *Skills* button lists the skills (with a count), uploads zips, removes the user's own.
 - **Chats** — the conversation list (the open one first), new chat, delete. Conversations keep running when you switch away (up to three in the background).
-- **Settings** — the gear: model (with context and output limits, and which models see pictures), thinking level when the model has one, max turns, max output, tool permissions. Kept per app in the browser and applied to every conversation.
+- **Settings** — the gear: model (with context and output limits, and which models see pictures), thinking level when the model has one, max turns, max output, tool permissions. Kept per app in the browser and applied to every conversation; only what differs from the app's defaults is kept, and a saved model the catalogue no longer lists is dropped (the default applies again).
+- **Reply actions** — hover a reply: copy its answer, *answer again* (rewinds to its question, with the same restore choices, and sends it again), delete the question and its answer; on the right what the reply cost (its `runUsage`, in the model's `price.currency`), the tokens and calls in its tooltip.
 - **Rewind** — hover a user message: when it was sent, copy, *rewind to here* (the conversation after it is dropped, the message goes back into the composer, and the directory's files can be restored to that moment).
 - **How a run ended** — *Stopped.*, the turn limit with *Continue*, an error with *Retry*; kept across reloads until the next run.
 - **Context and spending** — a ring in the header shows how full the model's window is; a click opens a panel with the figures (used / window, model), what the conversation has cost (cost, input and output tokens, calls), when it compacts on its own, and *Compact now*. Older turns are summarised automatically.
@@ -84,6 +85,7 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `className` | | Extra classes on the chat's root. |
 | `debug` | `false` | The *Debug* panel. |
 | `onOpenFile(path)` | | Open file links yourself instead of in the files panel. |
+| `nextPrompt` | `false` | Suggest the user's next message: the model calls a built-in `suggest_next_prompt` tool with its final reply when an obvious next request follows (it ends the run, so no further call); the suggestion shows greyed in the empty input, Tab takes it, typing or Esc drops it. Needs the chat to own its agent. |
 | `onLink(href, text)` | | Called when a link in the conversation (a reply, its thinking, a tool card) is clicked, before the chat's own handling; return `true` when you handled it (e.g. your app's own documentation links open in your viewer). |
 | `files` | on with a workspace | The *Files* button and panel; `false` for a host with its own file view (links go to `onOpenFile`). |
 | `headerActions` | | Buttons of your own for the header, placed before the settings gear. |
@@ -303,4 +305,3 @@ The second argument is where the list opens: a positioned element (`position: re
 
 `debug: true` (or `chat.setDebug(true)`) adds a *Debug* button: the call chain run by run and turn by turn, every request sent to the model and what came back, the event log, the context (system prompt, messages, limits) and the tools declared to the model.
 
-In debug mode the chat is framed with an orange dashed border, so you see which element of your page it is mounted in and how much of it it fills.

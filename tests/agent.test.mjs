@@ -878,3 +878,65 @@ test("agent — a tool stopped while it runs can say how far it got (whenStopped
     release?.("late");
   }
 });
+
+test("agent — endsRun: a reply with text calling only such tools ends the run without another call", async () => {
+  let suggested = null;
+  const suggest = defineTool({
+    name: "suggest_next_prompt",
+    description: "Suggest the user's next message",
+    parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false },
+    readOnly: true,
+    endsRun: true,
+    execute: ({ text }) => { suggested = text; return "Shown to the user."; },
+  });
+  // Text and the suggestion in one reply: done after one call, the call and its result kept in the history.
+  {
+    const { client, requests } = scripted([reply({ text: "Here is the strategy.", calls: [{ id: "s1", name: "suggest_next_prompt", args: { text: "Backtest it" } }] })]);
+    const agent = createAgent(client, { model: "m", tools: [suggest], sandbox: false, askUser: false });
+    const r = await agent.prompt("Write a strategy");
+    assert.equal(r.reason, "done");
+    assert.equal(requests.length, 1);
+    assert.equal(suggested, "Backtest it");
+    assert.equal(r.text, "Here is the strategy.");
+    const last = agent.messages.at(-1);
+    assert.equal(last.role, "tool");
+    assert.equal(last.tool_call_id, "s1");
+  }
+  // With another tool in the same reply, or with no text, the run goes on as usual.
+  {
+    const { client, requests } = scripted([
+      reply({ text: "Checking.", calls: [{ id: "w", name: "get_weather", args: { city: "Paris" } }, { id: "s2", name: "suggest_next_prompt", args: { text: "And London?" } }] }),
+      reply({ calls: [{ id: "s3", name: "suggest_next_prompt", args: { text: "And Rome?" } }] }),
+      reply({ text: "It is 17°C in Paris." }),
+    ]);
+    const agent = createAgent(client, { model: "m", tools: [weather, suggest], sandbox: false, askUser: false });
+    const r = await agent.prompt("Weather in Paris?");
+    assert.equal(r.reason, "done");
+    assert.equal(requests.length, 3);
+    assert.equal(r.text, "It is 17°C in Paris.");
+  }
+});
+
+test("agent — a run's usage on its last reply (saved, never sent); remove() deletes a question and its answer", async () => {
+  const { client, requests } = scripted([
+    reply({ text: "Let me check.", calls: [{ id: "w1", name: "get_weather", args: { city: "Paris" } }] }),
+    reply({ text: "It is 17°C in Paris." }),
+    reply({ text: "Hello again." }),
+  ]);
+  const agent = createAgent(client, { model: "m", tools: [weather], sandbox: false, askUser: false });
+  await agent.prompt("Weather in Paris?");
+  const last = agent.messages.at(-1);
+  assert.equal(last.role, "assistant");
+  assert.deepEqual(last.runUsage, { total_cost: 0.002, prompt_tokens: 200, completion_tokens: 40, calls: 2 });
+  // The earlier reply of the same run carries none.
+  assert.equal(agent.messages.find((m) => m.role === "assistant").runUsage, undefined);
+  await agent.prompt("Hi");
+  assert.ok(!JSON.stringify(requests.at(-1).messages).includes("runUsage"));
+  assert.deepEqual(agent.messages.at(-1).runUsage, { total_cost: 0.001, prompt_tokens: 100, completion_tokens: 20, calls: 1 });
+  // Delete the first question and its whole answer (tool call and result included).
+  const firstAnswerEnd = agent.messages.findIndex((m, i) => i > 0 && m.role === "user");
+  await agent.remove(0, firstAnswerEnd);
+  assert.equal(agent.messages[0].content, "Hi");
+  assert.equal(agent.messages.length, 2);
+  await assert.rejects(agent.remove(1, 1), /No messages/);
+});

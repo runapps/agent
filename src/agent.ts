@@ -72,10 +72,10 @@ interface Queued {
  * loop (DeepSeek), and older reasoning is just tokens.
  */
 function toWire(m: ChatMessage, older: boolean): ChatMessage {
-  const meta = "ts" in m || "typed" in m;
+  const meta = "ts" in m || "typed" in m || "runUsage" in m;
   const dropReasoning = older && m.role === "assistant" && m.reasoning_content !== undefined;
   if (!meta && !dropReasoning) return m;
-  const { ts: _ts, typed: _typed, ...rest } = m as ChatMessage & { ts?: number; typed?: string };
+  const { ts: _ts, typed: _typed, runUsage: _runUsage, ...rest } = m as ChatMessage & { ts?: number; typed?: string; runUsage?: AgentUsage };
   if (dropReasoning) delete (rest as ChatMessage).reasoning_content;
   return rest as ChatMessage;
 }
@@ -471,6 +471,25 @@ export class Agent {
   }
 
   /**
+   * Deletes messages `start` to `end` (exclusive; default the end) — a
+   * question and its answer, say — and saves. Delete whole turns (from a
+   * user message to the next one), so every tool call keeps its result.
+   * Listeners get a `rewind` event with index `start`.
+   */
+  async remove(start: number, end = this.history.length): Promise<void> {
+    await this.loaded;
+    if (this.current) throw new Error("Cannot delete messages while a run is active; abort() first");
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > this.history.length || start >= end) throw new Error(`No messages ${start}–${end}`);
+    this.clearQueue();
+    this.history.splice(start, end - start);
+    this.committed = this.history.length;
+    this._ended = null;
+    this.resetLoop();
+    await this.saveSession();
+    this.emit("rewind", { index: start });
+  }
+
+  /**
    * Starts the conversation over, keeping its id: stops a run, drops the
    * queue, the messages, the title, how the last run ended and the usage,
    * and saves that. The workspace's files are not touched. Listeners get a
@@ -530,6 +549,9 @@ export class Agent {
     let error: Error | undefined;
     let lastText = "";
     let truncatedRounds = 0;
+    // What this run spends (calls, compaction included): put on its last reply when it ends.
+    const usageBefore = { ...this._usage };
+    const historyBefore = this.history.length;
 
     // Steering left over from a run that ended (turn limit, error) goes in before the new message, in the order it was typed.
     this.applySteering(runId);
@@ -642,6 +664,11 @@ export class Agent {
         this.committed = this.history.length;
         await this.saveSession();
         if (signal.aborted) { reason = "aborted"; break; }
+        // A reply that said its piece and called only tools that end the run (endsRun): done, no further call.
+        if (!truncated && textOf(assistant.content as string | ContentPart[] | null).trim() && calls.every((c) => this.tools.find((x) => x.name === c.function.name)?.endsRun)) {
+          if (this.queue.some((q) => q.kind === "steer")) continue;
+          break;
+        }
         if (truncated) {
           truncatedRounds++;
           if (this.balanceLimited(completion.usage, maxTokens)) {
@@ -677,6 +704,7 @@ export class Agent {
     }
 
     if (reason === "aborted") this.closeOpenToolCalls();
+    this.markRunUsage(historyBefore, usageBefore);
     this.committed = this.history.length;
     this.resetLoop();
     this._ended = reason === "done" ? null : { reason, ...(error ? { error: error.message } : {}), at: Date.now() };
@@ -1074,6 +1102,27 @@ export class Agent {
     // below 1024); a reply cut well short of what we asked for says so.
     const out = usage?.completion_tokens;
     return typeof out === "number" && out > 0 && out < maxTokens * 0.9;
+  }
+
+  /**
+   * Puts what the run spent on the last reply it wrote (`runUsage`): the
+   * chat shows it under that reply, and it is saved with the conversation
+   * (requests never carry it).
+   */
+  private markRunUsage(from: number, before: AgentUsage): void {
+    const u = this._usage;
+    if (u.calls === before.calls) return;
+    for (let i = this.history.length - 1; i >= Math.min(from, this.history.length); i--) {
+      const m = this.history[i]!;
+      if (m.role !== "assistant") continue;
+      (m as ChatMessage & { runUsage?: AgentUsage }).runUsage = {
+        total_cost: round(u.total_cost - before.total_cost),
+        prompt_tokens: u.prompt_tokens - before.prompt_tokens,
+        completion_tokens: u.completion_tokens - before.completion_tokens,
+        calls: u.calls - before.calls,
+      };
+      return;
+    }
   }
 
   private addUsage(u: Usage): void {

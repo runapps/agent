@@ -104,6 +104,14 @@ export interface ToolDefinition<A = Record<string, unknown>> {
    * the guard against repeated calls; a read-only one only when its result is new.
    */
   readOnly?: boolean;
+  /**
+   * Ends the run: when a reply has text and calls only tools like this one,
+   * the agent runs them and stops instead of asking the model to go on — no
+   * further call for a tool whose result the model does not need (the chat's
+   * next-message suggestion). Called alongside other tools, or in a reply
+   * with no text, the run goes on as usual.
+   */
+  endsRun?: boolean;
   /** Longest result sent to the model, in characters (default 32 000). */
   maxResultChars?: number;
   /**
@@ -134,6 +142,8 @@ export type ToolStatus = "ok" | "error" | "declined" | "blocked" | "skipped";
 
 /** A tool's look in the chat UI (see `ToolDefinition.display`). */
 export interface ToolDisplay<A = any> {
+  /** No card in the conversation or its export: a call the user need not see. */
+  hidden?: boolean;
   /** The call in words, e.g. "Run 3 nodes": the card's title and the folded line of a reply's calls. Default: the tool's name and its arguments. */
   label?: (args: A) => string;
   /** The card's icon (SVG markup, about 14px). */

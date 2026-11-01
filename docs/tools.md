@@ -146,7 +146,11 @@ defineTool({
 });
 ```
 
-`render` runs when the call starts (`status: "running"`) and again with the result; `details` is what `execute` returned as details (live calls; a reopened conversation has only the result text). The arguments and the raw result stay in the card, behind its fold.
+`render` runs when the call starts (`status: "running"`) and again with the result; `details` is what `execute` returned as details (live calls; a reopened conversation has only the result text). The arguments and the raw result stay in the card, behind its fold. `display: { hidden: true }` gives a tool no card at all (nor a line in the exported conversation): a call the user need not see.
+
+## Tools that end the run
+
+Normally every tool call is followed by another model call, so the model can use the result. A tool whose result the model does not need can say `endsRun: true`: when a reply has text and calls only such tools, the agent runs them and the run ends there — no further call, no tokens spent resending the conversation. Called alongside other tools, or in a reply with no text, the run goes on as usual. The chat's next-message suggestion (`nextPrompt`) is such a tool.
 
 ## Tools for models that see
 

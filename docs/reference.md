@@ -33,6 +33,7 @@ Three entry points:
 | `continue()` | Carry on without a new message. → `RunResult` |
 | `abort()` | Stop the run. |
 | `rewind(index)` | Drop the messages from `index` on. |
+| `remove(start, end?)` | Delete messages `start` to `end` (a question and its answer). |
 | `clear()` | Start over under the same id (messages, queue, usage), saved. |
 | `modelInfo()`, `accepts(kind)` | The catalogue's entry for the model in use; whether it takes `"image"` / `"video"` / `"audio"` (`true` / `false` / `undefined`). |
 | `compact(focus?)` | Summarise older turns now. → `boolean` |
@@ -52,7 +53,7 @@ Options: see [the options table](agent.md#options). Events: see [Events](agent.m
 
 | Export | |
 |---|---|
-| `defineTool({ name, description, parameters?, execute, destructive?, readOnly?, vision?, confirm?, guidelines?, maxResultChars? })` | A tool (`confirm` returns a question, `{ title, message }` or `false`). |
+| `defineTool({ name, description, parameters?, execute, destructive?, readOnly?, endsRun?, vision?, confirm?, guidelines?, maxResultChars? })` | A tool (`confirm` returns a question, `{ title, message }` or `false`). |
 | `fileTools(workspace, { readBeforeWrite?, guard? })` | The file tools for a workspace. |
 | `fileGuard(workspace, { enabled? })` → `FileGuard` | What the model has read (`saw`, `wrote`, `edited`, `copied`, `check`, `forget`, `clear`); the agent shares one between the file tools and `run_js` (`sandboxTool(ws, { guard })`). |
 | `connectMCP(url, { token?, headers?, prefix?, confirm?, images?, timeoutMs?, maxTools?, maxResultChars?, fetch?, signal? })` → `MCPConnection` | An MCP server's tools (`tools`, `serverTools`, `server`, `instructions`, `refresh()`, `close()`). `MCPError` for its failures. |
