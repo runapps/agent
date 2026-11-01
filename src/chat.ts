@@ -116,6 +116,16 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   uploadsDir?: string;
   /** A tool card's file path becomes a link that calls this. */
   onOpenFile?: (path: string) => void;
+  /** The "Tool permissions" choice in the settings panel (default on). `false` for an app that decides when to ask itself (its own settings, its tools' `confirm`). */
+  permissionsSetting?: boolean;
+  /**
+   * Your app's own state to put back on a rewind (an editor's text, a form):
+   * `take()` runs as each message is sent and its value is kept with the
+   * conversation (it must survive structured cloning, and needs a
+   * workspace); rewinding to a message offers `label` as a checkbox and
+   * calls `restore(value)` with what `take()` returned then.
+   */
+  rewindState?: { label: string; take(): unknown | Promise<unknown>; restore(value: unknown): void | Promise<void> };
   /** The Files button and panel (default: on with a workspace). `false` for a host with its own file view (file links then go to `onOpenFile`). */
   files?: boolean;
   /** Buttons of your own for the header, placed before the settings gear. */
@@ -634,7 +644,8 @@ const CSS = tokenCSS() + `
 .ra-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;min-height:32px}
 .ra-bar .ra-hint{font-size:12px;color:var(--ra-fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.01em}
 .ra-kbd{display:inline-block;font:11px/1.4 var(--ra-mono);border:1px solid var(--ra-border);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--ra-muted);color:var(--ra-fg)}
-.ra-bar .ra-acts{display:flex;gap:6px;align-items:center}
+/* The action area keeps the send/stop button's height while it is hidden, so the composer does not grow when one appears. */
+.ra-bar .ra-acts{display:flex;gap:6px;align-items:center;min-height:30px}
 /* Send: a quiet ↵ in the toolbar, there only while something can be sent. */
 .ra-chat .ra-send{width:30px;height:30px;border-radius:8px;color:var(--ra-fg);display:inline-flex;align-items:center;justify-content:center}
 .ra-chat .ra-send:hover{background:var(--ra-muted)}
@@ -870,6 +881,21 @@ async function dropCheckpointsAfter(ws: Workspace, ts: number): Promise<void> {
   for (const t of index.filter((t) => t > ts)) await ws.deleteData(ckptKey(t));
   await ws.putData(CKPT_INDEX, index.filter((t) => t <= ts));
 }
+/** The app's own state at a message (renderChat `rewindState`), kept per directory like the file snapshots. */
+interface HostState { at: number; value: unknown }
+const hostKey = (ts: number) => `hoststate:${ts}`;
+const HOST_INDEX = "hoststate:index";
+async function takeHostState(ws: Workspace, ts: number, value: unknown): Promise<void> {
+  await ws.putData(hostKey(ts), { at: ts, value } satisfies HostState);
+  const index = [...((await ws.getData<number[]>(HOST_INDEX)) ?? []).filter((t) => t !== ts), ts].sort((a, b) => a - b);
+  for (const old of index.splice(0, Math.max(0, index.length - CKPT_KEEP))) await ws.deleteData(hostKey(old));
+  await ws.putData(HOST_INDEX, index);
+}
+async function dropHostStatesAfter(ws: Workspace, ts: number): Promise<void> {
+  const index = (await ws.getData<number[]>(HOST_INDEX)) ?? [];
+  for (const t of index.filter((t) => t > ts)) await ws.deleteData(hostKey(t));
+  await ws.putData(HOST_INDEX, index.filter((t) => t <= ts));
+}
 async function restoreCheckpoint(ws: Workspace, c: Checkpoint): Promise<void> {
   const keep = new Set([...c.files.map((f) => f.path), ...(c.skipped ?? [])]);
   for (const f of await ws.list("/")) {
@@ -977,7 +1003,10 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
     confirm: (title, message, opts = {}) => open<boolean>((card, done) => {
       head(card, title, message);
       const row = h("div", "ra-btns");
-      row.append(btn(opts.cancel ?? t.decline, "ghost", () => done(false)), btn(opts.ok ?? t.allow, opts.danger ? "red" : "solid", () => done(true)));
+      row.append(btn(opts.cancel ?? t.decline, "ghost", () => done(false)));
+      const always = opts.always;
+      if (always) row.append(btn(always.label, "subtle", () => { try { always.onChoose(); } catch (err) { console.warn("runapps agent: always.onChoose failed", err); } done(true); }));
+      row.append(btn(opts.ok ?? t.allow, opts.danger ? "red" : "solid", () => done(true)));
       card.append(row);
     }, false, opts.signal),
 
@@ -1102,7 +1131,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, ...agentOpts } = opts;
+  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, permissionsSetting, rewindState, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const provider: ModelProvider | null = providerOpt ? toProvider(providerOpt) : clientOpt ? toProvider(clientOpt) : givenAgent?.provider ?? null;
   const project = provider?.name ?? agentOpts.appName ?? "app";
@@ -1330,7 +1359,12 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   /** The work files as they are when a message is sent, so a rewind to it can put them back. */
   const checkpoint = async (a: Agent, msg: ChatMessage) => {
     const ts = tsOf(msg);
-    if (!a.workspace || !ts || !restorable(a)) return;
+    if (!a.workspace || !ts) return;
+    // The app's own state (rewindState), kept beside the conversation.
+    if (rewindState) {
+      try { await takeHostState(a.workspace, ts, await rewindState.take()); } catch (err) { console.warn("runapps agent: rewindState.take failed", err); }
+    }
+    if (!restorable(a)) return;
     try { await takeCheckpoint(a.workspace, ts); } catch (err) { console.warn("runapps agent: checkpoint failed", err); }
   };
   /** Keeps an eye on a session running in the background: a notice when it ends, dropped once idle. */
@@ -1485,16 +1519,18 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   /** A dialog for rewinding: drop what follows the message, optionally put the files back as they were. */
   /** Asks before rewinding; the file option shows only when there is a snapshot to restore (and says what it holds). */
-  const rewindDialog = async (ckpt: Checkpoint | undefined): Promise<{ files: boolean } | null> => {
+  const rewindDialog = async (ckpt: Checkpoint | undefined, host: HostState | undefined): Promise<{ files: boolean; host: boolean } | null> => {
     const ck = h("input"); ck.type = "checkbox"; ck.checked = !!ckpt;
+    const hostCk = h("input"); hostCk.type = "checkbox"; hostCk.checked = true;
     const body: HTMLElement[] = [];
+    if (host && rewindState) { const lab = h("label", "ra-ck"); lab.append(hostCk, h("span", "", rewindState.label)); body.push(lab); }
     if (ckpt) {
       const lab = h("label", "ra-ck"); lab.append(ck, h("span", "", t.rewindFiles));
       const size = ckpt.files.reduce((n, f) => n + (typeof f.data === "string" ? new TextEncoder().encode(f.data).length : f.data.byteLength), 0);
       body.push(lab, h("div", "ra-dn", t.rewindSnapshot.replace("{n}", String(ckpt.files.length)).replace("{size}", fmtSize(size)).replace("{time}", clockTime(ckpt.at)) + (ckpt.partial ? ` ${t.rewindPartial}` : "")));
     }
     const ok = await modal(root, { title: t.rewindTitle, message: t.rewindMsg, body, ok: t.rewind, cancel: t.cancel, focus: "ok" });
-    return ok ? { files: !!ckpt && ck.checked } : null;
+    return ok ? { files: !!ckpt && ck.checked, host: !!host && hostCk.checked } : null;
   };
   const rewindTo = async (row: UserRow) => {
     if (!row.msg || !agent) return;
@@ -1504,7 +1540,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const ws = a.workspace;
     const ts = tsOf(row.msg);
     const ckpt = ws && ts && restorable(a) ? await ws.getData<Checkpoint>(ckptKey(ts)) : undefined;
-    const choice = await rewindDialog(ckpt);
+    const hostState = ws && ts && rewindState ? await ws.getData<HostState>(hostKey(ts)) : undefined;
+    const choice = await rewindDialog(ckpt, hostState);
     if (!choice || agent !== a) return;
     let rewound = false;
     try {
@@ -1514,7 +1551,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (choice.files && ws && ckpt) {
         try { await restoreCheckpoint(ws, ckpt); } catch (err) { ui.notify((err as Error).message, "error"); }
       }
-      if (ws && ts) void dropCheckpointsAfter(ws, ts).catch(() => undefined);
+      if (choice.host && hostState && rewindState) {
+        try { await rewindState.restore(hostState.value); } catch (err) { ui.notify((err as Error).message, "error"); }
+      }
+      if (ws && ts) { void dropCheckpointsAfter(ws, ts).catch(() => undefined); void dropHostStatesAfter(ws, ts).catch(() => undefined); }
     } catch (err) {
       ui.notify((err as Error).message, "error");
     } finally {
@@ -2165,7 +2205,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   /** The message to send: the text, the attachment list (saved to the directory, or inlined), and pictures for the model. */
   const buildContent = async (text: string, taken: Attachment[], target: Agent): Promise<string | ContentPart[]> => {
     if (!taken.length) return text;
-    const ws = target.workspace;
+    // Saved as files only when the model has file tools to read them; otherwise they go into the message.
+    const ws = agentOpts.fileTools === false ? null : target.workspace;
     const lines: string[] = [];
     const parts: ContentPart[] = [];
     // A model known not to see pictures gets none: they are kept as files, and the user is told.
@@ -2384,7 +2425,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const field = (label: string, ...els: HTMLElement[]) => { const l = h("div", "ra-fld"); l.append(h("span", "", label), ...els); return l; };
     const tokRow = h("div", "ra-row"); tokRow.append(tokMode.el, tokN);
     const own = h("div", "ra-pane");
-    own.append(field(t.sModel, modelSel.el), lim, field(t.sEffort, effortSel.el), effortNote, field(t.sMaxTurns, turns), field(t.sMaxTokens, tokRow), field(t.sPerms, perm.el));
+    own.append(field(t.sModel, modelSel.el), lim, field(t.sEffort, effortSel.el), effortNote, field(t.sMaxTurns, turns), field(t.sMaxTokens, tokRow));
+    if (permissionsSetting !== false) own.append(field(t.sPerms, perm.el));
     // The host's own settings, each tab a pane: drawn here, read back on Apply.
     const hostReads: Array<() => void> = [];
     const hostPane = (tab: SettingsTab) => {

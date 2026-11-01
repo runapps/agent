@@ -630,6 +630,41 @@ test("agent — abort() closes an open confirmation and returns promptly", async
   assert.ok(sawSignal, "the dialog got the run's signal");
 });
 
+test("agent — validate refuses a call before the user is asked; a valid call is asked and runs", async () => {
+  let asked = 0, ran = 0;
+  const edit = defineTool({
+    name: "edit", description: "edit", parameters: { type: "object", properties: { find: { type: "string" } }, required: ["find"], additionalProperties: false },
+    validate: ({ find }) => (find === "here" ? undefined : `"${find}" is not in the text`),
+    confirm: () => "Apply?",
+    execute: () => { ran++; return "edited"; },
+  });
+  const { client, requests } = scripted([reply({ calls: [{ name: "edit", args: { find: "gone" } }] }), reply({ calls: [{ name: "edit", args: { find: "here" } }] }), reply({ text: "ok" })]);
+  const ui = { confirm: async () => { asked++; return true; }, select: async () => null, input: async () => null, notify() {} };
+  const agent = createAgent(client, { model: "m", tools: [edit], sandbox: false, askUser: false, ui });
+  await agent.prompt("go");
+  const results = requests[2].messages.filter((m) => m.role === "tool").map((m) => m.content);
+  assert.match(results[0], /^Error: "gone" is not in the text/);
+  assert.equal(results[1], "edited");
+  assert.equal(asked, 1, "only the valid call was put to the user");
+  assert.equal(ran, 1);
+});
+
+test("agent — a confirm's always answer runs onChoose and allows the call", async () => {
+  let chosen = 0, ran = 0, sawLabel;
+  const apply = defineTool({
+    name: "apply", description: "apply", parameters: { type: "object", properties: {}, additionalProperties: false },
+    confirm: () => ({ title: "Apply?", always: { label: "Always apply", onChoose: () => { chosen++; } } }),
+    execute: () => { ran++; return "applied"; },
+  });
+  const { client } = scripted([reply({ calls: [{ name: "apply", args: {} }] }), reply({ text: "ok" })]);
+  const ui = { confirm: async (_t, _m, o) => { sawLabel = o?.always?.label; o.always.onChoose(); return true; }, select: async () => null, input: async () => null, notify() {} };
+  const agent = createAgent(client, { model: "m", tools: [apply], sandbox: false, askUser: false, ui });
+  await agent.prompt("go");
+  assert.equal(sawLabel, "Always apply");
+  assert.equal(chosen, 1);
+  assert.equal(ran, 1);
+});
+
 test("edit — a fuzzy match changes only the matched text; the rest keeps its exact characters", () => {
   const src = "标题：你好，世界（测试）  \n第二行 “引号” 保持\n结尾  ";
   const out = applyEdits("/a.md", src, [{ oldText: '第二行 "引号" 保持', newText: "第二行 已改" }]);

@@ -76,6 +76,14 @@ export interface ToolDefinition<A = Record<string, unknown>> {
    * asks when it is `destructive`.
    */
   confirm?: (args: A) => ToolConfirm | Promise<ToolConfirm>;
+  /**
+   * Checks a call before the user is asked or anything runs (after the
+   * arguments matched the schema): return or throw the reason to refuse it,
+   * which the model gets as the call's error. Use it for what the schema
+   * cannot say (the text to replace is not there, the target changed), so
+   * the user is never asked to approve a call that would fail.
+   */
+  validate?: (args: A) => string | void | Promise<string | void>;
   /** Changes or removes something the user may not want gone. */
   destructive?: boolean;
   /**
@@ -108,7 +116,13 @@ export interface ToolDefinition<A = Record<string, unknown>> {
 }
 
 /** A confirmation question: a title, or a title and a message (the details: arguments, what will happen); `false` runs without asking. */
-export type ToolConfirm = string | false | { title: string; message?: string };
+/**
+ * What `confirm` asks: the question, or `{ title, message }` with details
+ * under it; `always` adds a third answer ("Always allow") that allows this
+ * call and runs `onChoose` (where the tool stops asking, e.g. turns on its
+ * app's auto-apply setting).
+ */
+export type ToolConfirm = string | false | { title: string; message?: string; always?: { label: string; onChoose: () => void } };
 
 /** A tool as the agent holds it (`defineTool` normalises a definition). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -152,11 +166,15 @@ export interface SelectOption {
  */
 /** The agent's dialogs. A question given `signal` closes (as if dismissed) when the run is stopped. */
 export interface AgentUI {
-  /** Yes/no question; resolves false when dismissed. */
+  /**
+   * Yes/no question; resolves false when dismissed. With `always`, a UI may
+   * offer a third answer under its label ("Always allow"): it calls
+   * `onChoose` and resolves true. A UI that does not just answers yes or no.
+   */
   confirm(
     title: string,
     message?: string,
-    opts?: { ok?: string; cancel?: string; danger?: boolean; signal?: AbortSignal },
+    opts?: { ok?: string; cancel?: string; danger?: boolean; signal?: AbortSignal; always?: { label: string; onChoose: () => void } },
   ): Promise<boolean>;
   /**
    * Pick one (or several with `multi`) of `options`; `allowOther` adds a

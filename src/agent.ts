@@ -966,6 +966,13 @@ export class Agent {
     if (args === null || typeof args !== "object" || Array.isArray(args)) return finish("error", "Error: the arguments must be a JSON object.");
     const problems = validateSchema(tool.parameters, args);
     if (problems.length) return finish("error", `Error: invalid arguments for ${name}:\n- ${problems.join("\n- ")}\nFix the call and try again.`);
+    // The tool's own check, before anyone is asked: a call that would fail is refused here.
+    if (tool.validate) {
+      let why: string | void;
+      try { why = await raceAbort(Promise.resolve(tool.validate(args as Record<string, unknown>)), signal); } catch (err) { why = err instanceof Error ? err.message : String(err); }
+      if (signal.aborted) return finish("skipped", SKIPPED_STOP);
+      if (why) return finish("error", why.startsWith("Error:") ? why : `Error: ${why}`);
+    }
 
     // Gate: hook, permissions, the tool's own confirm.
     try {
@@ -1015,8 +1022,8 @@ export class Agent {
     if (tool.confirm) question = await tool.confirm(args as Record<string, unknown>);
     else if (tool.destructive) question = `Allow ${tool.name}?`;
     if (question === false) return true;
-    const { title, message } = typeof question === "string" ? { title: question, message: undefined } : question;
-    return this.ui.confirm(title, message, { danger: !!tool.destructive, signal });
+    const { title, message, always } = typeof question === "string" ? { title: question, message: undefined, always: undefined } : question;
+    return this.ui.confirm(title, message, { danger: !!tool.destructive, signal, always });
   }
 
   /** After an abort, every open tool call gets a result so the transcript stays valid. */

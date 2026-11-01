@@ -99,7 +99,23 @@ const deleteProject = defineTool({
 });
 ```
 
-Under `permissions: "ask"` (the default) a tool with `destructive: true` or a `confirm` asks the user first. `confirm` may return `false` to run without asking this time (`({ id }) => isDraft(id) ? false : "Delete …?"`), or `{ title, message }` to show the details under the question (`message` goes to `ui.confirm`'s second argument — the arguments, what will happen). A declined call returns `"declined"` to the model. See [Permissions and dialogs](agent.md#permissions-and-dialogs) for the other modes.
+Under `permissions: "ask"` (the default) a tool with `destructive: true` or a `confirm` asks the user first. `confirm` may return `false` to run without asking this time (`({ id }) => isDraft(id) ? false : "Delete …?"`), or `{ title, message }` to show the details under the question (`message` goes to `ui.confirm`'s second argument — the arguments, what will happen). A declined call returns `"declined"` to the model. `{ title, always: { label, onChoose } }` adds a third answer to the question ("Always allow"): the call runs and `onChoose()` is called — where you stop asking from then on (turn your app's auto-apply setting on). See [Permissions and dialogs](agent.md#permissions-and-dialogs) for the other modes.
+
+### Refusing a call before it is asked: `validate`
+
+The schema checks the shape of the arguments; `validate(args)` checks what the schema cannot — the text to replace is not in the document, the record changed since it was read. It runs after the schema check and before any question: return (or throw) the reason and the call ends there, the model gets the reason as its error, and the user is never asked to approve a call that would fail.
+
+```js
+defineTool({
+  name: "edit_doc",
+  // …
+  validate: ({ oldText }) => (doc.includes(oldText) ? undefined : "oldText is not in the document; read it again"),
+  confirm: () => "Apply this change?",
+  execute: ({ oldText, newText }) => { /* … */ },
+});
+```
+
+`execute` still has to check again when it can be called with something that changed in between (the user typed while the question waited).
 
 ## Stopped while running: `whenStopped`
 

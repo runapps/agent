@@ -75,7 +75,7 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `skillsMenu` | on with a workspace | The *Skills* button. |
 | `settings` | on | The settings gear. |
 | `attachments` | on | Paperclip, drop and paste. |
-| `uploadsDir` | `/uploads` | Where attachments are saved. |
+| `uploadsDir` | `/uploads` | Where attachments are saved (with a workspace and file tools; with `fileTools: false` a text file goes into the message itself, so the model can read it). |
 | `showUsage` | on | The context ring in the header and its panel (context use, spending, *Compact now*). |
 | `locale` | the document's | `"en"` or `"zh"`. |
 | `theme` | `"auto"` | `"auto"`, `"light"`, `"dark"`. |
@@ -86,6 +86,11 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `onOpenFile(path)` | | Open file links yourself instead of in the files panel. |
 | `files` | on with a workspace | The *Files* button and panel; `false` for a host with its own file view (links go to `onOpenFile`). |
 | `headerActions` | | Buttons of your own for the header, placed before the settings gear. |
+| `headerEnd` | | Buttons of your own after the settings gear (a close button). |
+| `composerActions` | | Buttons of your own in the composer's toolbar (see below). |
+| `settingsTabs` | | Tabs of your own in the settings panel (see below). |
+| `permissionsSetting` | on | The *Tool permissions* choice in the settings; `false` for an app that decides when to ask itself. |
+| `rewindState` | | `{ label, take(), restore(value) }`: your app's own state (an editor's text, a form) snapshotted as each message is sent; rewinding offers `label` as a checkbox and calls `restore` with that snapshot. Needs a workspace. |
 | `onSession(agent)` | | Called with each conversation's agent as it opens. |
 
 ## The empty conversation: a greeting and starter prompts
