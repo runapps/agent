@@ -57,8 +57,8 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
    * an element), a heading and a line under it, or `null` for nothing.
    */
   emptyState?: string | HTMLElement | null | { icon?: string | HTMLElement; title?: string; text?: string; align?: "center" | "start" };
-  /** Starter prompts offered in the empty state; a click puts one in the composer. */
-  suggestions?: string[];
+  /** Starter prompts offered in the empty state; a click puts one in the composer (an object: its `label` on the button, its `prompt` in the composer). */
+  suggestions?: Array<string | { label: string; prompt: string }>;
   /**
    * The conversation list and *New chat* (default: on when the chat makes
    * its agents and has a workspace). Off — or with your own `agent` — the
@@ -120,10 +120,60 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   files?: boolean;
   /** Buttons of your own for the header, placed before the settings gear. */
   headerActions?: HTMLElement[];
+  /**
+   * Tabs of your own in the gear's panel, after the chat's own ("Model"):
+   * each holds toggles or choices the chat draws (applied with the panel's
+   * Apply, put back by its Reset when they have a `default`) or elements of
+   * yours placed as they are. The chat only shows them; you keep and use
+   * their values.
+   */
+  settingsTabs?: SettingsTab[];
+  /** Buttons of your own at the header's far end, after the settings gear (a close or collapse button). */
+  headerEnd?: HTMLElement[];
   /** A panel of your own right above the composer (a plan, a status); you show, hide and update it. */
   composerTop?: HTMLElement;
+  /**
+   * Buttons of your own in the composer's toolbar, after the attach button
+   * ("Analyse the backtest", "Explain the selection"). An element is placed as
+   * it is and keeps your styles; a `ComposerAction` is drawn like the chat's
+   * own buttons and changed later with `updateComposerAction(id, …)`.
+   */
+  composerActions?: Array<HTMLElement | ComposerAction>;
   /** Called with each session's agent as the chat opens it (the first one, a new chat, a resumed one). */
   onSession?: (agent: Agent) => void;
+}
+
+/** A setting of the host's in the gear's panel. */
+export type SettingsField = {
+  id: string;
+  label: string;
+  /** A line under the label. */
+  hint?: string;
+} & (
+  | { type: "toggle"; value: () => boolean; onChange: (v: boolean) => void; default?: boolean }
+  | { type: "select"; options: Array<{ value: string; label: string; note?: string }>; value: () => string; onChange: (v: string) => void; default?: string }
+);
+
+/** A tab of the host's in the gear's panel. */
+export interface SettingsTab {
+  label: string;
+  fields: Array<SettingsField | HTMLElement>;
+}
+
+/** A button of the host's in the composer's toolbar. */
+export interface ComposerAction {
+  /** Names it for `updateComposerAction`. */
+  id?: string;
+  label: string;
+  /** An SVG (or any HTML) drawn before the label. */
+  icon?: string;
+  /** The tooltip (default: the label). */
+  title?: string;
+  /** Only the icon, the label as tooltip (needs an icon). */
+  iconOnly?: boolean;
+  hidden?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
 }
 
 export interface ChatHandle {
@@ -161,6 +211,8 @@ export interface ChatHandle {
   refresh(): Promise<void>;
   /** Shows or hides the Debug button and panel. */
   setDebug(on: boolean): void;
+  /** Changes a `composerActions` button by its id: label, icon, title, hidden, disabled, onClick. */
+  updateComposerAction(id: string, patch: Partial<Omit<ComposerAction, "id">>): void;
   /** Changes the look while mounted: light/dark, palette, token overrides (each left out stays). */
   setAppearance(opts: { theme?: "auto" | "light" | "dark"; palette?: keyof typeof CHAT_PALETTES | ChatPalette; vars?: ChatVars | { light?: ChatVars; dark?: ChatVars } }): void;
   /** Removes the chat; an agent the chat made is stopped (a host's `agent` is left running). */
@@ -186,7 +238,7 @@ const STRINGS = {
     toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed",
     actRead: "read {n} file(s)", actList: "listed {n} folder(s)", actSearch: "searched {n} time(s)", actWrite: "wrote {n} file(s)", actEdit: "edited {n} file(s)", actDelete: "deleted {n} file(s)", actRun: "ran {n} snippet(s)", actAsk: "asked you {n} time(s)", actOther: "used {name}",
     ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", current: "Current", jumpEnd: "Jump to the latest",
-    debug: "Debug", dCalls: "Calls", dRequests: "Requests", dEvents: "Events", dContext: "Context", dTools: "Tools", dClear: "Clear the record", dFilter: "Filter by type",
+    sTabModel: "Model", debug: "Debug", dCalls: "Calls", dRequests: "Requests", dEvents: "Events", dContext: "Context", dTools: "Tools", dClear: "Clear the record", dFilter: "Filter by type",
     dNoCalls: "No tool calls yet.", dNoRequests: "No model requests yet. Each call to the model is listed here with what was sent and what came back.", dNoEvents: "No events yet.",
     dSystem: "System prompt", dMessages: "Messages sent to the model", dPayload: "Request", dResponse: "Response", dRun: "Run", dTurn: "Turn {n}", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
@@ -223,7 +275,7 @@ const STRINGS = {
     toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败",
     actRead: "读取了 {n} 个文件", actList: "查看了 {n} 个目录", actSearch: "搜索了 {n} 次", actWrite: "写入了 {n} 个文件", actEdit: "修改了 {n} 个文件", actDelete: "删除了 {n} 个文件", actRun: "运行了 {n} 段代码", actAsk: "询问了你 {n} 次", actOther: "调用了 {name}",
     ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", current: "当前", jumpEnd: "回到最新",
-    debug: "调试", dCalls: "调用", dRequests: "请求", dEvents: "事件", dContext: "上下文", dTools: "工具", dClear: "清空记录", dFilter: "按类型过滤",
+    sTabModel: "模型", debug: "调试", dCalls: "调用", dRequests: "请求", dEvents: "事件", dContext: "上下文", dTools: "工具", dClear: "清空记录", dFilter: "按类型过滤",
     dNoCalls: "还没有工具调用。", dNoRequests: "还没有模型请求。每次调用模型都会记在这里，包括发了什么、收到什么。", dNoEvents: "还没有事件。",
     dSystem: "系统提示词", dMessages: "发给模型的消息", dPayload: "请求内容", dResponse: "响应", dRun: "运行", dTurn: "第 {n} 轮", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
@@ -265,6 +317,8 @@ const CSS = tokenCSS() + `
 .ra-chat *,.ra-chat *::before,.ra-chat *::after{box-sizing:border-box}
 /* The chat's own controls start bare; what the host puts in (.ra-host: header actions, the empty state, composerTop, a tool's own content) keeps the host's styles. */
 .ra-chat button:where(:not(.ra-host,.ra-host *)){font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0;margin:0;line-height:inherit}
+/* Debug mode: a dashed frame around the chat shows where on the page it is mounted. */
+.ra-chat[data-debug="1"]::after{content:"";position:absolute;inset:0;z-index:60;pointer-events:none;border:2px dashed #f76707}
 .ra-chat button:disabled{opacity:.5;cursor:default}
 .ra-chat textarea:where(:not(.ra-host *)),.ra-chat input[type=text]:where(:not(.ra-host *)){font:inherit;color:inherit;background:transparent;border:0;outline:0;width:100%;margin:0}
 .ra-chat svg{flex-shrink:0}
@@ -313,6 +367,8 @@ const CSS = tokenCSS() + `
 .ra-skm .ra-skf{padding:8px 8px 4px;margin-top:4px;border-top:1px solid var(--ra-border);font-size:11.5px;color:var(--ra-fg-muted);line-height:1.5}
 .ra-skm.drop{outline:2px dashed var(--ra-accent);outline-offset:-4px}
 .ra-set{padding:10px 12px;display:flex;flex-direction:column;gap:10px;width:min(360px,calc(100% - 24px))}
+/* The settings panel takes the chat's height under the header (a host may add fields of its own). */
+.ra-chat .ra-set{max-height:calc(100% - 72px)}
 .ra-set .ra-fld{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--ra-fg-muted)}
 .ra-set input[type=number]{font:inherit;font-size:13px;color:var(--ra-fg);background:var(--ra-bg);border:1px solid var(--ra-border);border-radius:8px;padding:6px 12px;min-height:34px;box-sizing:border-box;outline:0;width:100%;margin:0}
 .ra-set input:focus{border-color:var(--ra-accent);box-shadow:0 0 0 3px var(--ra-accent-subtle)}
@@ -320,6 +376,15 @@ const CSS = tokenCSS() + `
 .ra-set .ra-row>*{flex:1;min-width:0}
 .ra-set .ra-lim{font-size:11px;color:var(--ra-fg-muted);margin-top:-4px}
 .ra-set .ra-btns{justify-content:space-between}
+.ra-set .ra-pane{display:flex;flex-direction:column;gap:10px}
+.ra-set .ra-pane[hidden]{display:none}
+.ra-set .ra-tabs{display:flex;gap:2px;border-bottom:1px solid var(--ra-border);margin:-2px -4px 0}
+.ra-set .ra-tab{padding:4px 10px 7px;font-size:13px;color:var(--ra-fg-muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.ra-set .ra-tab:hover{color:var(--ra-fg)}
+.ra-set .ra-tab.on{color:var(--ra-fg);border-bottom-color:var(--ra-accent);font-weight:500}
+.ra-set .ra-tgl{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--ra-fg);cursor:pointer}
+.ra-set .ra-tgl input{margin:3px 0 0;accent-color:var(--ra-accent);flex:none}
+.ra-set .ra-tgl small,.ra-set .ra-fld small{display:block;font-size:11.5px;color:var(--ra-fg-muted);margin-top:1px}
 .ra-card .ra-btn{margin-top:8px}
 .ra-menu .ra-mi .ra-spin{margin-right:6px}
 .ra-chat .ra-btn.ra-bg{position:relative}
@@ -328,7 +393,8 @@ const CSS = tokenCSS() + `
 .ra-main{flex:1;min-height:0;display:flex;position:relative;overflow:hidden}
 .ra-chat{container-type:inline-size}
 .ra-chatcol{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative}
-.ra-fp{position:absolute;top:0;right:0;bottom:0;width:380px;max-width:100%;z-index:4;border-left:1px solid var(--ra-border);background:var(--ra-subtle);display:flex;flex-direction:column;box-shadow:-8px 0 24px rgba(0,0,0,.08)}
+/* An overlay: the tint is laid over the page colour, so a palette whose subtle is translucent (a host's fill colour) still hides the chat behind. */
+.ra-fp{position:absolute;top:0;right:0;bottom:0;width:380px;max-width:100%;z-index:4;border-left:1px solid var(--ra-border);background:linear-gradient(var(--ra-subtle),var(--ra-subtle)) var(--ra-bg);display:flex;flex-direction:column;box-shadow:-8px 0 24px rgba(0,0,0,.08)}
 .ra-chat.ra-files-open .ra-ed{right:380px}
 @container (max-width:760px){.ra-fp{left:0;width:auto;border-left:0;box-shadow:none}.ra-chat.ra-files-open .ra-ed{right:0}.ra-chat.ra-editing .ra-fp{display:none}}
 @container (max-width:560px){.ra-head .ra-btn span{display:none}.ra-head .ra-btn{padding:0 7px}.ra-head{padding:8px 10px}.ra-badge{display:none}.ra-col{padding:0 12px}}
@@ -583,6 +649,11 @@ const CSS = tokenCSS() + `
 .ra-chat .ra-attach{width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--ra-fg-muted);margin-right:4px}
 .ra-chat .ra-attach:hover{background:var(--ra-muted);color:var(--ra-fg)}
 .ra-bar .ra-left{display:flex;align-items:center;min-width:0}
+.ra-bar .ra-left>.ra-host{flex:none;margin-right:6px}
+.ra-chat .ra-cbtn{flex:none;height:28px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;padding:0 8px;margin-right:6px;font-size:12px;color:var(--ra-fg-muted);white-space:nowrap}
+.ra-chat .ra-cbtn.icon{width:28px;padding:0;justify-content:center}
+.ra-chat .ra-cbtn:hover:not(:disabled){background:var(--ra-muted);color:var(--ra-fg)}
+.ra-chat .ra-cbtn svg{width:15px;height:15px}
 .ra-files{display:flex;flex-wrap:wrap;gap:6px;padding:0 0 6px}
 .ra-chip{display:inline-flex;align-items:center;gap:10px;max-width:min(100%,340px);height:44px;border:1px solid var(--ra-border);border-radius:12px;padding:0 12px 0 10px;font-size:14px;background:var(--ra-panel);white-space:nowrap}
 .ra-chip img{width:30px;height:30px;object-fit:cover;border-radius:6px;flex:none}
@@ -1031,7 +1102,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, files: filesOpt, headerActions, composerTop, ...agentOpts } = opts;
+  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const provider: ModelProvider | null = providerOpt ? toProvider(providerOpt) : clientOpt ? toProvider(clientOpt) : givenAgent?.provider ?? null;
   const project = provider?.name ?? agentOpts.appName ?? "app";
@@ -1088,8 +1159,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
   // In a narrow chat the labels fold away and only the icons show: each button keeps its name.
   for (const [btn, label] of [[debugBtn, t.debug], [filesBtn, t.files], [skillsBtn, t.skills], [histBtn, t.history], [newBtn, t.newChat], [clearBtn, t.clearChat]] as const) { btn.setAttribute("aria-label", label); if (!btn.title) btn.title = label; }
-  for (const el of [...(headerActions ?? []), ...(composerTop ? [composerTop] : []), ...(emptyState instanceof HTMLElement ? [emptyState] : [])]) el.classList.add("ra-host");
-  head.append(titleEl, modelEl, h("span", "ra-sp"), useBtn, debugBtn, filesBtn, skillsBtn, histBtn, newBtn, clearBtn, ...(headerActions ?? []), setBtn);
+  for (const el of [...(headerActions ?? []), ...(headerEnd ?? []), ...(composerTop ? [composerTop] : []), ...(emptyState instanceof HTMLElement ? [emptyState] : [])]) el.classList.add("ra-host");
+  head.append(titleEl, modelEl, h("span", "ra-sp"), useBtn, debugBtn, filesBtn, skillsBtn, histBtn, newBtn, clearBtn, ...(headerActions ?? []), setBtn, ...(headerEnd ?? []));
   if (title === false) head.style.display = "none";
   const log = h("div", "ra-log");
   const inner = h("div", "ra-col");
@@ -1125,7 +1196,27 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   // While it works, the send button's place holds a stop square.
   const stopBtn = h("button", "ra-stop"); stopBtn.type = "button"; stopBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="3" fill="currentColor"/></svg>'; stopBtn.title = t.stop; stopBtn.setAttribute("aria-label", t.stop);
   acts.append(steerBtn, fuBtn, stopBtn, sendBtn);
-  left.append(attachBtn, hint);
+  // The host's toolbar buttons: an element as it is, a ComposerAction drawn as ours.
+  const actionBtns = new Map<string, { btn: HTMLButtonElement; a: ComposerAction }>();
+  const drawAction = (btn: HTMLButtonElement, a: ComposerAction) => {
+    const icon = a.icon && a.iconOnly ? a.icon : a.icon ? a.icon + `<span>${escapeHTML(a.label)}</span>` : `<span>${escapeHTML(a.label)}</span>`;
+    btn.innerHTML = icon;
+    btn.classList.toggle("icon", !!(a.icon && a.iconOnly));
+    btn.title = a.title ?? a.label;
+    btn.setAttribute("aria-label", a.label);
+    btn.style.display = a.hidden ? "none" : "";
+    btn.disabled = !!a.disabled;
+  };
+  const hostActions = (composerActions ?? []).map((x) => {
+    if (x instanceof HTMLElement) { x.classList.add("ra-host"); return x; }
+    const a = { ...x };
+    const btn = h("button", "ra-cbtn"); btn.type = "button";
+    btn.addEventListener("click", () => a.onClick());
+    drawAction(btn, a);
+    if (a.id) actionBtns.set(a.id, { btn, a });
+    return btn;
+  });
+  left.append(attachBtn, ...hostActions, hint);
   bar.append(left, acts);
   box.append(cmds, files, ta, bar, fileInput);
   const drop = h("div", "ra-drop", t.drop);
@@ -1304,7 +1395,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     } else emptyEl.append(h("div", "", typeof emptyState === "string" ? emptyState : t.empty));
     if (suggestions?.length) {
       const row = h("div", "ra-sugs");
-      for (const s of suggestions) { const b = h("button", "", s); b.type = "button"; b.addEventListener("click", () => { ta.value = s; ta.focus(); renderCmds(); }); row.append(b); }
+      for (const s of suggestions) { const label = typeof s === "string" ? s : s.label, prompt = typeof s === "string" ? s : s.prompt; const b = h("button", "", label); b.type = "button"; if (prompt !== label) b.title = prompt; b.addEventListener("click", () => { ta.value = prompt; ta.focus(); renderCmds(); }); row.append(b); }
       emptyEl.append(row);
     }
     if (!list.rows.includes(emptyRow)) list.push(emptyRow);
@@ -2217,6 +2308,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   let userSettings: UserSettings = givenAgent ? {} : readSettings();
   let permChoice: "ask" | "auto" | null = null;  // not persisted: allowing everything is a per-page decision
   const hasSettings = opts.settings ?? !givenAgent;
+  let settingsTab = 0;
   if (!hasSettings) setBtn.style.display = "none";
   type CatModel = ModelInfo;
   let modelsCache: CatModel[] | null = null;
@@ -2291,13 +2383,61 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const perm = sel([{ value: "ask", label: t.sAsk }, { value: "auto", label: t.sAutoPerm }, ...(cur.permissions === "custom" ? [{ value: "custom", label: t.sCustom }] : [])], cur.permissions);
     const field = (label: string, ...els: HTMLElement[]) => { const l = h("div", "ra-fld"); l.append(h("span", "", label), ...els); return l; };
     const tokRow = h("div", "ra-row"); tokRow.append(tokMode.el, tokN);
-    menu.append(field(t.sModel, modelSel.el), lim, field(t.sEffort, effortSel.el), effortNote, field(t.sMaxTurns, turns), field(t.sMaxTokens, tokRow), field(t.sPerms, perm.el));
+    const own = h("div", "ra-pane");
+    own.append(field(t.sModel, modelSel.el), lim, field(t.sEffort, effortSel.el), effortNote, field(t.sMaxTurns, turns), field(t.sMaxTokens, tokRow), field(t.sPerms, perm.el));
+    // The host's own settings, each tab a pane: drawn here, read back on Apply.
+    const hostReads: Array<() => void> = [];
+    const hostPane = (tab: SettingsTab) => {
+      const pane = h("div", "ra-pane");
+      for (const f of tab.fields) {
+        if (f instanceof HTMLElement) { f.classList.add("ra-host"); pane.append(f); continue; }
+        if (f.type === "toggle") {
+          const row = h("label", "ra-tgl");
+          const box = h("input"); box.type = "checkbox"; box.checked = f.value();
+          const text = h("span", "", f.label);
+          if (f.hint) text.append(h("small", "", f.hint));
+          row.append(box, text);
+          pane.append(row);
+          hostReads.push(() => { if (box.checked !== f.value()) f.onChange(box.checked); });
+        } else {
+          const b = sel(f.options, f.value());
+          const fl = field(f.label, b.el);
+          if (f.hint) fl.append(h("small", "", f.hint));
+          pane.append(fl);
+          hostReads.push(() => { if (b.value !== f.value()) f.onChange(b.value); });
+        }
+      }
+      return pane;
+    };
+    const panes = [own, ...(settingsTabs ?? []).map(hostPane)];
+    if (panes.length > 1) {
+      // Tabs: the chat's own first, then the host's; the panel reopens on the tab last shown.
+      const bar = h("div", "ra-tabs"); bar.setAttribute("role", "tablist");
+      const tabs = [t.sTabModel, ...(settingsTabs ?? []).map((x) => x.label)].map((label, i) => {
+        const b = h("button", "ra-tab", label); b.type = "button"; b.setAttribute("role", "tab");
+        b.addEventListener("click", () => show(i));
+        return b;
+      });
+      const show = (i: number) => {
+        settingsTab = i;
+        panes.forEach((p, j) => { p.hidden = j !== i; });
+        tabs.forEach((b, j) => { b.classList.toggle("on", j === i); b.setAttribute("aria-selected", String(j === i)); });
+      };
+      bar.append(...tabs);
+      menu.append(bar, ...panes);
+      show(Math.min(settingsTab, panes.length - 1));
+    } else menu.append(own);
     const btns = h("div", "ra-btns");
     const resetB = h("button", "ra-btn xs ghost", t.reset); resetB.type = "button";
     const applyB = h("button", "ra-btn xs solid", t.apply); applyB.type = "button";
     btns.append(resetB, applyB);
     menu.append(btns);
-    resetB.addEventListener("click", () => { userSettings = {}; writeSettings({}); permChoice = null; for (const ag of live.values()) applyTo(ag, {}, null); closeMenu(); ui.notify(t.applied); showUsage_(agent); });
+    resetB.addEventListener("click", () => {
+      for (const f of (settingsTabs ?? []).flatMap((x) => x.fields)) {
+        if (f instanceof HTMLElement || f.default === undefined) continue;
+        if (f.type === "toggle") { if (f.value() !== f.default) f.onChange(f.default); } else if (f.value() !== f.default) f.onChange(f.default);
+      }
+      userSettings = {}; writeSettings({}); permChoice = null; for (const ag of live.values()) applyTo(ag, {}, null); closeMenu(); ui.notify(t.applied); showUsage_(agent); });
     applyB.addEventListener("click", () => {
       const next: UserSettings = {};
       if (modelSel.value) next.model = modelSel.value;
@@ -2305,6 +2445,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (tokMode.value === "n") { const k = parseInt(tokN.value, 10); if (Number.isFinite(k) && k > 0) next.maxTokens = k; }
       if (effortSel.value && !effortSel.disabled) next.reasoningEffort = effortSel.value;
       if (perm.value === "ask" || perm.value === "auto") permChoice = perm.value;
+      for (const read of hostReads) read();
       saveSettings(next);
       closeMenu(); ui.notify(t.applied);
     });
@@ -2916,6 +3057,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     clear: clearConversation,
     addContext,
     setDebug(on) { debugOn = on; applyDebug(); },
+    updateComposerAction(id, patch) { const e = actionBtns.get(id); if (!e) return; Object.assign(e.a, patch); drawAction(e.btn, e.a); },
     setAppearance(o) {
       if (o.theme) themeNow = o.theme;
       if (o.palette) paletteNow = o.palette;

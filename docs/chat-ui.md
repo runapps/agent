@@ -166,9 +166,43 @@ renderChat(el, {
 });
 ```
 
-## Your own pieces: header buttons, `composerTop`, the empty state
+## Your own pieces: header buttons, `composerTop`, toolbar buttons, the empty state
 
-`headerActions` (buttons before the settings gear), `composerTop` (a panel right above the composer — a plan to approve, a status line) and an element given as `emptyState` are yours: you fill and update them (a React portal works), and the chat's own button and input resets do not touch them (they get the class `ra-host`), so your styles apply as they are. Content a tool's `display.render` returns is treated the same way.
+`headerActions` (buttons before the settings gear), `headerEnd` (buttons after it, at the far end — a close or collapse button), `composerTop` (a panel right above the composer — a plan to approve, a status line) and an element given as `emptyState` are yours: you fill and update them (a React portal works), and the chat's own button and input resets do not touch them (they get the class `ra-host`), so your styles apply as they are. Content a tool's `display.render` returns is treated the same way.
+
+`composerActions` puts buttons of yours into the composer's toolbar, after the attach button. An element goes in as it is (and keeps your styles); a plain object is drawn like the chat's own toolbar buttons and is changed later by its `id`:
+
+```js
+const chat = renderChat(host, {
+  // …
+  composerActions: [
+    { id: "analyze", label: "Analyse the backtest", icon: "<svg …>", hidden: true,
+      onClick: () => chat.prompt("Analyse my latest backtest") },
+  ],
+});
+// later, when there is something to analyse
+chat.updateComposerAction("analyze", { hidden: false });
+chat.updateComposerAction("analyze", { disabled: true, label: "Backtest running…" });
+```
+
+`iconOnly: true` draws only the icon, with the label as its tooltip.
+
+`settingsTabs` adds tabs of yours to the gear's panel, after the chat's own "Model" tab, so a host needs no second settings button and the panel stays short. In a tab the chat draws a `toggle` or a `select`, reads it back when the user presses Apply (calling `onChange` only for a value that changed) and puts back `default` on Reset; you keep the value and act on it. An element goes in as it is. The panel reopens on the tab last shown.
+
+```js
+renderChat(host, {
+  // …
+  settingsTabs: [{
+    label: "Editor",
+    fields: [
+      { id: "autoApply", type: "toggle", label: "Apply changes automatically", hint: "Off: ask before every change",
+        default: true, value: () => prefs.autoApply, onChange: (v) => { prefs.autoApply = v; save(prefs); } },
+      { id: "market", type: "select", label: "Market", options: [{ value: "spot", label: "Spot" }, { value: "swap", label: "Perpetual" }],
+        value: () => prefs.market, onChange: (v) => { prefs.market = v; save(prefs); } },
+    ],
+  }],
+});
+```
 
 ## Context from your page: `addContext`
 
@@ -262,3 +296,5 @@ The second argument is where the list opens: a positioned element (`position: re
 ## Debug
 
 `debug: true` (or `chat.setDebug(true)`) adds a *Debug* button: the call chain run by run and turn by turn, every request sent to the model and what came back, the event log, the context (system prompt, messages, limits) and the tools declared to the model.
+
+In debug mode the chat is framed with an orange dashed border, so you see which element of your page it is mounted in and how much of it it fills.
