@@ -817,3 +817,29 @@ test("vision — pictures never reach a model known to be text-only; read_file s
   assert.match(last.at(-2).content, /^\/logo\.png \(image\/png, \d+ bytes\):\n\[1 attachment follows/);
   assert.match(last.at(-1).content[1].image_url.url, /^data:image\/png;base64,iVBOR/);
 });
+
+test("agent — a tool stopped while it runs can say how far it got (whenStopped); without it the model is told it was skipped", async () => {
+  const requests = [];
+  let release;
+  const slow = (name, own) => defineTool({
+    name, description: "Runs a batch.", parameters: { type: "object", properties: { n: { type: "integer" } }, additionalProperties: false },
+    execute: () => new Promise((r) => { release = r; }),
+    ...(own && { whenStopped: (args) => ({ content: JSON.stringify({ ok: false, error: "stopped by the user", data: { done_before_stop: [1, 2], of: args.n } }), details: { partial: true } }) }),
+  });
+  for (const [own, expect] of [[true, /"done_before_stop":\[1,2\],"of":5/], [false, /^Skipped: the user stopped the run\.$/]]) {
+    const agent = createAgent(playing([[{ name: "batch", args: { n: 5 } }], "after"], requests), { tools: [slow("batch", own)], sandbox: false, askUser: false });
+    const ends = [];
+    agent.on("tool_end", (e) => ends.push(e));
+    const run = agent.prompt("go");
+    await new Promise((r) => setTimeout(r, 20));
+    await agent.abort();
+    const result = await run;
+    assert.equal(result.reason, "aborted");
+    assert.equal(ends[0].status, "skipped");
+    assert.match(ends[0].result, expect);
+    if (own) assert.deepEqual(ends[0].details, { partial: true });
+    const tool = agent.messages.find((m) => m.role === "tool");
+    assert.match(typeof tool.content === "string" ? tool.content : JSON.stringify(tool.content), expect);
+    release?.("late");
+  }
+});

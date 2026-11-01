@@ -101,6 +101,37 @@ const deleteProject = defineTool({
 
 Under `permissions: "ask"` (the default) a tool with `destructive: true` or a `confirm` asks the user first. `confirm` may return `false` to run without asking this time (`({ id }) => isDraft(id) ? false : "Delete …?"`), or `{ title, message }` to show the details under the question (`message` goes to `ui.confirm`'s second argument — the arguments, what will happen). A declined call returns `"declined"` to the model. See [Permissions and dialogs](agent.md#permissions-and-dialogs) for the other modes.
 
+## Stopped while running: `whenStopped`
+
+When the user stops the run while a call is still running, the run ends at once; the call's own work may go on (a batch already started). By default the model is told the call was skipped. `whenStopped(args)` returns what it should be told instead — how far the call got — so a later turn does not redo it:
+
+```js
+defineTool({
+  name: "run_batch",
+  // …
+  whenStopped: (args) => JSON.stringify({ ok: false, error: "stopped by the user", done: finishedOf(args.ids) }),
+});
+```
+
+## How the chat shows a call: `display`
+
+`renderChat` shows a call as a card: the tool's name, its arguments, its result. A tool for people who never see tool names says it in its own words (the model never sees any of this; an exception in one of these falls back to the default):
+
+```js
+defineTool({
+  name: "add_node",
+  // …
+  display: {
+    label: (args) => `Add a ${args.type} node`,           // the card's title and the folded line ("Add a Text node ×2")
+    icon: "<svg …>",                                       // the card's icon
+    render: ({ args, status, result, details }) => chipsFor(args, result), // your element under the title, visible while folded
+    outcome: ({ result }) => summaryOf(result),             // beside the status mark ("Added", "$0.12")
+  },
+});
+```
+
+`render` runs when the call starts (`status: "running"`) and again with the result; `details` is what `execute` returned as details (live calls; a reopened conversation has only the result text). The arguments and the raw result stay in the card, behind its fold.
+
 ## Tools for models that see
 
 `vision: true` offers a tool only while the model in use is known to see pictures — a screenshot tool, say, is useless to a text-only model, and offering it invites a call whose result it cannot read:

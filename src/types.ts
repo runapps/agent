@@ -79,6 +79,18 @@ export interface ToolDefinition<A = Record<string, unknown>> {
   /** Changes or removes something the user may not want gone. */
   destructive?: boolean;
   /**
+   * How the chat UI (`renderChat`) shows a call of this tool; the model
+   * never sees it. Every function is the app's own: an exception in one
+   * falls back to the default display.
+   */
+  display?: ToolDisplay<A>;
+  /**
+   * What the model is told when the run is stopped while this call runs
+   * (default: that it was stopped). The call's own work may go on; this is
+   * where a tool says how far it got, so a later turn does not redo it.
+   */
+  whenStopped?: (args: A) => ToolResultValue;
+  /**
    * Only looks (reads, lists, searches): running it changes nothing. A
    * successful call of a tool that is not read-only counts as progress for
    * the guard against repeated calls; a read-only one only when its result is new.
@@ -105,6 +117,23 @@ export interface Tool<A = any> extends ToolDefinition<A> {
 }
 
 export type ToolStatus = "ok" | "error" | "declined" | "blocked" | "skipped";
+
+/** A tool's look in the chat UI (see `ToolDefinition.display`). */
+export interface ToolDisplay<A = any> {
+  /** The call in words, e.g. "Run 3 nodes": the card's title and the folded line of a reply's calls. Default: the tool's name and its arguments. */
+  label?: (args: A) => string;
+  /** The card's icon (SVG markup, about 14px). */
+  icon?: string;
+  /**
+   * Content of the app's own on the card, under its title and visible while
+   * it is folded (a card's arguments and raw result stay behind it): called
+   * when the call starts (`status: "running"`) and again with its result.
+   * `details` is what `execute` returned as details (live calls only).
+   */
+  render?: (call: { args: A; status: ToolStatus | "running"; result?: string; details?: unknown }) => HTMLElement | null | undefined;
+  /** A short outcome beside the status mark when the call ends ("$0.12", "3 nodes"). */
+  outcome?: (call: { args: A; status: ToolStatus; result: string; details?: unknown }) => string | undefined;
+}
 
 /* ------------------------------------------------------------------ */
 /* UI an app provides                                                  */

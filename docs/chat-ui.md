@@ -27,7 +27,7 @@
 - **Tool calls** — one quiet line per chain of calls, worded from the tools ("read 2 files, edited 1 file"), opening to a card per call with arguments, result (pictures a tool returned shown under it), duration and status.
 - **Questions** — `ask_user` and confirmations appear inline above the composer; while one waits the composer folds to a line, and answering brings the view back to the latest output. A short chat (under 420 px) keeps its composer compact.
 - **The composer** — Enter sends (the ↵ button appears once there is something to send), Shift+Enter breaks a line. While the agent runs, the ↵ becomes a stop square, Enter **steers** (inserts into the current task) and ⌘↵ / Ctrl+↵ **queues** a follow-up (with typed text, *Steer* and *Follow-up* buttons appear too); queued messages sit in a card above the box with *send now*, *edit* and *remove*.
-- **Attachments** — paperclip, drag and drop, or paste. Files are saved under `/uploads/` in the conversation's directory and named in the message; pictures also go to the model as images — unless the model is known to be text-only: then they stay files and the user is told the model cannot see them. 20 MB per file.
+- **Attachments** — paperclip, drag and drop, or paste. Files are saved under `/uploads/` in the conversation's directory and named in the message; pictures also go to the model as images — unless the model is known to be text-only: then they stay files and the user is told the model cannot see them. A video (25 MB at most) goes to the model as a video unless the model is known not to take one. Without a directory, a text file or a PDF's text goes into the message itself. 20 MB per file.
 - **Files** — the header's *Files* button opens the directory: a tree, an editor (⌘S, word wrap, Markdown preview), picture and PDF previews, upload, new file, download (folders as zip). File paths in replies open there. Live: changes by the agent show at once.
 - **Skills** — the *Skills* button lists the skills (with a count), uploads zips, removes the user's own.
 - **Chats** — the conversation list (the open one first), new chat, delete. Conversations keep running when you switch away (up to three in the background).
@@ -132,6 +132,7 @@ await chat.ready;              // the first conversation is open
 chat.agent;                    // the open conversation's Agent (events, messages, usage…)
 chat.prompt("Hello");          // send as if typed
 chat.setInput("Draft: ");      // fill the composer
+chat.insertText("[12] Shot 3"); // put text at the cursor, keeping what was typed
 chat.addContext({ id, label, text });  // a chip in the composer, sent with the next message (below)
 await chat.newSession();
 await chat.resume(id);
@@ -164,6 +165,10 @@ renderChat(el, {
   },
 });
 ```
+
+## Your own pieces: header buttons, `composerTop`, the empty state
+
+`headerActions` (buttons before the settings gear), `composerTop` (a panel right above the composer — a plan to approve, a status line) and an element given as `emptyState` are yours: you fill and update them (a React portal works), and the chat's own button and input resets do not touch them (they get the class `ra-host`), so your styles apply as they are. Content a tool's `display.render` returns is treated the same way.
 
 ## Context from your page: `addContext`
 

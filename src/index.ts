@@ -72,4 +72,5 @@ export type {
   ToolConfirm,
   ToolResultValue,
   ToolStatus,
+  ToolDisplay,
 } from "./types.js";

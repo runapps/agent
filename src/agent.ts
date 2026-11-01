@@ -979,6 +979,14 @@ export class Agent {
     }
 
     if (signal.aborted) return finish("skipped", SKIPPED_STOP);
+    // Stopped while it ran: the tool may say how far it got (whenStopped).
+    const stoppedIn = () => {
+      try {
+        const own = tool.whenStopped?.(args as Record<string, unknown>);
+        if (own !== undefined) { const norm = normalizeResult(own, tool.maxResultChars); return finish("skipped", norm.content, norm.details); }
+      } catch { /* the default note */ }
+      return finish("skipped", SKIPPED_STOP);
+    };
     try {
       const value = await raceAbort(Promise.resolve(tool.execute(args as Record<string, unknown>, {
         signal,
@@ -989,11 +997,11 @@ export class Agent {
         update: (content) => this.emit("tool_update", { runId, id, name, content }),
         progress: (made) => { progress = made; },
       })), signal);
-      if (signal.aborted) return finish("skipped", SKIPPED_STOP);
+      if (signal.aborted) return stoppedIn();
       const norm = normalizeResult(value, tool.maxResultChars);
       return finish("ok", norm.content, norm.details);
     } catch (err) {
-      if (signal.aborted) return finish("skipped", SKIPPED_STOP);
+      if (signal.aborted) return stoppedIn();
       const msg = err instanceof Error ? err.message : String(err);
       return finish("error", msg.startsWith("Error:") ? msg : `Error: ${msg}`);
     }

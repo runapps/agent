@@ -21,7 +21,7 @@ import { debugPanel } from "./debug-panel.js";
 import { CHAT_PALETTES, tokenCSS, tokenProp, type ChatPalette, type ChatVars } from "./chat-theme.js";
 // The core comes in through its entry, so a CommonJS build of the UI requires the core package instead of bundling a copy.
 import { Agent, toProvider, titleOf, UNTITLED, summaryOf, listTemplates, extractPdfText, formatPdfText, isPdf, modelAccepts } from "./index.js";
-import type { ModelProvider, ModelInfo, RunAppsClientLike, ChatMessage, ContentPart, Workspace, AgentOptions, AgentUI, RunEnd, RunResult, SelectOption, SessionSummary, Skill, ToolStatus } from "./index.js";
+import type { ModelProvider, ModelInfo, RunAppsClientLike, ChatMessage, ContentPart, Workspace, AgentOptions, AgentUI, RunEnd, RunResult, SelectOption, SessionSummary, Skill, ToolStatus, ToolDisplay } from "./index.js";
 
 export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   /**
@@ -120,6 +120,8 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   files?: boolean;
   /** Buttons of your own for the header, placed before the settings gear. */
   headerActions?: HTMLElement[];
+  /** A panel of your own right above the composer (a plan, a status); you show, hide and update it. */
+  composerTop?: HTMLElement;
   /** Called with each session's agent as the chat opens it (the first one, a new chat, a resumed one). */
   onSession?: (agent: Agent) => void;
 }
@@ -135,6 +137,8 @@ export interface ChatHandle {
   /** Sends a message as if typed (queued when the agent is busy). */
   prompt(text: string): Promise<RunResult>;
   setInput(text: string): void;
+  /** Puts `text` into the composer at the cursor (spaced from what is around it), keeping what was typed. */
+  insertText(text: string): void;
   /** Starts a fresh conversation (a new agent with the same options). */
   newSession(): Promise<Agent>;
   /** Continues a saved session of the workspace. */
@@ -259,9 +263,10 @@ const STYLE_ID = "runapps-agent-chat-style";
 const CSS = tokenCSS() + `
 .ra-chat{display:flex;flex-direction:column;height:100%;min-height:0;box-sizing:border-box;background:var(--ra-bg);color:var(--ra-fg);font:14px/1.5 var(--ra-font);position:relative;overflow:hidden;-webkit-font-smoothing:antialiased}
 .ra-chat *,.ra-chat *::before,.ra-chat *::after{box-sizing:border-box}
-.ra-chat button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0;margin:0;line-height:inherit}
+/* The chat's own controls start bare; what the host puts in (.ra-host: header actions, the empty state, composerTop, a tool's own content) keeps the host's styles. */
+.ra-chat button:where(:not(.ra-host,.ra-host *)){font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0;margin:0;line-height:inherit}
 .ra-chat button:disabled{opacity:.5;cursor:default}
-.ra-chat textarea,.ra-chat input[type=text]{font:inherit;color:inherit;background:transparent;border:0;outline:0;width:100%;margin:0}
+.ra-chat textarea:where(:not(.ra-host *)),.ra-chat input[type=text]:where(:not(.ra-host *)){font:inherit;color:inherit;background:transparent;border:0;outline:0;width:100%;margin:0}
 .ra-chat svg{flex-shrink:0}
 .ra-col{max-width:820px;margin:0 auto;padding:0 20px;width:100%}
 .ra-chat .ra-btn{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:6px;font-size:12px;font-weight:500;border:1px solid var(--ra-border);background:var(--ra-bg);white-space:nowrap}
@@ -498,6 +503,10 @@ const CSS = tokenCSS() + `
 .ra-tool .ra-ticon{width:20px;height:20px;border-radius:4px;background:var(--ra-accent-subtle);color:var(--ra-accent-fg);display:inline-flex;align-items:center;justify-content:center}
 .ra-tool.fail .ra-ticon{background:var(--ra-red-subtle);color:var(--ra-red)}
 .ra-tool .ra-tname{font-weight:600;white-space:nowrap}
+.ra-tool .ra-tname.own{font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ra-tool>summary:has(.ra-tx){flex-wrap:wrap}
+.ra-tool .ra-tx{flex-basis:100%;min-width:0;padding-left:26px;cursor:default}
+.ra-tool .ra-tout{font-variant-numeric:tabular-nums}
 .ra-tool .ra-tsum{flex:1;min-width:0;color:var(--ra-fg-muted);font:13px var(--ra-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ra-tool .ra-tend{display:inline-flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:var(--ra-fg-muted);white-space:nowrap}
 .ra-tool .ra-tend .ok{color:var(--ra-ok);display:inline-flex}.ra-tool .ra-tend .fail{color:var(--ra-red);display:inline-flex}
@@ -803,6 +812,8 @@ async function restoreCheckpoint(ws: Workspace, c: Checkpoint): Promise<void> {
 
 const MAX_ATTACHMENT = 20 * 1024 * 1024;
 const MAX_IMAGE_PART = 8 * 1024 * 1024;
+/** A video sent inline (as a data URL) at most this big. */
+const MAX_VIDEO_PART = 25 * 1024 * 1024;
 const MAX_INLINE_TEXT = 64 * 1024;
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|toml|xml|html?|css|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|h|cpp|hpp|cs|sh|bash|zsh|sql|ini|cfg|conf|log|env|svg|tex|rst)$/i;
 const ATTACH_MARK = "[attachments]";
@@ -1020,7 +1031,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, files: filesOpt, headerActions, ...agentOpts } = opts;
+  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, files: filesOpt, headerActions, composerTop, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const provider: ModelProvider | null = providerOpt ? toProvider(providerOpt) : clientOpt ? toProvider(clientOpt) : givenAgent?.provider ?? null;
   const project = provider?.name ?? agentOpts.appName ?? "app";
@@ -1077,6 +1088,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
   // In a narrow chat the labels fold away and only the icons show: each button keeps its name.
   for (const [btn, label] of [[debugBtn, t.debug], [filesBtn, t.files], [skillsBtn, t.skills], [histBtn, t.history], [newBtn, t.newChat], [clearBtn, t.clearChat]] as const) { btn.setAttribute("aria-label", label); if (!btn.title) btn.title = label; }
+  for (const el of [...(headerActions ?? []), ...(composerTop ? [composerTop] : []), ...(emptyState instanceof HTMLElement ? [emptyState] : [])]) el.classList.add("ra-host");
   head.append(titleEl, modelEl, h("span", "ra-sp"), useBtn, debugBtn, filesBtn, skillsBtn, histBtn, newBtn, clearBtn, ...(headerActions ?? []), setBtn);
   if (title === false) head.style.display = "none";
   const log = h("div", "ra-log");
@@ -1117,7 +1129,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   bar.append(left, acts);
   box.append(cmds, files, ta, bar, fileInput);
   const drop = h("div", "ra-drop", t.drop);
-  compCol.append(alertEl, queueEl, box);
+  compCol.append(alertEl, queueEl, ...(composerTop ? [composerTop] : []), box);
   comp.append(compCol);
   const toasts = h("div", "ra-toasts");
   const statusCol = h("div", "ra-col"); statusCol.append(statusEl);
@@ -1607,15 +1619,35 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
   const scheduleRender = () => { if (renderTimer === null) renderTimer = window.setTimeout(() => { renderTimer = null; flushActive(false); }, 100); };
 
+  /** A tool's own display (ToolDefinition.display): any of its functions failing falls back to the default. */
+  const displayOf = (name: string): ToolDisplay | undefined => agent?.tools?.find((x) => x.name === name)?.display;
+  const tryDisplay = <T,>(fn: (() => T) | undefined): T | undefined => { if (!fn) return undefined; try { return fn(); } catch { return undefined; } };
+  const labelOf = (name: string, args: unknown): string | undefined => { const d = displayOf(name); const l = tryDisplay(d?.label && (() => d.label!(args))); return typeof l === "string" && l.trim() ? l : undefined; };
+  /** The app's own content on a card: replaced on every call of `render`. */
+  const renderCustom = (card: ToolCard, call: { status: ToolStatus | "running"; result?: string; details?: unknown }) => {
+    const d = displayOf(card.name);
+    if (!d?.render) return;
+    const el = tryDisplay(() => d.render!({ args: card.args, ...call }));
+    const sum = card.el.querySelector("summary")!;
+    sum.querySelector(".ra-tx")?.remove();
+    if (!(el instanceof HTMLElement)) return;
+    const box = h("div", "ra-tx ra-host");
+    // Clicks on the app's content (a chip, a link) are its own: they do not fold the card.
+    box.addEventListener("click", (e) => e.preventDefault());
+    box.append(el);
+    sum.append(box);
+  };
   const makeCard = (name: string, args: unknown): ToolCard => {
     const el = h("details", "ra-tool") as HTMLDetailsElement;
     cardCall.set(el, { name, args });
     const sum = h("summary");
-    const icon = h("span", "ra-ticon"); icon.innerHTML = (TOOL_ICON[name] ?? I.wrench)();
+    const d = displayOf(name), label = labelOf(name, args);
+    const icon = h("span", "ra-ticon"); icon.innerHTML = d?.icon ?? (TOOL_ICON[name] ?? I.wrench)();
     const end = h("span", "ra-tend");
     end.innerHTML = '<span class="ra-spin"></span>';
     sum.innerHTML = `<span class="ra-chev">${I.chev()}</span>`;
-    sum.append(icon, h("span", "ra-tname", name), h("span", "ra-tsum", summarizeArgs(name, args)), end);
+    const title = h("span", "ra-tname", label ?? name); if (label) { title.title = name; title.classList.add("own"); }
+    sum.append(icon, title, h("span", "ra-tsum", label ? "" : summarizeArgs(name, args)), end);
     const tb = h("div", "ra-tbody");
     const argsPre = h("pre", "", name === "run_js" && args && typeof args === "object" && typeof (args as { code?: unknown }).code === "string" ? (args as { code: string }).code : typeof args === "string" ? args : JSON.stringify(args, null, 2));
     tb.append(h("div", "ra-tlabel", t.args), argsPre);
@@ -1628,7 +1660,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       tb.append(acts);
     }
     el.append(sum, tb);
-    return { el, name, args, end, body: tb, update: null, result: null };
+    const card: ToolCard = { el, name, args, end, body: tb, update: null, result: null };
+    renderCustom(card, { status: "running" });
+    return card;
   };
 
   /**
@@ -1650,6 +1684,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const order: string[] = [];
     const seen = new Map<string, Set<string> | number>();
     for (const c of calls) {
+      // A tool with its own words: those, counted when the same.
+      const own = labelOf(c.name, c.args);
+      if (own !== undefined) { const key = `Own:${own}`; if (!seen.has(key)) { order.push(key); seen.set(key, 0); } seen.set(key, (seen.get(key) as number) + 1); continue; }
       const kind = TOOL_KIND[c.name] ?? "Other";
       const key = kind === "Other" ? `Other:${c.name}` : kind;
       if (!seen.has(key)) { order.push(key); seen.set(key, kind === "Read" || kind === "Write" || kind === "Edit" || kind === "Delete" ? new Set<string>() : 0); }
@@ -1659,12 +1696,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return order.map((key) => {
       const v = seen.get(key)!;
       const n = String(v instanceof Set ? v.size : v);
+      if (key.startsWith("Own:")) return v === 1 ? key.slice(4) : `${key.slice(4)} ×${n}`;
       if (key.startsWith("Other:")) return t.actOther.replace("{name}", key.slice(6));
       return (t[`act${key}` as keyof Strings] as string).replace("{n}", n);
     }).join(lang === "zh" ? "，" : ", ");
   };
   /** "正在修改 第一章.md" — the call in progress, by kind, with its file name or argument summary. */
   const describeRunning = (c: { name: string; args: unknown }, el: HTMLElement): { verb: string; what: string; title?: string } => {
+    const own = labelOf(c.name, c.args);
+    if (own !== undefined) return { verb: own, what: "" };
     const kind = TOOL_KIND[c.name] ?? "Other";
     const path = pathArg(c.args);
     const verb = t[`ing${kind}` as keyof Strings] as string;
@@ -1710,11 +1750,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   /** Pictures a tool returned, shown under its result (a screenshot, a chart). */
   const imagesOf = (content: unknown): string[] => Array.isArray(content) ? content.flatMap((p: ContentPart) => (p.type === "image_url" && /^(data:image\/|https?:)/.test(p.image_url.url) ? [p.image_url.url] : [])) : [];
-  const finishCard = (card: ToolCard, status: ToolStatus, result: string, durationMs?: number, images: string[] = []) => {
+  const finishCard = (card: ToolCard, status: ToolStatus, result: string, durationMs?: number, images: string[] = [], details?: unknown) => {
     const ok = status === "ok";
     const fail = status === "error" || status === "blocked";
     card.end.replaceChildren();
-    if (durationMs !== undefined) card.end.append(h("span", "", `${Math.round(durationMs)}ms`));
+    const d = displayOf(card.name);
+    const outcome = tryDisplay(d?.outcome && (() => d.outcome!({ args: card.args, status, result, details })));
+    if (typeof outcome === "string" && outcome) card.end.append(h("span", "ra-tout", outcome));
+    else if (durationMs !== undefined) card.end.append(h("span", "", `${Math.round(durationMs)}ms`));
     const mark = h("span", ok ? "ok" : fail ? "fail" : "");
     if (ok) mark.innerHTML = I.check();
     else if (status === "error") mark.innerHTML = I.xcircle();
@@ -1722,6 +1765,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     else mark.textContent = t[status as "declined" | "skipped"] ?? status;
     card.end.append(mark);
     card.el.classList.toggle("fail", fail);
+    renderCustom(card, { status, result, details });
     card.update?.remove();
     if (!card.result) {
       card.result = h("pre", "");
@@ -2035,6 +2079,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const parts: ContentPart[] = [];
     // A model known not to see pictures gets none: they are kept as files, and the user is told.
     const blind = taken.some((a) => a.image) && (await target.accepts("image")) === false;
+    // A video goes to a model that takes video (or may: the catalogue does not say), inline like a picture.
+    const isVideo = (a: Attachment) => /^video\//.test(a.file.type) && a.file.size <= MAX_VIDEO_PART;
+    const seesVideo = taken.some(isVideo) && (await target.accepts("video")) !== false;
     if (blind) ui.notify(t.noVision.replace("{model}", target.model || (await target.modelInfo())?.id || t.sDefault), "warning");
     for (const a of taken) {
       const type = a.file.type || (a.text !== null ? "text/plain" : "application/octet-stream");
@@ -2053,7 +2100,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       } else if (a.text !== null && a.text.length <= MAX_INLINE_TEXT) {
         lines.push(`- ${a.name} (${type}, ${fmtSize(a.file.size)}) — contents below`);
         parts.push({ type: "text", text: `<file name="${a.name}">\n${a.text}\n</file>` });
-      } else lines.push(`- ${a.name} (${type}, ${fmtSize(a.file.size)}) — ${a.image && !blind ? "the picture below" : "not readable here"}`);
+      } else lines.push(`- ${a.name} (${type}, ${fmtSize(a.file.size)}) — ${a.image && !blind ? "the picture below" : isVideo(a) && seesVideo ? "the video below" : "not readable here"}`);
+      if (isVideo(a) && seesVideo) {
+        const b64 = await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(a.file); });
+        parts.push({ type: "video_url", video_url: { url: b64 } } as ContentPart);
+      }
       if (a.image && !blind && a.file.size <= MAX_IMAGE_PART) {
         const b64 = await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(a.file); });
         parts.push({ type: "image_url", image_url: { url: b64 } });
@@ -2704,9 +2755,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (active?.pending) showPending((active.pending.firstElementChild as HTMLElement).textContent ?? t.waiting, { text: ev.content });
       list.schedule();
     });
-    on("tool_end", (ev: { id: string; name: string; status: ToolStatus; result: string; durationMs: number; content?: unknown }) => {
+    on("tool_end", (ev: { id: string; name: string; status: ToolStatus; result: string; durationMs: number; content?: unknown; details?: unknown }) => {
       const c = cards.get(ev.id);
-      if (c) finishCard(c, ev.status, ev.result, ev.durationMs, imagesOf(ev.content));
+      if (c) finishCard(c, ev.status, ev.result, ev.durationMs, imagesOf(ev.content), ev.details);
       else { const hc = histCalls.get(ev.id); if (hc) { hc.status = ev.status; hc.result = ev.result; histCalls.delete(ev.id); } }
       // tool_end carries no arguments: the card has them.
       const path = c?.args && typeof c.args === "object" ? (c.args as { path?: unknown }).path : undefined;
@@ -2851,6 +2902,14 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     ui,
     prompt: promptFromHost,
     setInput(text) { ta.value = text; ta.focus(); renderCmds(); },
+    insertText(text) {
+      const at = document.activeElement === ta ? ta.selectionStart : ta.value.length, end = document.activeElement === ta ? ta.selectionEnd : at;
+      const before = ta.value.slice(0, at), after = ta.value.slice(end);
+      const piece = (before && !/\s$/.test(before) ? " " : "") + text + (after && /^\S/.test(after) ? " " : after ? "" : " ");
+      ta.value = before + piece + after;
+      ta.focus(); ta.setSelectionRange(before.length + piece.length, before.length + piece.length);
+      renderCmds();
+    },
     newSession,
     resume,
     deleteSession: (id) => deleteSession(id),
