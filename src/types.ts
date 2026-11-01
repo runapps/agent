@@ -130,7 +130,23 @@ export interface ToolDefinition<A = Record<string, unknown>> {
  * call and runs `onChoose` (where the tool stops asking, e.g. turns on its
  * app's auto-apply setting).
  */
-export type ToolConfirm = string | false | { title: string; message?: string; always?: { label: string; onChoose: () => void } };
+export type ToolConfirm =
+  | string
+  | false
+  | {
+      title: string;
+      message?: string;
+      always?: { label: string; onChoose: () => void };
+      /** The confirm button's text ("Apply"); the UI's own word when absent. */
+      ok?: string;
+      /**
+       * Content of the tool's own in the question (a diff the user picks
+       * changes in): the chat's card shows it under the message. Whatever
+       * the user sets in it, the tool reads when it runs. UIs without a
+       * document (a terminal) leave it out.
+       */
+      body?: () => HTMLElement;
+    };
 
 /** A tool as the agent holds it (`defineTool` normalises a definition). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -184,7 +200,7 @@ export interface AgentUI {
   confirm(
     title: string,
     message?: string,
-    opts?: { ok?: string; cancel?: string; danger?: boolean; signal?: AbortSignal; always?: { label: string; onChoose: () => void } },
+    opts?: { ok?: string; cancel?: string; danger?: boolean; signal?: AbortSignal; always?: { label: string; onChoose: () => void }; body?: () => HTMLElement },
   ): Promise<boolean>;
   /**
    * Pick one (or several with `multi`) of `options`; `allowOther` adds a

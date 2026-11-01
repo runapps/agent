@@ -625,12 +625,17 @@ const CSS = tokenCSS() + `
 .ra-q .ra-opt{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--ra-border);border-radius:6px;padding:6px 12px;text-align:left;width:100%;background:var(--ra-bg);font-size:14px;min-height:32px}
 .ra-q .ra-opt:hover{background:var(--ra-muted)}
 .ra-q .ra-opt input[type=radio],.ra-q .ra-opt input[type=checkbox]{width:auto;flex:none;margin:4px 0 0;accent-color:var(--ra-accent)}
+/* A host's form styles (antd's .ant-form input[type=radio]:focus) put a square focus shadow on our radios and checkboxes: none here (more specific than theirs on purpose). Keyboard focus shows on the option's row for a radio, as a ring for a checkbox. */
+.ra-chat input:is([type=radio],[type=checkbox]):focus:not(.ra-x){box-shadow:none;outline:0}
+.ra-chat input[type=checkbox]:focus-visible:not(.ra-x){outline:2px solid var(--ra-accent);outline-offset:1px}
+.ra-opt:has(input:focus-visible){border-color:var(--ra-accent)}
 .ra-q .ra-opt>div,.ra-q .ra-opt>span{flex:1;min-width:0}
 .ra-q .ra-opt small{display:block;color:var(--ra-fg-muted);font-size:12px}
 .ra-q .ra-field{border:1px solid var(--ra-border);border-radius:6px;padding:6px 10px;background:var(--ra-bg);width:100%;font-size:14px}
 .ra-q .ra-field:focus{border-color:var(--ra-accent)}
 .ra-q textarea.ra-field{min-height:96px;max-height:200px;resize:vertical}
 .ra-btns{display:flex;justify-content:flex-end;gap:8px}
+.ra-cbody{margin:2px 0 10px;max-height:min(60vh,560px);overflow:auto;min-width:0}
 .ra-status{font-size:14px;color:var(--ra-fg-muted);padding:4px 0}
 .ra-comp{flex-shrink:0;padding:8px 0 14px}
 .ra-alert{font-size:14px;color:var(--ra-red);margin-bottom:8px;white-space:pre-wrap}
@@ -1029,6 +1034,8 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
   return {
     confirm: (title, message, opts = {}) => open<boolean>((card, done) => {
       head(card, title, message);
+      // The tool's own content (a diff to pick changes in), between the question and its buttons.
+      if (opts.body) { try { const b = opts.body(); b.classList.add("ra-cbody"); card.append(b); } catch (err) { console.warn("agent: confirm body failed", err); } }
       const row = h("div", "ra-btns");
       row.append(btn(opts.cancel ?? t.decline, "ghost", () => done(false)));
       const always = opts.always;

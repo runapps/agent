@@ -59,6 +59,7 @@ export function domUI(): AgentUI {
       const v = await openDialog((d, done) => {
         d.append(el("div", "font-weight:600;font-size:15px;margin-bottom:6px", title));
         if (message) d.append(el("div", "white-space:pre-wrap;opacity:.8;font-size:13px;margin-bottom:14px;word-break:break-word", message));
+        if (opts.body) { try { d.append(opts.body()); } catch (err) { console.warn("agent: confirm body failed", err); } }
         const row = el("div", "display:flex;justify-content:flex-end;gap:8px;margin-top:10px");
         row.append(
           button(opts.cancel ?? (zh ? "取消" : "Cancel"), false, false, () => done(false)),

@@ -1050,8 +1050,8 @@ export class Agent {
     if (tool.confirm) question = await tool.confirm(args as Record<string, unknown>);
     else if (tool.destructive) question = `Allow ${tool.name}?`;
     if (question === false) return true;
-    const { title, message, always } = typeof question === "string" ? { title: question, message: undefined, always: undefined } : question;
-    return this.ui.confirm(title, message, { danger: !!tool.destructive, signal, always });
+    const { title, message, always, ok, body } = typeof question === "string" ? { title: question, message: undefined, always: undefined, ok: undefined, body: undefined } : question;
+    return this.ui.confirm(title, message, { danger: !!tool.destructive, signal, always, ...(ok ? { ok } : {}), ...(body ? { body } : {}) });
   }
 
   /** After an abort, every open tool call gets a result so the transcript stays valid. */
