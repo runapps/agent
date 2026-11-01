@@ -63,11 +63,11 @@ export async function collectCompletion(
         opts.onReasoning?.(r, reasoning);
       }
       if (delta.tool_calls) {
-        if (!Array.isArray(delta.tool_calls)) throw new Error("runapps agent: malformed streamed tool_calls");
+        if (!Array.isArray(delta.tool_calls)) throw new Error("Malformed streamed tool_calls");
         for (const part of delta.tool_calls) {
           const index = typeof part.index === "number" ? part.index : calls.size;
           if (!Number.isInteger(index) || index < 0 || index >= 64) {
-            throw new Error("runapps agent: malformed streamed tool call index");
+            throw new Error("Malformed streamed tool call index");
           }
           let call = calls.get(index);
           if (!call) {
@@ -86,14 +86,14 @@ export async function collectCompletion(
           opts.onToolCall?.({ index, id: call.id ?? "", name: call.function.name, arguments: call.function.arguments }, part.function?.arguments ?? "");
         }
       }
-      if (size > maxChars) throw new Error("runapps agent: the model's reply exceeded the size limit");
+      if (size > maxChars) throw new Error("The model's reply exceeded the size limit");
     }
   }
   opts.signal?.throwIfAborted();
-  if (!finish) throw new Error("runapps agent: the stream ended before the reply was complete");
+  if (!finish) throw new Error("The stream ended before the reply was complete");
 
   const indices = [...calls.keys()].sort((a, b) => a - b);
-  if (indices.some((v, i) => v !== i)) throw new Error("runapps agent: streamed tool calls arrived incomplete");
+  if (indices.some((v, i) => v !== i)) throw new Error("Streamed tool calls arrived incomplete");
   const toolCalls = indices.map((i) => {
     const c = calls.get(i)!;
     const { index: _drop, ...rest } = c;

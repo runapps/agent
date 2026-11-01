@@ -17,10 +17,10 @@ export const DEFAULT_MAX_RESULT_CHARS = 32_000;
  */
 export function defineTool<A = Record<string, unknown>>(def: ToolDefinition<A>): Tool<A> {
   if (!NAME_RE.test(def.name)) {
-    throw new Error(`runapps agent: tool name "${def.name}" must match ${NAME_RE}`);
+    throw new Error(`tool name "${def.name}" must match ${NAME_RE}`);
   }
   if (!def.description || !def.description.trim()) {
-    throw new Error(`runapps agent: tool "${def.name}" needs a description`);
+    throw new Error(`tool "${def.name}" needs a description`);
   }
   const parameters: JSONSchema = def.parameters ?? { type: "object", properties: {}, additionalProperties: false };
   return { ...def, parameters };

@@ -64,6 +64,8 @@ app.post("/api/llm/chat/completions", async (req, res) => {
 
 With `models`, the agent knows each model's context window (`max_input_tokens`) and longest reply (`max_tokens`): it sizes replies to the model's maximum, compacts the conversation before the window is full, and the chat's settings menu offers the list. Without it, the agent assumes a 128 000-token window and 8 192-token replies.
 
+A model may also carry its `price`: `{ input, output }` per million tokens, `per_call` for a fixed amount added to each call, and `currency` (an ISO code, default `"USD"`). The chat shows it in the settings and in `/context`, and shows spending in that currency — so a provider's `usage.total_cost` must be in it too.
+
 ```js
 const models = [
   {

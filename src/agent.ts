@@ -148,7 +148,7 @@ function withoutMedia(messages: ChatMessage[], media: Partial<Record<InputKind, 
 const emptyUsage = (): AgentUsage => ({ total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 });
 const abortedResult = (): RunResult => ({ runId: "", reason: "aborted", text: "", usage: emptyUsage() });
 const SKIPPED_STOP = "Skipped: the user stopped the run.";
-const balanceError = () => new ProviderError(402, "runapps agent: the reply was cut short because the balance could not cover a full answer; top up to continue", { code: "insufficient_balance" });
+const balanceError = () => new ProviderError(402, "The reply was cut short because the balance could not cover a full answer; top up to continue", { code: "insufficient_balance" });
 
 /** Settles with `p`, or rejects as soon as `signal` aborts (the work itself may go on; its result is ignored). */
 function raceAbort<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -218,12 +218,12 @@ export class Agent {
     if (opts.sandbox !== false) tools.push(sandboxTool(this.workspace, { ...(typeof opts.sandbox === "object" ? opts.sandbox : {}), guard }));
     const seen = new Set<string>();
     for (const t of tools) {
-      if (seen.has(t.name)) throw new Error(`runapps agent: two tools are named "${t.name}"`);
+      if (seen.has(t.name)) throw new Error(`two tools are named "${t.name}"`);
       seen.add(t.name);
     }
     this.tools = tools;
     if (opts.serverTools?.length && (opts.tools?.length || this.workspace || opts.sandbox !== false || opts.askUser !== false)) {
-      throw new Error("runapps agent: serverTools work only for an agent with no tools of its own (tools: [], workspace: null, sandbox: false, askUser: false) — the gateway runs that loop");
+      throw new Error("serverTools work only for an agent with no tools of its own (tools: [], workspace: null, sandbox: false, askUser: false) — the gateway runs that loop");
     }
     this.persist = !!this.workspace && opts.persist !== false;
     if (opts.restore) {
@@ -236,7 +236,7 @@ export class Agent {
       }).catch((err) => {
         // Saving now would overwrite a session we could not read: stay in memory only.
         this.persist = false;
-        console.warn(`runapps agent: could not load session ${opts.id}; it will not be saved over`, err);
+        console.warn(`agent: could not load session ${opts.id}; it will not be saved over`, err);
       });
     } else {
       this.loaded = Promise.resolve();
@@ -244,7 +244,7 @@ export class Agent {
   }
 
   private applySession(data: SessionData): void {
-    if (data.v !== 1 && data.v !== 2) throw new Error("runapps agent: unknown session format");
+    if (data.v !== 1 && data.v !== 2) throw new Error("unknown session format");
     this.history = data.messages.slice();
     this.committed = this.history.length;
     this.droppedTurns = data.droppedTurns ?? 0;
@@ -267,7 +267,7 @@ export class Agent {
       await this.workspace.sessions.save(this.export());
       this.emit("session_saved", { id: this.id });
     } catch (err) {
-      console.warn("[runapps agent] could not save the session:", err);
+      console.warn("[agent] could not save the session:", err);
     }
   }
 
@@ -291,10 +291,10 @@ export class Agent {
 
   private emit<K extends AgentEventName>(name: K, event: AgentEventMap[K]): void {
     for (const h of this.handlers.get(name) ?? []) {
-      try { (h as Handler<K>)(event); } catch (err) { console.error("[runapps agent] listener for", name, "threw:", err); }
+      try { (h as Handler<K>)(event); } catch (err) { console.error("[agent] listener for", name, "threw:", err); }
     }
     for (const h of this.anyHandlers) {
-      try { h(name, event); } catch (err) { console.error("[runapps agent] listener threw:", err); }
+      try { h(name, event); } catch (err) { console.error("[agent] listener threw:", err); }
     }
   }
 
@@ -367,7 +367,7 @@ export class Agent {
 
   /** Forgets the conversation (the workspace stays). */
   reset(): void {
-    if (this.current) throw new Error("runapps agent: cannot reset while a run is active; abort() first");
+    if (this.current) throw new Error("cannot reset while a run is active; abort() first");
     this.history = [];
     this.title = undefined;
     this._ended = null;
@@ -381,7 +381,7 @@ export class Agent {
    * the user's message, as if the user had asked for that skill.
    */
   useSkill(name: string): void {
-    if (!this.workspace) throw new Error("runapps agent: useSkill needs a workspace");
+    if (!this.workspace) throw new Error("useSkill needs a workspace");
     this.pendingSkills.push(name);
   }
 
@@ -459,8 +459,8 @@ export class Agent {
    */
   async rewind(index: number): Promise<void> {
     await this.loaded;
-    if (this.current) throw new Error("runapps agent: cannot rewind while a run is active; abort() first");
-    if (!Number.isInteger(index) || index < 0 || index > this.history.length) throw new Error(`runapps agent: no message at ${index}`);
+    if (this.current) throw new Error("cannot rewind while a run is active; abort() first");
+    if (!Number.isInteger(index) || index < 0 || index > this.history.length) throw new Error(`no message at ${index}`);
     this.clearQueue();
     this.history = this.history.slice(0, index);
     this.committed = this.history.length;
@@ -493,8 +493,8 @@ export class Agent {
    */
   async continue(): Promise<RunResult> {
     await this.loaded;
-    if (this.current) throw new Error("runapps agent: cannot continue while a run is active");
-    if (!this.history.length) throw new Error("runapps agent: nothing to continue");
+    if (this.current) throw new Error("cannot continue while a run is active");
+    if (!this.history.length) throw new Error("nothing to continue");
     return this.start(null);
   }
 
@@ -651,14 +651,14 @@ export class Agent {
           }
           if (truncatedRounds >= 2) {
             reason = "error";
-            error = new Error("runapps agent: the model's tool calls were cut off by the output limit twice in a row");
+            error = new Error("the model's tool calls were cut off by the output limit twice in a row");
             break;
           }
         }
         const guard = this.checkLoop(results);
         if (guard === "stop") {
           reason = "error";
-          error = new Error("runapps agent: stopped after several rounds of tool calls that brought nothing new (the same results, or lines already read)");
+          error = new Error("stopped after several rounds of tool calls that brought nothing new (the same results, or lines already read)");
           break;
         }
         if (guard === "warn") {
@@ -761,7 +761,7 @@ export class Agent {
    * all of them would fit in `keepRecentTokens`.
    */
   compact(focus?: string): Promise<boolean> {
-    if (this.current) return Promise.reject(new Error("runapps agent: cannot compact while a run is active"));
+    if (this.current) return Promise.reject(new Error("cannot compact while a run is active"));
     // Runs like a run: messages sent meanwhile queue behind it instead of being lost when the history is replaced.
     const controller = new AbortController();
     const work = this.chain.then(async () => {
@@ -834,7 +834,7 @@ export class Agent {
       }
     } catch (err) {
       if (signal.aborted) throw err;
-      console.warn("[runapps agent] compaction summary failed, falling back to trimming:", err);
+      console.warn("[agent] compaction summary failed, falling back to trimming:", err);
       return false;
     }
     this.history = [summaryMessage(summary), ...plan.kept];

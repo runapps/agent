@@ -21,6 +21,20 @@ export interface ModelInfo {
   options?: { inputs?: Record<string, { enum?: unknown[]; default?: unknown }> };
   /** What the model takes as input: `["text", "image"]`, also `"video"`, `"audio"` (RunApps' `/v1/models`). */
   input_modalities?: string[];
+  /** What a call costs whoever makes it; the chat's settings and `/context` show it. */
+  price?: ModelPrice;
+}
+
+/**
+ * A model's price to its caller: `input` / `output` per million tokens and
+ * `per_call` added to every call, all in `currency` (an ISO code, default
+ * `"USD"`). The provider's `usage.total_cost` is in the same currency.
+ */
+export interface ModelPrice {
+  input?: number;
+  output?: number;
+  per_call?: number;
+  currency?: string;
 }
 
 /** A kind of input a model may or may not take besides text. */
@@ -119,7 +133,7 @@ export function runappsProvider(client: RunAppsClientLike): ModelProvider {
 export function toProvider(p: ModelProvider | RunAppsClientLike): ModelProvider {
   if (typeof (p as ModelProvider).stream === "function") return p as ModelProvider;
   if (typeof (p as RunAppsClientLike).chat?.stream === "function") return runappsProvider(p as RunAppsClientLike);
-  throw new Error("runapps agent: pass a ModelProvider (with stream()) or a RunApps client");
+  throw new Error("pass a ModelProvider (with stream()) or a RunApps client");
 }
 
 export interface OpenAIProviderOptions {

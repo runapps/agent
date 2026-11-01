@@ -260,7 +260,7 @@ export class Workspace {
     },
     save: async (data) => {
       await this.ready();
-      if (!data.id) throw new Error("runapps agent: a session needs an id to be saved");
+      if (!data.id) throw new Error("a session needs an id to be saved");
       await this.store.putSession({ ...data, space: this.id });
     },
     delete: async (id, space) => {
@@ -285,10 +285,10 @@ export class Workspace {
     this.dbName = `${DB_PREFIX}:${opts.project || this.provider?.name || "app"}`;
     this.sources = typeof opts.skills === "function" ? opts.skills : opts.skills ? ([] as SkillSource[]).concat(opts.skills) : [];
     this.skillsDir = normalizePath(opts.skillsDir || DEFAULT_SKILLS_DIR);
-    if (this.skillsDir === "/") throw new Error("runapps agent: skillsDir cannot be /");
+    if (this.skillsDir === "/") throw new Error("skillsDir cannot be /");
     this.userSkillsDir = opts.userSkills === false || opts.userSkillsDir === false ? null : normalizePath(opts.userSkillsDir || DEFAULT_USER_SKILLS_DIR);
     const nested = (a: string, b: string) => a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
-    if (this.userSkillsDir === "/" || (this.userSkillsDir && nested(this.userSkillsDir, this.skillsDir))) throw new Error("runapps agent: userSkillsDir must be its own folder, apart from skillsDir");
+    if (this.userSkillsDir === "/" || (this.userSkillsDir && nested(this.userSkillsDir, this.skillsDir))) throw new Error("userSkillsDir must be its own folder, apart from skillsDir");
     this.root = opts.dir ?? null;
     this.inflate = opts.inflate;
     this.fetchFn = opts.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
@@ -341,7 +341,7 @@ export class Workspace {
   /** Exposes `fs` under `prefix` (e.g. `/doc`); its paths are relative to the prefix. */
   mount(prefix: string, fs: AgentFS): void {
     const p = normalizePath(prefix);
-    if (p === "/") throw new Error("runapps agent: cannot mount at / (open the workspace with `dir` instead)");
+    if (p === "/") throw new Error("cannot mount at / (open the workspace with `dir` instead)");
     this.mounts.set(p, fs);
   }
 
@@ -388,7 +388,7 @@ export class Workspace {
     if (!remote) { this.openChannel(); try { this.channel?.postMessage({ space: this.id, path, kind }); } catch { /* channel closed */ } }
     if (!this.changeListeners.size) return;
     const c: WorkspaceChange = { path, kind, remote };
-    for (const fn of this.changeListeners) { try { fn(c); } catch (err) { console.warn("runapps agent: onChange listener failed", err); } }
+    for (const fn of this.changeListeners) { try { fn(c); } catch (err) { console.warn("agent: onChange listener failed", err); } }
   }
 
   /** What the system prompt says about the tree. */
@@ -682,12 +682,12 @@ export class Workspace {
    */
   async installSkill(source: string | Blob | Uint8Array, opts: { name?: string; unpack?: boolean } = {}): Promise<Skill[]> {
     await this.ready();
-    if (!this.userSkillsDir) throw new Error("runapps agent: this workspace has no userSkillsDir to install skills into");
+    if (!this.userSkillsDir) throw new Error("this workspace has no userSkillsDir to install skills into");
     let bytes: Uint8Array;
     let base: string;
     if (typeof source === "string") {
       const fetched = await this.fetchSource(source);
-      if (!fetched) throw new Error("runapps agent: nothing fetched");
+      if (!fetched) throw new Error("nothing fetched");
       bytes = fetched.bytes;
       base = opts.name ?? source;
     } else {
@@ -698,7 +698,7 @@ export class Workspace {
     const name = zipBaseName(base);
     const files = zipFiles(bytes);
     const folders = skillFoldersOf(files.keys(), name);
-    if (!folders.size) throw new Error(`runapps agent: ${name}.zip has no SKILL.md (at its root, or one per folder)`);
+    if (!folders.size) throw new Error(`${name}.zip has no SKILL.md (at its root, or one per folder)`);
     const now = Date.now();
     if (opts.unpack) {
       for (const [folder, prefix] of folders) {
@@ -728,7 +728,7 @@ export class Workspace {
   async removeSkill(name: string): Promise<boolean> {
     const skill = (await this.skills()).find((s) => s.name === name);
     if (!skill) return false;
-    if (skill.builtin) throw new Error(`runapps agent: "${name}" comes with the app and cannot be removed`);
+    if (skill.builtin) throw new Error(`"${name}" comes with the app and cannot be removed`);
     if (!skill.from || !this.userSkillsDir || !skill.from.startsWith(this.userSkillsDir + "/")) return false;
     const rel = skill.from.slice(this.userSkillsDir.length);
     if (/\.zip$/i.test(rel)) await this.lib.delete(rel);
@@ -762,7 +762,7 @@ export class Workspace {
   private async loadBuiltins(): Promise<Workspace["builtins"]> {
     const out: Workspace["builtins"] = [];
     let list: SkillSource[] = [];
-    try { list = typeof this.sources === "function" ? ([] as SkillSource[]).concat(await this.sources()) : this.sources; } catch (err) { console.warn("[runapps agent] the skills list failed:", err); }
+    try { list = typeof this.sources === "function" ? ([] as SkillSource[]).concat(await this.sources()) : this.sources; } catch (err) { console.warn("[agent] the skills list failed:", err); }
     this.resolvedSources = list;
     this.lazySkills = list.filter(isLazy);
     for (const src of list) {
@@ -791,7 +791,7 @@ export class Workspace {
       } catch (err) {
         // A skills pack that cannot be fetched (offline, 404) is left out; surface it for developers.
         // eslint-disable-next-line no-console
-        console.warn("[runapps agent] skills source failed:", err);
+        console.warn("[agent] skills source failed:", err);
       }
     }
     return out;
@@ -804,7 +804,7 @@ export class Workspace {
       try {
         const parsed = parseSkillZip(b.name, b.bytes, b.key);
         for (const [folder, prefix] of parsed.folders) if (!views.has(folder)) views.set(folder, { fs: skillZipFS(parsed, prefix, b.at, this.inflate), builtin: true });
-      } catch (err) { console.warn(`[runapps agent] skills zip "${b.name}":`, err); }
+      } catch (err) { console.warn(`[agent] skills zip "${b.name}":`, err); }
     }
     for (const l of this.lazySkills) {
       const folder = /^[A-Za-z0-9][\w.-]*$/.test(l.name) ? l.name : zipBaseName(l.name);
@@ -832,7 +832,7 @@ export class Workspace {
             parsed = parseSkillZip(zipBaseName(m[1]!), rec.data, key);
           }
           for (const [folder, prefix] of parsed.folders) views.set(folder, { fs: skillZipFS(parsed, prefix, f.mtime ?? 0, this.inflate), builtin: false, from: this.userSkillsDir + f.path });
-        } catch (err) { console.warn(`[runapps agent] skills zip "${f.path}":`, err); }
+        } catch (err) { console.warn(`[agent] skills zip "${f.path}":`, err); }
       }
       const user = this.userFS();
       for (const f of files) {
@@ -1108,7 +1108,7 @@ function openIDBStore(idb: IDBFactory, name: string, space: string): Promise<Sto
     };
     req.onerror = () => reject(req.error ?? new Error("indexedDB open failed"));
     // Another tab still has the old version open: wait for it (it closes on versionchange) rather than fail.
-    req.onblocked = () => console.warn(`runapps agent: ${name} is waiting for another tab to release the database`);
+    req.onblocked = () => console.warn(`agent: ${name} is waiting for another tab to release the database`);
     req.onsuccess = () => {
       const db = req.result;
       db.onversionchange = () => db.close();

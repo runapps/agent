@@ -159,7 +159,7 @@ export function nullUI(): AgentUI {
     input: async () => null,
     notify: (message, level = "info") => {
       // eslint-disable-next-line no-console
-      (level === "error" ? console.error : console.log)(`[runapps agent] ${message}`);
+      (level === "error" ? console.error : console.log)(`[agent] ${message}`);
     },
   };
 }

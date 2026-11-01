@@ -260,7 +260,7 @@ const STRINGS = {
     dSystem: "System prompt", dMessages: "Messages sent to the model", dPayload: "Request", dResponse: "Response", dRun: "Run", dTurn: "Turn {n}", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message",
     rewindMsg: "The conversation after it is dropped and the message goes back into the composer.", rewindFiles: "Also restore the directory's files to that moment", rewindGone: "This message is no longer in the conversation.", rewindSnapshot: "{n} files ({size}) as they were at {time}", rewindPartial: "Files over 2 MB were not in the snapshot and stay as they are.", rewindGoneFile: "{path} is no longer in the directory.",
     running: "running", waitingAnswer: "waiting for your answer", finished: "finished", bgLimit: "{n} conversations are already running in the background; stop one before switching away from this one.",
-    settings: "Settings", sVision: "sees pictures", sVisionYes: "sees pictures", sVisionNo: "text only", noVision: "{model} cannot see pictures: they are saved as files, but the model will not see what is in them.", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sAuto: "Model's maximum", sCustomN: "Set a number", filter: "Filter…", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
+    settings: "Settings", sVision: "sees pictures", sVisionYes: "sees pictures", sVisionNo: "text only", noVision: "{model} cannot see pictures: they are saved as files, but the model will not see what is in them.", sEffort: "Thinking", sEffortDefault: "Model default", sEffortNone: "this model does not expose a thinking level", sModel: "Model", sDefault: "Platform default", sMaxTurns: "Max turns per run", sMaxTokens: "Max output per reply", sPrice: "Price", sPriceLine: "input {in} · output {out} per M tokens", sPerCall: "{amount} per call", sAuto: "Model's maximum", sCustomN: "Set a number", filter: "Filter…", sPerms: "Tool permissions", sAsk: "Ask before destructive tools", sAutoPerm: "Allow everything", sCustom: "Decided by the app",
     apply: "Apply", reset: "Reset to the app's defaults", applied: "Settings applied", continueRun: "Continue", maxTurnsHint: "Raise the limit in Settings, or continue from here.",
     files: "Files", downloadZip: "Download as zip", zipping: "Zipping", wrap: "Word wrap", preview: "Preview Markdown", edit: "Edit", tooBig: "Too large to edit here; download it.", conflict: "The file changed since you opened it. Overwrite it?", readOnly: "Read-only", autoSaved: "Unsaved edits saved", upload: "Upload", newFile: "New file", refresh: "Refresh", close: "Close", save: "Save", download: "Download", confirmDeleteFile: "Delete {path}?", newFilePath: "Path of the new file",
     noPreview: "No preview for this file; download it.", changedByAgent: "changed by the agent", noFiles: "The directory is empty.", discard: "Discard unsaved changes?", saved: "Saved",
@@ -297,7 +297,7 @@ const STRINGS = {
     dSystem: "系统提示词", dMessages: "发给模型的消息", dPayload: "请求内容", dResponse: "响应", dRun: "运行", dTurn: "第 {n} 轮", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息",
     rewindMsg: "它之后的对话会被删除，消息内容放回输入框。", rewindFiles: "同时把目录里的文件恢复到那一刻", rewindGone: "这条消息已不在对话里（可能已被压缩）。", rewindSnapshot: "{time} 时的 {n} 个文件（{size}）", rewindPartial: "超过 2 MB 的文件没进快照，会保持原样。", rewindGoneFile: "{path} 已不在目录里。",
     running: "运行中", waitingAnswer: "等待你回答", finished: "已完成", bgLimit: "后台已有 {n} 个会话在运行，先停掉一个再切换。",
-    settings: "设置", sVision: "可看图", sVisionYes: "可看图", sVisionNo: "仅文字", noVision: "{model} 不能看图：图片已保存为文件，但模型看不到图里的内容。", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sAuto: "模型上限", sCustomN: "自定义", filter: "搜索…", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
+    settings: "设置", sVision: "可看图", sVisionYes: "可看图", sVisionNo: "仅文字", noVision: "{model} 不能看图：图片已保存为文件，但模型看不到图里的内容。", sEffort: "思考强度", sEffortDefault: "模型默认", sEffortNone: "这个模型没有思考强度可调", sModel: "模型", sDefault: "平台默认", sMaxTurns: "每次运行最大轮数", sMaxTokens: "单次回复最大输出", sPrice: "单价", sPriceLine: "每百万 tokens 输入 {in} · 输出 {out}", sPerCall: "每次调用 {amount}", sAuto: "模型上限", sCustomN: "自定义", filter: "搜索…", sPerms: "工具权限", sAsk: "破坏性操作先询问", sAutoPerm: "全部自动允许", sCustom: "由应用决定",
     apply: "应用", reset: "恢复应用默认", applied: "设置已应用", continueRun: "继续", maxTurnsHint: "可在设置里调高上限，或点继续从这里接着跑",
     files: "文件", downloadZip: "打包下载 (zip)", zipping: "正在打包", wrap: "自动换行", preview: "预览 Markdown", edit: "编辑", tooBig: "文件太大，无法在这里编辑，可以下载。", conflict: "文件在你打开后被改过，要覆盖吗？", readOnly: "只读", autoSaved: "未保存的修改已自动保存", upload: "上传", newFile: "新建文件", refresh: "刷新", close: "关闭", save: "保存", download: "下载", confirmDeleteFile: "删除 {path}？", newFilePath: "新文件的路径",
     noPreview: "这个文件无法预览，可以下载。", changedByAgent: "agent 改过", noFiles: "目录是空的。", discard: "放弃未保存的修改？", saved: "已保存",
@@ -821,11 +821,21 @@ function statusOfResult(text: string): ToolStatus {
   return "ok";
 }
 
-function fmtCost(usd: number): string {
-  if (usd === 0) return "$0";
-  if (usd < 0.001) return `$${usd.toFixed(5)}`;
-  if (usd < 0.1) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(3)}`;
+/** An amount of money in `currency` (the model's price currency; USD when unknown). */
+function fmtCost(amount: number, currency?: string): string {
+  const sym = currencySymbol(currency);
+  if (amount === 0) return `${sym}0`;
+  if (amount < 0.001) return `${sym}${amount.toFixed(5)}`;
+  if (amount < 0.1) return `${sym}${amount.toFixed(4)}`;
+  return `${sym}${amount.toFixed(3)}`;
+}
+function currencySymbol(currency?: string): string {
+  const c = (currency || "USD").toUpperCase();
+  return c === "USD" ? "$" : c === "CNY" || c === "JPY" ? "¥" : c === "EUR" ? "€" : c === "GBP" ? "£" : `${c} `;
+}
+/** A unit price: up to four significant digits, no trailing zeros. */
+function fmtPrice(amount: number, currency?: string): string {
+  return `${currencySymbol(currency)}${Number(amount.toPrecision(4))}`;
 }
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 1 : 2)}M`;
@@ -1012,7 +1022,7 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
       const row = h("div", "ra-btns");
       row.append(btn(opts.cancel ?? t.decline, "ghost", () => done(false)));
       const always = opts.always;
-      if (always) row.append(btn(always.label, "subtle", () => { try { always.onChoose(); } catch (err) { console.warn("runapps agent: always.onChoose failed", err); } done(true); }));
+      if (always) row.append(btn(always.label, "subtle", () => { try { always.onChoose(); } catch (err) { console.warn("agent: always.onChoose failed", err); } done(true); }));
       row.append(btn(opts.ok ?? t.allow, opts.danger ? "red" : "solid", () => done(true)));
       card.append(row);
     }, false, opts.signal),
@@ -1133,8 +1143,8 @@ function writeLast(project: string, id: string | null): void {
 }
 
 export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
-  if (typeof document === "undefined") throw new Error("runapps agent: renderChat needs a document");
-  if (!opts.agent && !opts.provider && !opts.client) throw new Error("runapps agent: renderChat needs a provider (or a RunApps client, or an agent)");
+  if (typeof document === "undefined") throw new Error("renderChat needs a document");
+  if (!opts.agent && !opts.provider && !opts.client) throw new Error("renderChat needs a provider (or a RunApps client, or an agent)");
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
@@ -1369,10 +1379,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (!a.workspace || !ts) return;
     // The app's own state (rewindState), kept beside the conversation.
     if (rewindState) {
-      try { await takeHostState(a.workspace, ts, await rewindState.take()); } catch (err) { console.warn("runapps agent: rewindState.take failed", err); }
+      try { await takeHostState(a.workspace, ts, await rewindState.take()); } catch (err) { console.warn("agent: rewindState.take failed", err); }
     }
     if (!restorable(a)) return;
-    try { await takeCheckpoint(a.workspace, ts); } catch (err) { console.warn("runapps agent: checkpoint failed", err); }
+    try { await takeCheckpoint(a.workspace, ts); } catch (err) { console.warn("agent: checkpoint failed", err); }
   };
   /** Keeps an eye on a session running in the background: a notice when it ends, dropped once idle. */
   const watchBackground = (a: Agent) => {
@@ -2343,7 +2353,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const link = onLink ? target.closest<HTMLAnchorElement>("a[href]") : null;
     if (link && onLink) {
       let handled = false;
-      try { handled = onLink(link.getAttribute("href") ?? "", link.textContent ?? "") === true; } catch (err) { console.warn("runapps agent: onLink failed", err); }
+      try { handled = onLink(link.getAttribute("href") ?? "", link.textContent ?? "") === true; } catch (err) { console.warn("agent: onLink failed", err); }
       if (handled) { e.preventDefault(); return; }
     }
     const pathEl = target.closest<HTMLElement>(".ra-path");
@@ -2386,6 +2396,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     return modelsCache ?? [];
   };
   const kTok = (n?: number) => (typeof n === "number" ? (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)) : "?");
+  /** The model's price as one line ("" when the catalogue gives none). */
+  const priceOf = (m?: CatModel): string => {
+    const p = m?.price;
+    if (!p || (p.input === undefined && p.output === undefined)) return "";
+    const line = t.sPriceLine.replace("{in}", fmtPrice(p.input ?? 0, p.currency)).replace("{out}", fmtPrice(p.output ?? 0, p.currency));
+    return p.per_call ? `${line} · ${t.sPerCall.replace("{amount}", fmtPrice(p.per_call, p.currency))}` : line;
+  };
   const openSettings = async () => {
     if (menu) { closeMenu(); return; }
     if (!agent) return;
@@ -2404,7 +2421,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const showLim = () => {
       const m = chosenModel();
       const sees = modelAccepts(m, "image");
-      lim.textContent = m ? `${t.context} ${kTok(m.max_input_tokens)} · ${t.sMaxTokens} ${kTok(m.max_tokens)}${sees === undefined ? "" : ` · ${sees ? t.sVisionYes : t.sVisionNo}`}` : "";
+      const price = priceOf(m);
+      lim.textContent = m ? `${t.context} ${kTok(m.max_input_tokens)} · ${t.sMaxTokens} ${kTok(m.max_tokens)}${sees === undefined ? "" : ` · ${sees ? t.sVisionYes : t.sVisionNo}`}${price ? ` · ${t.sPrice}: ${price}` : ""}` : "";
       // Thinking levels follow the model: the list is the catalogue's, the first entry its default.
       const eff = effortOf(m);
       const keep = effortSel.value;
@@ -2740,15 +2758,17 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     } },
     { name: "context", run: async () => {
       const a = agent;
-      const [c, lim] = await Promise.all([a.context(), a.limits()]);
+      const [c, lim, info] = await Promise.all([a.context(), a.limits(), a.modelInfo()]);
+      const price = priceOf(info);
       const pct = Math.round((c.used / c.window) * 100);
       const u = a.usage;
       const comp = agentOpts.compaction;
       const lines = [
         `- ${t.sModel}: ${a.model || (await loadModels()).find((m) => m.is_default)?.id || t.sDefault}`,
         `- ${t.context}: ${pct < 1 && c.used ? "<1" : pct}% · ${fmtTokens(c.used)} / ${fmtTokens(c.window)} tokens · ${t.sMaxTokens} ${fmtTokens(lim.output)}`,
+        price ? `- ${t.sPrice}: ${price}` : "",
         `- ${t.messagesLabel}: ${a.messages.length}`,
-        u.calls ? `- ${fill(t.usageLine.replace("{cost}", fmtCost(u.total_cost)).replace("{tokens}", fmtTokens(u.prompt_tokens + u.completion_tokens)).replace("{calls}", String(u.calls)))}` : "",
+        u.calls ? `- ${fill(t.usageLine.replace("{cost}", fmtCost(u.total_cost, info?.price?.currency)).replace("{tokens}", fmtTokens(u.prompt_tokens + u.completion_tokens)).replace("{calls}", String(u.calls)))}` : "",
         comp === false ? "" : `- ${t.autoCompact}: ${t.autoCompactAt.replace("{n}", fmtTokens(Math.min(16_384, Math.floor(c.window * 0.2))))}`,
         a.workspace ? `- ${t.directory}: \`${a.workspace.id}\`` : "",
       ].filter(Boolean);
@@ -2785,12 +2805,15 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   };
 
   /* --- wiring an agent --- */
+  /** The currency the model's costs are in (its catalogue price), for the usage panel. */
+  let costCurrency: string | undefined;
   /** The header's ring (how full the context is) and, while it is open, the usage panel. */
   const showUsage_ = (a: Agent) => {
     if (showUsage === false || agent !== a) return;
     if (!a.messages.length) { useBtn.style.display = "none"; if (menu?.classList.contains("ra-use")) closeMenu(); return; }
-    void a.context().then((c) => {
+    void Promise.all([a.context(), a.modelInfo()]).then(([c, info]) => {
       if (agent !== a) return;
+      costCurrency = info?.price?.currency;
       const ratio = Math.min(1, c.used / c.window);
       const r = 8, len = 2 * Math.PI * r;
       useBtn.innerHTML = `<svg class="ra-ring${ratio >= 0.9 ? " hi" : ratio >= 0.7 ? " mid" : ""}" viewBox="0 0 20 20" aria-hidden="true"><circle class="tr" cx="10" cy="10" r="${r}"/><circle class="pr" cx="10" cy="10" r="${r}" stroke-dasharray="${len.toFixed(2)}" stroke-dashoffset="${(len * (1 - Math.max(ratio, 0.03))).toFixed(2)}" transform="rotate(-90 10 10)"/></svg>`;
@@ -2810,7 +2833,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const bar = h("div", "ra-ubar"); const fillEl = h("i"); fillEl.style.width = `${Math.max(ratio, c.used ? 0.01 : 0) * 100}%`; bar.append(fillEl);
     const sub = h("div", "ra-usub"); sub.append(h("span", "", t.uOf.replace("{used}", fmtTokens(c.used)).replace("{window}", fmtTokens(c.window))), h("span", "", a.model || modelsCache?.find((m) => m.is_default)?.id || ""));
     const grid = h("div", "ra-ugrid");
-    for (const [k, v] of [[t.uCost, fmtCost(u.total_cost)], [t.uIn, fmtTokens(u.prompt_tokens)], [t.uOut, fmtTokens(u.completion_tokens)], [t.uCalls, String(u.calls)]] as const) {
+    for (const [k, v] of [[t.uCost, fmtCost(u.total_cost, costCurrency)], [t.uIn, fmtTokens(u.prompt_tokens)], [t.uOut, fmtTokens(u.completion_tokens)], [t.uCalls, String(u.calls)]] as const) {
       const cell = h("div"); cell.append(h("small", "", k), h("b", "", v)); grid.append(cell);
     }
     panel.replaceChildren(head, bar, sub, grid);
@@ -3021,7 +3044,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const release = (a: Agent) => { dpanel.forget(a); if (typeof wsOpt === "function") a.workspace?.close(); };
   let switching: Promise<Agent> | null = null;
   const switchTo = (id?: string): Promise<Agent> => {
-    if (givenAgent) return Promise.reject(new Error("runapps agent: newSession/resume need the chat to own its agent (pass a provider, not an agent)"));
+    if (givenAgent) return Promise.reject(new Error("newSession/resume need the chat to own its agent (pass a provider, not an agent)"));
     // One switch at a time: a double click on New chat makes one new session, not two.
     if (switching) return switching;
     const run = (async () => {
@@ -3052,7 +3075,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const resume = (id: string) => switchTo(id);
   const deleteSession = async (id: string, keepOpen = false, space?: string) => {
     await ready;
-    if (givenAgent) throw new Error("runapps agent: deleteSession needs the chat to own its agent (pass a provider, not an agent)");
+    if (givenAgent) throw new Error("deleteSession needs the chat to own its agent (pass a provider, not an agent)");
     const ws = agent.workspace;
     if (!ws) return;
     if (id !== agent.id) {
