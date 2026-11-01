@@ -224,6 +224,10 @@ export class VirtualList {
     const n = this.rows.length;
     if (!n) { this.win.replaceChildren(); this.top.style.height = this.bottom.style.height = "0px"; return; }
     const view = s.clientHeight || 600;
+    // The scroller's real end. The rows' total leaves out what surrounds them in `inner` (its padding), so
+    // following to `total - view` stopped short of the end: scrolling the last pixels then set "at the
+    // bottom → follow", and following pulled the view back up, on every wheel tick.
+    const end = () => Math.max(0, s.scrollHeight - s.clientHeight);
     for (let pass = 0; pass < 4; pass++) {
       const total = this.computeOffsets();
       // Keep the row at the top of the viewport where it is unless following the end.
@@ -251,11 +255,11 @@ export class VirtualList {
         if (hgt && hgt !== row.height) { row.height = hgt; changed = true; }
       }
       if (changed) {
-        const total2 = this.computeOffsets();
-        this.setTop(this.follow ? Math.max(0, total2 - view) : Math.max(0, this.offsets[anchor]! - anchorDelta));
+        this.computeOffsets();
+        this.setTop(this.follow ? end() : Math.max(0, this.offsets[anchor]! - anchorDelta));
         continue;
       }
-      if (this.follow && Math.abs(s.scrollTop - Math.max(0, total - view)) > 1) this.setTop(Math.max(0, total - view));
+      if (this.follow && Math.abs(s.scrollTop - end()) > 1) this.setTop(end());
       return;
     }
   }
