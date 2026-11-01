@@ -1989,7 +1989,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       card.result = h("pre", "");
       card.body.append(h("div", "ra-tlabel", status === "error" ? t.error : t.result), card.result);
     }
-    card.result.textContent = result.length > 20_000 ? result.slice(0, 20_000) + "…" : result || t.emptyResult;
+    // Pictures are shown under the result; their "[image_url]" placeholders in the text would only repeat them.
+    const text = images.length ? result.replace(/^\[image_url\]$/gm, "").trim() : result;
+    card.result.textContent = text.length > 20_000 ? text.slice(0, 20_000) + "…" : text || t.emptyResult;
     if (images.length && !card.body.querySelector(".ra-timgs")) {
       const row = h("div", "ra-timgs");
       for (const src of images.slice(0, 4)) { const img = h("img"); img.src = src; img.alt = t.result; img.addEventListener("load", () => list.schedule()); row.append(img); }
