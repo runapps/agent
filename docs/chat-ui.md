@@ -84,6 +84,7 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `className` | | Extra classes on the chat's root. |
 | `debug` | `false` | The *Debug* panel. |
 | `onOpenFile(path)` | | Open file links yourself instead of in the files panel. |
+| `onLink(href, text)` | | Called when a link in the conversation (a reply, its thinking, a tool card) is clicked, before the chat's own handling; return `true` when you handled it (e.g. your app's own documentation links open in your viewer). |
 | `files` | on with a workspace | The *Files* button and panel; `false` for a host with its own file view (links go to `onOpenFile`). |
 | `headerActions` | | Buttons of your own for the header, placed before the settings gear. |
 | `headerEnd` | | Buttons of your own after the settings gear (a close button). |

@@ -114,6 +114,13 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   attachments?: boolean;
   /** Where attached files are saved in the directory (default `/uploads`). */
   uploadsDir?: string;
+  /**
+   * Called when a link in the conversation (a reply, its thinking, a tool
+   * card) is clicked, before the chat's own handling: return `true` when you
+   * handled it (open your own viewer for your app's links), anything else to
+   * let the chat open it.
+   */
+  onLink?: (href: string, text: string) => boolean | void;
   /** A tool card's file path becomes a link that calls this. */
   onOpenFile?: (path: string) => void;
   /** The "Tool permissions" choice in the settings panel (default on). `false` for an app that decides when to ask itself (its own settings, its tools' `confirm`). */
@@ -1131,7 +1138,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, permissionsSetting, rewindState, ...agentOpts } = opts;
+  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onLink, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, permissionsSetting, rewindState, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const provider: ModelProvider | null = providerOpt ? toProvider(providerOpt) : clientOpt ? toProvider(clientOpt) : givenAgent?.provider ?? null;
   const project = provider?.name ?? agentOpts.appName ?? "app";
@@ -2332,6 +2339,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   stopBtn.addEventListener("click", () => { ui.cancelAll(); void agent?.abort(); });
   log.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
+    // The app's own links first (onLink).
+    const link = onLink ? target.closest<HTMLAnchorElement>("a[href]") : null;
+    if (link && onLink) {
+      let handled = false;
+      try { handled = onLink(link.getAttribute("href") ?? "", link.textContent ?? "") === true; } catch (err) { console.warn("runapps agent: onLink failed", err); }
+      if (handled) { e.preventDefault(); return; }
+    }
     const pathEl = target.closest<HTMLElement>(".ra-path");
     if (pathEl?.dataset.path) { e.preventDefault(); openPath(pathEl.dataset.path); return; }
     const a = target.closest<HTMLAnchorElement>(".ra-md a[href]");

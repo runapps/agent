@@ -31,7 +31,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   const date = (input.now ?? new Date()).toISOString().slice(0, 10);
   const out: string[] = [];
   out.push(
-    `You are ${input.appName ? `the assistant built into ${input.appName}, an app` : "an assistant"} running on RunApps. Today is ${date}.`,
+    `You are ${input.appName ? `the assistant built into ${input.appName}` : "an assistant"}. Today is ${date}.`,
   );
   if (input.instructions?.trim()) out.push(input.instructions.trim());
   if (input.agentsMd?.trim()) out.push(`Project-specific instructions and guidelines:\n\n<project_instructions path="${input.agentsPath ?? "/AGENTS.md"}">\n${input.agentsMd.trim()}\n</project_instructions>`);
