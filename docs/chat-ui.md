@@ -98,7 +98,7 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `vars` | | Colour and font overrides (see Theming). |
 | `className` | | Extra classes on the chat's root. |
 | `debug` | `false` | The *Debug* panel. |
-| `onOpenFile(path)` | | Open file links yourself instead of in the files panel. |
+| `onOpenFile(path)` | | Open file links yourself instead of in the files panel; tool cards then offer no download. |
 | `nextPrompt` | `false` | Suggest the user's next message: the model calls a built-in `suggest_next_prompt` tool with its final reply when an obvious next request follows (it ends the run, so no further call); the suggestion shows greyed in the empty input, Tab takes it, typing or Esc drops it. Needs the chat to own its agent. |
 | `onLink(href, text)` | | Called when a link in the conversation (a reply, its thinking, a tool card) is clicked, before the chat's own handling; return `true` when you handled it (e.g. your app's own documentation links open in your viewer). |
 | `files` | on with a workspace | The *Files* button and panel; `false` for a host with its own file view (links go to `onOpenFile`). |
@@ -259,7 +259,7 @@ The header then has no *Chats* or *New chat*; a **Clear** button, shown once the
 The chat fills the element you give it and can live in a side panel of your own page. Things to know when it does:
 
 - **Moving it** — taking the element out of the page and putting it back (a framework re-render) resets its scroll position, as for any scrolled element. Keep the element where it is, or save `element.querySelector(".ra-log").scrollTop` before and set it after.
-- **Your file view** — `files: false` hides the chat's Files panel; file paths in replies call `onOpenFile(path)`.
+- **Your file view** — `files: false` hides the chat's Files panel; file paths in replies call `onOpenFile(path)`. Only a path that is a file of the workspace becomes a link: a card offers it for `read_file`, `write_file`, `edit_file` and a tool with `display.file`, not for any argument named `path`.
 - **Your buttons** — `headerActions: [button]` puts them in the chat's header; give each an `aria-label` (in a narrow chat the labels fold to icons).
 - **Your colours** — `palette: { light: {…}, dark: {…} }` with your page's tokens, and `vars: { font }`.
 - **Your focus styles** — a generic rule of yours such as `textarea:focus-visible { outline: … }` does not reach the composer's text area: the rounded box shows focus.

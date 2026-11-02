@@ -1147,6 +1147,12 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
 
 type Command = { name: string; description: string; kind: string; /** Built-in: runs on Enter when it takes no argument. */ args?: string; builtin?: boolean };
 
+/** Tools whose `path` is a file of the directory; any other tool says so with `display.file`. */
+const FILE_CARD_TOOLS = new Set(["read_file", "write_file", "edit_file"]);
+const isFile = async (ws: Workspace, path: string): Promise<boolean> => {
+  try { return (await ws.exists(path)) && !(await ws.isFolder(path)); } catch { return false; }
+};
+
 interface ToolCard { el: HTMLDetailsElement; name: string; args: unknown; end: HTMLElement; body: HTMLElement; update: HTMLElement | null; result: HTMLElement | null; nested?: HTMLElement }
 
 /** A reply: its body holds thinking, text and tool cards, filled live or from saved messages; once done, all but the answer folds into "Worked for …". */
@@ -1832,7 +1838,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (code.closest("pre") || code.classList.contains("ra-path")) continue;
       const text = code.textContent?.trim() ?? "";
       if (!/^\/[^\s`'"<>]+$/.test(text) || text.length > 200) continue;
-      void ws.exists(text).then((ok) => { if (ok && !code.classList.contains("ra-path")) { code.classList.add("ra-path"); code.dataset.path = text; code.title = t.open; code.insertAdjacentHTML("beforeend", I.download(11)); } });
+      void isFile(ws, text).then((ok) => { if (ok && !code.classList.contains("ra-path")) { code.classList.add("ra-path"); code.dataset.path = text; code.title = t.open; code.insertAdjacentHTML("beforeend", I.file(11)); } });
     }
   };
   const renderFinal = (el: HTMLElement, md: string) => { renderMD(el, md, false); linkPaths(el); };
@@ -1885,14 +1891,6 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const tb = h("div", "ra-tbody");
     const argsPre = h("pre", "", name === "run_js" && args && typeof args === "object" && typeof (args as { code?: unknown }).code === "string" ? (args as { code: string }).code : typeof args === "string" ? args : JSON.stringify(args, null, 2));
     tb.append(h("div", "ra-tlabel", t.args), argsPre);
-    const path = args && typeof args === "object" && typeof (args as { path?: unknown }).path === "string" ? (args as { path: string }).path : null;
-    if (path && name !== "delete_file" && name !== "list_files" && name !== "search_files") {
-      const acts = h("div", "ra-tacts");
-      const o = h("button", "ra-open", `${t.open} ${path}`); o.type = "button"; o.addEventListener("click", () => openPath(path));
-      const d = h("button", "ra-open", t.download); d.type = "button"; d.addEventListener("click", () => void panel.download(path));
-      acts.append(o, d);
-      tb.append(acts);
-    }
     el.append(sum, tb);
     const card: ToolCard = { el, name, args, end, body: tb, update: null, result: null };
     renderCustom(card, { status: "running" });
@@ -1988,6 +1986,19 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
 
   /** Pictures a tool returned, shown under its result (a screenshot, a chart). */
   const imagesOf = (content: unknown): string[] => Array.isArray(content) ? content.flatMap((p: ContentPart) => (p.type === "image_url" && /^(data:image\/|https?:)/.test(p.image_url.url) ? [p.image_url.url] : [])) : [];
+  /** The file a finished call is about, when it really is one: open it and, unless the app handles files itself, download it. */
+  const offerFile = async (card: ToolCard) => {
+    const ws = agent?.workspace;
+    const d = displayOf(card.name), a = card.args as { path?: unknown } | null;
+    const path = d?.file ? tryDisplay(() => d.file!(card.args)) : FILE_CARD_TOOLS.has(card.name) && a && typeof a === "object" && typeof a.path === "string" ? a.path : null;
+    if (!ws || !path || !(await isFile(ws, path))) return;
+    const acts = h("div", "ra-tacts");
+    const o = h("button", "ra-open", `${t.open} ${path}`); o.type = "button"; o.addEventListener("click", () => openPath(path));
+    acts.append(o);
+    if (!onOpenFile) { const dl = h("button", "ra-open", t.download); dl.type = "button"; dl.addEventListener("click", () => void panel.download(path)); acts.append(dl); }
+    card.body.querySelector(":scope>pre")?.after(acts);
+    list.schedule();
+  };
   const finishCard = (card: ToolCard, status: ToolStatus, result: string, durationMs?: number, images: string[] = [], details?: unknown) => {
     const ok = status === "ok";
     const fail = status === "error" || status === "blocked";
@@ -2005,6 +2016,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     card.el.classList.toggle("fail", fail);
     renderCustom(card, { status, result, details });
     card.update?.remove();
+    // Asked when the card is opened: the file may be gone by then, and a folded card costs nothing.
+    if (ok) { if (card.el.open) void offerFile(card); else card.el.addEventListener("toggle", () => void offerFile(card), { once: true }); }
     if (!card.result) {
       card.result = h("pre", "");
       card.body.append(h("div", "ra-tlabel", status === "error" ? t.error : t.result), card.result);

@@ -193,6 +193,8 @@ export interface ToolDisplay<A = any> {
    * `details` is what `execute` returned as details (live calls only).
    */
   render?: (call: { args: A; status: ToolStatus | "running"; result?: string; details?: unknown }) => HTMLElement | null | undefined;
+  /** The workspace file this call is about: its card then offers to open and download it. Default: the built-in `read_file`, `write_file` and `edit_file` only, so a `path` argument of your own is not taken for a file. */
+  file?: (args: A) => string | null | undefined;
   /** A short outcome beside the status mark when the call ends ("$0.12", "3 nodes"). */
   outcome?: (call: { args: A; status: ToolStatus; result: string; details?: unknown }) => string | undefined;
 }

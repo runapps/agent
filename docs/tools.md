@@ -144,6 +144,7 @@ defineTool({
     icon: "<svg …>",                                       // the card's icon
     render: ({ args, status, result, details }) => chipsFor(args, result), // your element under the title, visible while folded
     outcome: ({ result }) => summaryOf(result),             // beside the status mark ("Added", "$0.12")
+    file: ({ path }) => path,                               // the workspace file it is about: the card offers to open it
   },
 });
 ```
