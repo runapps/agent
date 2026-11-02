@@ -1228,6 +1228,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const newBtn = h("button", "ra-btn ghost"); newBtn.type = "button"; newBtn.innerHTML = I.plus() + `<span>${escapeHTML(t.newChat)}</span>`;
   // Without a conversation list: one conversation, which this starts over.
   const clearBtn = h("button", "ra-btn ghost"); clearBtn.type = "button"; clearBtn.innerHTML = I.eraser() + `<span>${escapeHTML(t.clearChat)}</span>`; clearBtn.style.display = "none";
+  // One conversation, no list of them (sessions: false, or the host's own agent): Clear stands in for New chat, and shows only when there is something to clear.
+  let oneChat = false;
+  const syncClear = () => { clearBtn.style.display = oneChat && agent?.messages.length ? "" : "none"; };
   // How full the context is, as a ring; a click opens the numbers and the spending.
   const useBtn = h("button", "ra-btn ghost ra-usebtn"); useBtn.type = "button"; useBtn.style.display = "none";
   const setBtn = h("button", "ra-btn ghost"); setBtn.type = "button"; setBtn.innerHTML = I.gear(); setBtn.title = t.settings; setBtn.setAttribute("aria-label", t.settings);
@@ -2129,6 +2132,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     }
     flush(true);
     if (!messages.length) showEmpty();
+    syncClear();
     list.scrollToBottom();
   };
 
@@ -2896,7 +2900,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     let summary: string | null = null;
     try { summary = await a.summarize(asked?.msg); } finally { compacting = false; closeActive(); }
     await new Promise((r) => setTimeout(r, 0));
-    await (clearBtn.style.display === "none" ? newSession().then(() => undefined) : clearConversation());
+    await (oneChat ? clearConversation() : newSession().then(() => undefined));
     const b = agent;
     if (summary) { await b.seed(summary); renderHistory(b.messages); showUsage_(b); }
     else if (a.messages.length > 1) ui.notify(t.ovNoSummary, "warning");
@@ -2963,7 +2967,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const lines = builtinCommands().map((c) => `- \`/${c.name}${c.args ? ` ${c.args}` : ""}\` — ${c.description}`);
       addNote(t.cmdsTitle, [...lines, "", t.cmdsMore].join("\n"));
     } },
-    { name: "new", aliases: ["clear"], run: () => { closeMenu(); return clearBtn.style.display === "none" ? newSession().then(() => undefined) : clearConversation(); } },
+    { name: "new", aliases: ["clear"], run: () => { closeMenu(); return oneChat ? clearConversation() : newSession().then(() => undefined); } },
     { name: "resume", run: () => openMenu() },
     { name: "compact", args: t.cmdArgs.compact, run: async (focus) => { await compactNow(focus); } },
     { name: "continue", run: async () => {
@@ -3023,8 +3027,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   ];
   /** The built-ins this chat offers now (the files, settings and debug ones only where their button shows). */
   const builtinCommands = (): Command[] => builtins
-    .filter((b) => (b.name !== "files" || (!!agent?.workspace && filesOpt !== false)) && (b.name !== "settings" || hasSettings) && (b.name !== "debug" || debugOn) && (b.name !== "resume" || (!givenAgent && !!agent?.workspace && clearBtn.style.display === "none")))
-    .map((b) => ({ name: b.name, description: b.name === "new" && clearBtn.style.display !== "none" ? t.confirmClear.split(/[?？]/)[0]! : (t.cmd as Record<string, string>)[b.name] ?? "", kind: t.command, args: b.args, builtin: true }));
+    .filter((b) => (b.name !== "files" || (!!agent?.workspace && filesOpt !== false)) && (b.name !== "settings" || hasSettings) && (b.name !== "debug" || debugOn) && (b.name !== "resume" || (!givenAgent && !!agent?.workspace && !oneChat)))
+    .map((b) => ({ name: b.name, description: b.name === "new" && oneChat ? t.confirmClear.split(/[?？]/)[0]! : (t.cmd as Record<string, string>)[b.name] ?? "", kind: t.command, args: b.args, builtin: true }));
   /** `/name [arg]` naming a built-in: run it here (nothing goes to the model). */
   const runBuiltin = (text: string): boolean => {
     const m = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text);
@@ -3130,7 +3134,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     // A host's own agent has no sessions to switch between: the chat cannot make a new one.
     const hasSessions = !givenAgent && (sessions ?? !!a.workspace);
     histBtn.style.display = newBtn.style.display = hasSessions && a.workspace ? "" : "none";
-    clearBtn.style.display = hasSessions && a.workspace ? "none" : "";
+    oneChat = !(hasSessions && a.workspace);
+    syncClear();
     filesBtn.style.display = a.workspace && filesOpt !== false ? "" : "none";
     skillsBtn.style.display = a.workspace && skillsMenu !== false ? "" : "none";
     panel.setWorkspace(a.workspace);
@@ -3144,6 +3149,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const on = (name: string, fn: (ev: any) => void) => unsub.push(a.on(name as never, fn as never));
     on("run_start", (ev: { message: ChatMessage | null }) => {
+      syncClear();
       // A prompt sent from here was drawn then (awaitingRow); one from a queued follow-up or the host is drawn now; continue() has none.
       if (ev.message) {
         if (awaitingRow && !awaitingRow.msg) { awaitingRow.msg = ev.message; awaitingRow.update(); }

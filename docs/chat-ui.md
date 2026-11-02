@@ -252,7 +252,7 @@ An app with one conversation per document or project turns the list off:
 renderChat(el, { provider, workspace: projectWorkspace, sessions: false });
 ```
 
-The header then has no *Chats* or *New chat*; a **Clear** button (after a confirmation) starts the conversation over — the messages, the queue and the usage go, the conversation keeps its id, the files stay. `/new` and `/clear` do the same, `/resume` is not offered, and `chat.clear()` does it from your code. A chat showing your own `agent` works the same way.
+The header then has no *Chats* or *New chat*; a **Clear** button, shown once there is a conversation to clear, (after a confirmation) starts the conversation over — the messages, the queue and the usage go, the conversation keeps its id, the files stay. `/new` and `/clear` do the same, `/resume` is not offered, and `chat.clear()` does it from your code. A chat showing your own `agent` works the same way.
 
 ## Inside your app's layout
 
