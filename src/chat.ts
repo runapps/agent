@@ -992,6 +992,7 @@ function parseAttachLine(line: string): { ref: string; type: string; size: strin
 const typedOf = (m: ChatMessage | undefined): string | undefined => (m as { typed?: string } | undefined)?.typed;
 /** Added to the agent's instructions when it has a directory: how to hand a file to the user. */
 const linksHint = (uploads: string) => `When you create or change a file for the user, name its absolute path in backticks (for example \`/index.html\`); in the chat that path becomes a link that opens the file. Files the user attaches arrive under ${uploads}.`;
+const attachHint = (uploads: string) => `Files the user attaches arrive under ${uploads}.`;
 const filesHint = (uploads: string) => `The user can browse, edit and download every file of the directory from the chat's Files panel. When you create or change a file for the user, name its absolute path in backticks (for example \`${uploads}/report.csv\`); in the chat that path becomes a link that opens the file, with a download button. Files the user attaches arrive under ${uploads}.`;
 
 /** A file the user attached: read once, saved to the directory (or inlined) when the message is sent. */
@@ -3283,8 +3284,11 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const workspace = typeof wsOpt === "function" ? await wsOpt(sid) : wsOpt ?? null;
     // The host's instructions may be a function (re-read every turn): the hint joins whatever it returns.
     const base = agentOpts.instructions;
-    const hint = filesOpt === false ? linksHint(uploadsDir) : filesHint(uploadsDir);
-    const instructions = !workspace ? base : typeof base === "function" ? () => [base(), hint].filter(Boolean).join("\n\n") : [base, hint].filter(Boolean).join("\n\n");
+    // Only about what the model can do: no file tools, nothing about files (attachments then go into the message); read-only, only where attachments land.
+    const fileOpt = agentOpts.fileTools;
+    const writes = fileOpt === undefined || fileOpt === true || (Array.isArray(fileOpt) && (fileOpt.includes("write_file") || fileOpt.includes("edit_file")));
+    const hint = fileOpt === false ? "" : !writes ? attachHint(uploadsDir) : filesOpt === false ? linksHint(uploadsDir) : filesHint(uploadsDir);
+    const instructions = !workspace || !hint ? base : typeof base === "function" ? () => [base(), hint].filter(Boolean).join("\n\n") : [base, hint].filter(Boolean).join("\n\n");
     const over: Partial<AgentOptions> = {};
     if (userSettings.model) over.model = userSettings.model;
     if (userSettings.maxTurns) over.maxTurns = userSettings.maxTurns;

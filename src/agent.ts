@@ -148,6 +148,8 @@ function withoutMedia(messages: ChatMessage[], media: Partial<Record<InputKind, 
 const emptyUsage = (): AgentUsage => ({ total_cost: 0, prompt_tokens: 0, completion_tokens: 0, calls: 0 });
 const abortedResult = (): RunResult => ({ runId: "", reason: "aborted", text: "", usage: emptyUsage() });
 const SKIPPED_STOP = "Skipped: the user stopped the run.";
+const FILE_TOOL_NAMES = new Set(["read_file", "list_files", "search_files", "write_file", "edit_file", "move_file", "copy_file", "delete_file"]);
+
 const balanceError = () => new ProviderError(402, "The reply was cut short because the balance could not cover a full answer; top up to continue", { code: "insufficient_balance" });
 
 /** Settles with `p`, or rejects as soon as `signal` aborts (the work itself may go on; its result is ignored). */
@@ -789,7 +791,8 @@ export class Agent {
       appName: this.opts.appName,
       instructions: typeof this.opts.instructions === "function" ? this.opts.instructions() : this.opts.instructions,
       tools,
-      workspaceDescription: ws ? ws.describe() : undefined,
+      // run_js reaches the files too; with neither, the directory is only where the session is kept.
+      workspaceDescription: ws && tools.some((t) => FILE_TOOL_NAMES.has(t.name) || t.name === "run_js") ? ws.describe() : undefined,
       skills: ws ? await ws.skills() : [],
       hasSandbox: tools.some((t) => t.name === "run_js"),
       hasAskUser: tools.some((t) => t.name === "ask_user"),

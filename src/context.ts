@@ -52,10 +52,19 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   }
   out.push("# How to work\n" + rules.map((r) => `- ${r}`).join("\n"));
 
+  // Only what the model can really call: a tool it does not have costs a failed turn.
+  const has = (name: string) => input.tools.some((t) => t.name === name);
   if (input.workspaceDescription) {
+    const look = ["list_files", "read_file"].filter(has);
+    const uses = [
+      look.length ? `${look.join(" and ")} to look around` : "",
+      has("edit_file") ? "edit_file for small changes (each oldText must match exactly once)" : "",
+      has("write_file") ? "write_file for new files or rewrites" : "",
+    ].filter(Boolean);
     out.push(
       "# Workspace\nYou have a file tree (absolute POSIX paths).\n" + input.workspaceDescription +
-      "\nUse list_files and read_file to look around, edit_file for small changes (each oldText must match exactly once), write_file for new files or rewrites. A reply has an output limit: a file longer than you can emit in one call is written in parts — write_file the first part, then edit_file to append the rest (oldText = the last lines written) — never one huge write_file." +
+      (uses.length ? `\nUse ${uses.join(", ")}.` : "") +
+      (has("write_file") && has("edit_file") ? " A reply has an output limit: a file longer than you can emit in one call is written in parts — write_file the first part, then edit_file to append the rest (oldText = the last lines written) — never one huge write_file." : "") +
       (input.canWrite && input.memoryPath ? `\nTo remember something for later conversations (a preference, a decision, a fact about the user's project), append a short line to ${input.memoryPath}; it is shown to you at the start of every conversation.` : ""),
     );
   }
@@ -64,7 +73,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   }
 
   const visible = input.skills.filter((s) => !s.disableModelInvocation);
-  if (visible.length) {
+  if (visible.length && has("read_file")) {
     const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     out.push(
       "# Skills\nThe following skills provide specialized instructions for specific tasks.\nUse read_file to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (the folder of SKILL.md) and use that absolute path in tool calls." +

@@ -249,6 +249,6 @@ The agent does not change a file from a stale or partial view of it — the user
 
 New files can always be written, and the model's own writes count as read. `fs.read` in `run_js` counts as reading. A file's version is its modified time, size and a fingerprint of its content (files over 4 MB: time and size), so even a same-size change in the same instant shows. What the model has read is forgotten when the conversation is compacted or rewound, since it no longer has those contents. Turn it all off with `readBeforeWrite: false`.
 
-The file tools come with a workspace; `fileTools: ["read_file", "list_files", "search_files"]` gives a read-only agent, `fileTools: false` none.
+The file tools come with a workspace; `fileTools: ["read_file", "list_files", "search_files"]` gives a read-only agent, `fileTools: false` none. The system prompt mentions only the file tools the model has; with none (and no `run_js`) it says nothing about the directory or its skills.
 
 `sandboxTool(workspace, options)` and `runInSandbox(workspace, code, input)` are exported if you want the sandbox on its own.

@@ -319,6 +319,32 @@ test("agent — the system prompt lists tool guidelines and the app's instructio
   assert.doesNotMatch(sys, /# Skills/);
 });
 
+test("agent — the system prompt mentions only the file tools the model has", async () => {
+  const sysFor = async (opts) => {
+    const { client, requests } = scripted([reply({ text: "ok" })]);
+    const skill = { name: "s", description: "does s", load: async () => buildZip([{ path: "SKILL.md", data: "---\nname: s\ndescription: does s\n---\nBody" }]) };
+    const workspace = await Workspace.open(null, { id: "fp-" + Math.random(), project: "fp", indexedDB: null, skills: [skill] });
+    await createAgent(client, { model: "m", askUser: false, persist: false, sandbox: false, workspace, ...opts }).prompt("x");
+    return requests[0].messages[0].content;
+  };
+  const none = await sysFor({ fileTools: false });
+  assert.doesNotMatch(none, /# Workspace|list_files|read_file|edit_file|write_file|file tree/);
+  assert.doesNotMatch(none, /<available_skills>/, "a skill cannot be loaded without read_file");
+
+  const readOnly = await sysFor({ fileTools: ["read_file", "list_files"] });
+  assert.match(readOnly, /Use list_files and read_file to look around\./);
+  assert.doesNotMatch(readOnly, /edit_file|write_file/);
+
+  const all = await sysFor({});
+  assert.match(all, /<available_skills>/, "the skill is there when it can be read");
+  assert.match(readOnly, /<available_skills>/);
+  assert.match(all, /Use list_files and read_file to look around, edit_file for small changes \(each oldText must match exactly once\), write_file for new files or rewrites\. A reply has an output limit/);
+
+  const sandboxOnly = await sysFor({ fileTools: false, sandbox: true });
+  assert.match(sandboxOnly, /# Workspace/, "run_js reaches the files");
+  assert.doesNotMatch(sandboxOnly, /Use list_files|edit_file/);
+});
+
 test("agent — prompt and extra parameters are forwarded", async () => {
   const { client, requests } = scripted([reply({ text: "ok" })]);
   await createAgent(client, { model: "m", sandbox: false, askUser: false, prompt: { id: "director", vars: { a: 1 } }, extra: { reasoning_effort: "low" }, temperature: 0.2 }).prompt("x");
