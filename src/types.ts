@@ -9,6 +9,7 @@ import type { ChatCompletionParams, ChatMessage, ContentPart } from "./llm.js";
 import type { Usage } from "./llm.js";
 import type { Agent } from "./agent.js";
 import type { CompactionSettings, CutPlan } from "./compaction.js";
+import type { ContextOverflow } from "./provider.js";
 import type { Workspace } from "./workspace.js";
 import type { TextEdit } from "./edit.js";
 
@@ -401,7 +402,7 @@ export interface SessionData {
 }
 
 /** A run that did not finish: why, and when. */
-export interface RunEnd { reason: Exclude<RunEndReason, "done">; error?: string; at: number }
+export interface RunEnd { reason: Exclude<RunEndReason, "done">; error?: string; /** `"context_overflow"`: the request did not fit the model's context; `overflow` says why. */ code?: string; overflow?: ContextOverflow; at: number }
 
 /** What a workspace lists for each saved session. */
 export interface SessionSummary {

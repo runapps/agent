@@ -34,9 +34,23 @@
 - **Settings** — the gear: model (with context and output limits, and which models see pictures), thinking level when the model has one, max turns, max output, tool permissions. Kept per app in the browser and applied to every conversation; only what differs from the app's defaults is kept, and a saved model the catalogue no longer lists is dropped (the default applies again).
 - **Reply actions** — hover a reply: copy its answer, *answer again* (rewinds to its question, with the same restore choices, and sends it again), delete the question and its answer; on the right what the reply cost (its `runUsage`, in the model's `price.currency`), the tokens and calls in its tooltip.
 - **Rewind** — hover a user message: when it was sent, copy, *rewind to here* (the conversation after it is dropped, the message goes back into the composer, and the directory's files can be restored to that moment).
-- **How a run ended** — *Stopped.*, the turn limit with *Continue*, an error with *Retry*; kept across reloads until the next run.
+- **How a run ended** — *Stopped.*, the turn limit with *Continue*, an error with *Retry*, a request too large for the model with what solves it (below); kept across reloads until the next run.
 - **Context and spending** — a ring in the header shows how full the model's window is; a click opens a panel with the figures (used / window, model), what the conversation has cost (cost, input and output tokens, calls), when it compacts on its own, and *Compact now*. Older turns are summarised automatically.
 - **Time** — "Today 22:15" above messages that start a conversation or follow a pause.
+
+### A request too large for the model
+
+The agent first makes the request smaller by itself; the user only sees a note that the context was compacted. When that is not enough, the chat says why in its language and offers what solves it, one click each:
+
+| Why | Buttons |
+|---|---|
+| The attachments are too large | *Resend without attachments* |
+| The message is too long | *Edit the message* |
+| The conversation is too long | *Compact and continue*, *Continue in a new chat* |
+| The tools take up too much | *Tool settings*, when you pass `toolSettings` |
+| The model is too small | whichever of *Compact and continue*, *Continue in a new chat*, *Edit the message* can help |
+
+Any of them also gets *Retry with \<model\>* when the catalogue has a model with a larger window (the smallest that can take the request). *Continue in a new chat* starts from a summary of this conversation; the latest message is sent again, or put back in the composer when it had attachments, for the user to decide. With `sessions: false` there is one conversation, so it starts that one over.
 
 ## Slash commands
 
@@ -88,6 +102,7 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `nextPrompt` | `false` | Suggest the user's next message: the model calls a built-in `suggest_next_prompt` tool with its final reply when an obvious next request follows (it ends the run, so no further call); the suggestion shows greyed in the empty input, Tab takes it, typing or Esc drops it. Needs the chat to own its agent. |
 | `onLink(href, text)` | | Called when a link in the conversation (a reply, its thinking, a tool card) is clicked, before the chat's own handling; return `true` when you handled it (e.g. your app's own documentation links open in your viewer). |
 | `files` | on with a workspace | The *Files* button and panel; `false` for a host with its own file view (links go to `onOpenFile`). |
+| `toolSettings` | | Opens your own tool settings; offered when the connected tools leave no room for a request. |
 | `headerActions` | | Buttons of your own for the header, placed before the settings gear. |
 | `headerEnd` | | Buttons of your own after the settings gear (a close button). |
 | `composerActions` | | Buttons of your own in the composer's toolbar (see below). |

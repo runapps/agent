@@ -17,6 +17,8 @@ Three entry points:
 | `runappsProvider(client)` | The RunApps SDK client. |
 | `toProvider(providerOrClient)` | A provider as is, a RunApps client wrapped. |
 | `ProviderError(status, message, { code?, retryAfter? })` | Throw from your provider; 408 / 429 / 5xx / 0 are retried. |
+| `ContextOverflowError` | How a run ends when a request cannot be made to fit: `code` `"context_overflow"`, `overflow` `{ cause, used, window }`, `detail`. |
+| `isContextOverflow(err)` | Whether an error means the request is larger than the model's context. |
 | `sseData(body, signal?)` | Yields the `data:` payloads of a server-sent event stream. |
 | `modelAccepts(model, kind)` | Whether a catalogue entry takes `"image"` / `"video"` / `"audio"` (from `input_modalities`, or a `vision` capability). |
 | types | `ModelProvider`, `ModelInfo`, `InputKind`, `OpenAIProviderOptions`, `RunAppsClientLike`, `ChatMessage`, `ContentPart`, `ChatTool`, `ChatToolCall`, `ChatCompletionParams`, `ChatCompletionChunk`, `ChatCompletion`, `Usage` |
@@ -37,6 +39,8 @@ Three entry points:
 | `clear()` | Start over under the same id (messages, queue, usage), saved. |
 | `modelInfo()`, `accepts(kind)` | The catalogue's entry for the model in use; whether it takes `"image"` / `"video"` / `"audio"` (`true` / `false` / `undefined`). |
 | `compact(focus?)` | Summarise older turns now. → `boolean` |
+| `summarize(leaveOut?)` | A summary of the conversation that stays out of it. → `string \| null` |
+| `seed(summary)` | Start an empty conversation from a summary. |
 | `queued`, `dequeue(message)`, `clearQueue()` | What waits. |
 | `on(event, handler)` / `on("*", (name, event) => …)` | Subscribe; returns an unsubscribe function. |
 | `ready()` | Resolves once a saved session is loaded. |

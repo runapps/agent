@@ -12,6 +12,7 @@
 // transcript (`VirtualList`) that keeps only the rows near the viewport
 // in the DOM, so a long history costs nothing to open.
 
+import type { ContextOverflow, OverflowCause } from "./provider.js";
 import { escapeHTML } from "./markdown.js";
 import { VirtualList, type VRow } from "./vlist.js";
 import { downloadBlob, h, I, modal, modalConfirm, renderMD } from "./dom.js";
@@ -142,6 +143,8 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
    * input and Tab takes it. Off by default.
    */
   nextPrompt?: boolean;
+  /** Opens your own tool settings: offered when the connected tools alone leave no room for a request. */
+  toolSettings?: () => void;
   /** Buttons of your own for the header, placed before the settings gear. */
   headerActions?: HTMLElement[];
   /**
@@ -256,7 +259,9 @@ const STRINGS = {
     enter: "to send", newline: "new line", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintNext: "Tab to use the suggestion · ↵ {enter}", hintBusy: "↵ steer · {mod}↵ follow-up · ⇧↵ {newline}", empty: "Start a conversation", history: "Chats", newChat: "New chat", clearChat: "Clear", confirmClear: "Clear this conversation? Its messages are removed; the files stay.", noSessions: "No other conversations yet", notSaved: "not saved yet",
     compacted: "Context compacted", trimmed: "Earlier conversation trimmed to fit the context", allow: "Allow", decline: "Decline", cancel: "Cancel", submit: "Submit", ok: "OK",
     other: "Other…", typeAnswer: "Type your answer", args: "Arguments", result: "Result", error: "Error", declined: "declined", blocked: "blocked", skipped: "skipped",
-    open: "Open in editor", stopped: "Stopped.", maxTurns: "Paused at the turn limit ({n})", retry: "Retry", messages: "messages", skill: "Skill", template: "Template",
+    open: "Open in editor", stopped: "Stopped.", maxTurns: "Paused at the turn limit ({n})", retry: "Retry", messages: "messages",
+    ovAttachments: "The attachments on this message are too large for the model.", ovMessage: "This message is too long for the model.", ovHistory: "This conversation has grown too long for the model.", ovTools: "The connected tools take up too much of the model's context.", ovModel: "This request does not fit the current model.",
+    ovDropFiles: "Resend without attachments", ovEdit: "Edit the message", ovCompact: "Compact and continue", ovNew: "Continue in a new chat", ovToolSettings: "Tool settings", ovUseModel: "Retry with {name}", ovNoText: "The message had only attachments: type what you want to ask.", ovNoSummary: "Could not summarise the conversation; the new chat starts without it.", skill: "Skill", template: "Template",
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every conversation, this one included, and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove",
     toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed",
@@ -293,7 +298,9 @@ const STRINGS = {
     enter: "发送", newline: "换行", hintIdle: "↵ {enter} · ⇧↵ {newline}", hintNext: "Tab 使用建议 · ↵ {enter}", hintBusy: "↵ 插入 · {mod}↵ 排队 · ⇧↵ {newline}", empty: "开始对话", history: "会话", newChat: "新对话", clearChat: "清除", confirmClear: "清除这次对话？消息会被删除，文件保留。", noSessions: "还没有其它对话", notSaved: "尚未保存",
     compacted: "上下文已压缩", trimmed: "较早的对话已裁剪以适应上下文", allow: "允许", decline: "拒绝", cancel: "取消", submit: "提交", ok: "确定",
     other: "其他…", typeAnswer: "请输入", args: "参数", result: "结果", error: "错误", declined: "已拒绝", blocked: "已拦截", skipped: "已跳过",
-    open: "在编辑器中打开", stopped: "已停止。", maxTurns: "已达最大轮数 {n}，暂停", retry: "重试", messages: "条消息", skill: "Skill", template: "模板",
+    open: "在编辑器中打开", stopped: "已停止。", maxTurns: "已达最大轮数 {n}，暂停", retry: "重试", messages: "条消息",
+    ovAttachments: "这条消息的附件太大，超出了模型能处理的长度。", ovMessage: "这条消息太长，超出了模型能处理的长度。", ovHistory: "这段对话太长，模型放不下了。", ovTools: "已连接的工具太多，占满了模型的上下文。", ovModel: "当前模型放不下这次请求。",
+    ovDropFiles: "去掉附件后重发", ovEdit: "修改这条消息", ovCompact: "压缩后继续", ovNew: "开新对话继续", ovToolSettings: "打开工具设置", ovUseModel: "换用 {name} 重试", ovNoText: "这条消息只有附件，请输入想问的内容。", ovNoSummary: "这段对话没能生成摘要，新对话不会带上之前的内容。", skill: "Skill", template: "模板",
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有对话（包括当前这个）和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除",
     toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败",
@@ -616,6 +623,10 @@ const CSS = tokenCSS() + `
 .ra-card .ra-md{font-size:13px}
 .ra-err{border:1px solid var(--ra-red);background:var(--ra-red-subtle);border-radius:6px;padding:8px;font-size:14px;color:var(--ra-red);white-space:pre-wrap;word-break:break-word}
 .ra-err .ra-btn{margin-top:6px}
+.ra-chat .ra-over{border-color:var(--ra-warn-border);background:var(--ra-warn-bg);color:var(--ra-warn-fg)}
+.ra-over .ra-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ra-chat .ra-over .ra-btn{margin:0;border-color:var(--ra-warn-border);background:transparent;color:inherit}
+.ra-chat .ra-over .ra-btn:hover{background:var(--ra-warn-border)}
 .ra-ask{flex-shrink:0;max-height:45%;overflow-y:auto}
 .ra-ask .ra-col{display:flex;flex-direction:column;gap:8px;padding-top:8px;padding-bottom:8px}
 .ra-q{border:1px solid var(--ra-accent-muted);border-radius:8px;padding:12px;background:var(--ra-subtle);display:flex;flex-direction:column;gap:10px}
@@ -1165,7 +1176,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onLink, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, permissionsSetting, rewindState, nextPrompt, ...agentOpts } = opts;
+  const { toolSettings, client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onLink, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, permissionsSetting, rewindState, nextPrompt, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const provider: ModelProvider | null = providerOpt ? toProvider(providerOpt) : clientOpt ? toProvider(clientOpt) : givenAgent?.provider ?? null;
   const project = provider?.name ?? agentOpts.appName ?? "app";
@@ -2817,6 +2828,129 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     }
     return out.join("\n");
   };
+  const useModel = (m: CatModel) => {
+    const next = { ...userSettings };
+    if (m.is_default && !agentOpts.model) delete next.model; else next.model = m.id;
+    // A thinking level the new model does not have would be refused.
+    const eff = effortOf(m);
+    if (next.reasoningEffort && !eff?.levels.includes(next.reasoningEffort)) delete next.reasoningEffort;
+    saveSettings(next);
+  };
+  /** Summarises older turns now; true when a summary replaced them. */
+  const compactNow = async (focus?: string): Promise<boolean> => {
+    const a = agent;
+    if (a.busy) { ui.notify(t.busyCmd, "warning"); return false; }
+    compacting = true;
+    try {
+      // The compaction events show it running and draw the summary; Stop aborts it.
+      const done = await a.compact(focus);
+      if (!done) ui.notify(t.nothingToCompact);
+      return done;
+    } catch (err) {
+      if (!/abort/i.test((err as Error).message ?? "") && (err as Error).name !== "AbortError") throw err;
+      ui.notify(t.stopped);
+      return false;
+    } finally {
+      compacting = false;
+      // The agent lets go of the compaction a tick after it resolves (and then starts any message queued meanwhile).
+      if (agent === a) { closeActive(); showUsage_(a); setTimeout(() => { if (agent === a && !a.busy) setBusy(false); }, 0); }
+    }
+  };
+  /** The latest message the user wrote, and its words without what was attached. */
+  const latestAsked = (a: Agent) => {
+    const list = a.messages;
+    let index = list.length - 1;
+    while (index >= 0 && !(list[index]!.role === "user" && summaryOf(list[index]!) === null)) index--;
+    const msg = list[index];
+    if (!msg) return null;
+    const typed = (msg as { typed?: string }).typed ?? textOfContent(msg.content as string | ContentPart[]).replace(/\s*\[attachments\][\s\S]*$/, "").replace(/(^|\n)\[context\] [\s\S]*$/, "");
+    const files = Array.isArray(msg.content) ? msg.content.length > 1 : /(^|\n)\[attachments\]/.test(String(msg.content ?? ""));
+    return { index, msg, text: typed.trim(), files };
+  };
+  /** The smallest model that can take the request, else the largest that is larger than this one. */
+  const roomierModel = async (a: Agent, used: number, window: number): Promise<CatModel | undefined> => {
+    const current = a.model || (await a.modelInfo())?.id;
+    const asked = latestAsked(a)?.msg.content;
+    const pictures = Array.isArray(asked) && asked.some((p) => p.type === "image_url");
+    const larger = (await loadModels())
+      .filter((m) => m.id !== current && (m.max_input_tokens ?? 0) > window && (!pictures || modelAccepts(m, "image") !== false))
+      .sort((x, y) => x.max_input_tokens! - y.max_input_tokens!);
+    return larger.find((m) => m.max_input_tokens! >= used * 1.2) ?? larger[larger.length - 1];
+  };
+  /** Rewinds past the latest message, to send it again or change it. */
+  const takeBack = async (a: Agent) => {
+    const asked = latestAsked(a);
+    if (!asked) return null;
+    await a.rewind(asked.index);
+    if (agent === a) { renderHistory(a.messages); showUsage_(a); }
+    return asked;
+  };
+  const sendText = async (a: Agent, text: string) => {
+    if (agent === a && !a.busy) awaitingRow = addUser(text);
+    await a.prompt(text);
+  };
+  /** Carries on in a new conversation that starts from a summary of this one; the latest message goes along. */
+  const continueInNew = async (a: Agent) => {
+    const asked = latestAsked(a);
+    compacting = true;
+    let summary: string | null = null;
+    try { summary = await a.summarize(asked?.msg); } finally { compacting = false; closeActive(); }
+    await new Promise((r) => setTimeout(r, 0));
+    await (clearBtn.style.display === "none" ? newSession().then(() => undefined) : clearConversation());
+    const b = agent;
+    if (summary) { await b.seed(summary); renderHistory(b.messages); showUsage_(b); }
+    else if (a.messages.length > 1) ui.notify(t.ovNoSummary, "warning");
+    setBusy(false);
+    if (!asked) return;
+    // What was attached may be what did not fit: it goes back into the composer, for the user to decide.
+    if (asked.files) { await reattach(asked.msg); ta.value = asked.text; syncSend(); ta.focus(); }
+    else if (asked.text) await sendText(b, asked.text);
+  };
+  /** A request that does not fit the model: says why in the chat's language and offers what solves it, one click each. */
+  const addOverflow = async (a: Agent, ov: ContextOverflow) => {
+    const go = async () => { await new Promise((r) => setTimeout(r, 0)); await a.continue(); };
+    const before = a.messages.slice(0, latestAsked(a)?.index ?? 0);
+    // Turns not yet in a summary can still be compacted; a new chat helps only when there is something to leave behind.
+    const older = before.some((m) => summaryOf(m) === null);
+    const actions: Array<{ label: string; run: () => Promise<unknown> }> = [];
+    const editMessage = { label: t.ovEdit, run: async () => { const asked = await takeBack(a); if (asked) { ta.value = asked.text; syncSend(); ta.focus(); } } };
+    const compact = { label: t.ovCompact, run: async () => { await compactNow(); await go(); } };
+    const fresh = { label: t.ovNew, run: () => continueInNew(a) };
+    if (ov.cause === "attachments") actions.push({ label: t.ovDropFiles, run: async () => {
+      const asked = await takeBack(a);
+      if (!asked) return;
+      if (asked.text) await sendText(a, asked.text); else { ui.notify(t.ovNoText, "warning"); ta.focus(); }
+    } });
+    else if (ov.cause === "message") actions.push(editMessage);
+    else if (ov.cause === "tools") { if (toolSettings) actions.push({ label: t.ovToolSettings, run: async () => toolSettings() }); }
+    else if (ov.cause === "history") { if (older) actions.push(compact); actions.push(fresh); }
+    else { if (older) actions.push(compact); if (before.length) actions.push(fresh); actions.push(editMessage); }
+    const roomier = await roomierModel(a, ov.used, ov.window).catch(() => undefined);
+    if (roomier) actions.push({ label: t.ovUseModel.replace("{name}", roomier.id), run: async () => { useModel(roomier); await go(); } });
+    if (agent !== a) return;
+    const text = ({ attachments: t.ovAttachments, message: t.ovMessage, tools: t.ovTools, history: t.ovHistory, model: t.ovModel } as Record<OverflowCause, string>)[ov.cause as OverflowCause];
+    const row: VRow = {
+      render: () => {
+        const card = h("div", "ra-err ra-over", text);
+        card.setAttribute("role", "alert");
+        const bar = h("div", "ra-acts");
+        for (const act of actions) {
+          const b = h("button", "ra-btn xs", act.label);
+          b.type = "button";
+          b.addEventListener("click", () => {
+            if (a.busy) { ui.notify(t.busyCmd, "warning"); return; }
+            list.remove(row);
+            void act.run().catch((err) => { addError((err as Error).message); setBusy(false); });
+          });
+          bar.append(b);
+        }
+        if (actions.length) card.append(bar);
+        return card;
+      },
+    };
+    addRow(row);
+    list.schedule();
+  };
   const pickModel = (models: CatModel[], q: string): CatModel | undefined => {
     const l = q.toLowerCase();
     const exact = models.find((m) => m.id.toLowerCase() === l);
@@ -2831,22 +2965,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     } },
     { name: "new", aliases: ["clear"], run: () => { closeMenu(); return clearBtn.style.display === "none" ? newSession().then(() => undefined) : clearConversation(); } },
     { name: "resume", run: () => openMenu() },
-    { name: "compact", args: t.cmdArgs.compact, run: async (focus) => {
-      const a = agent;
-      if (a.busy) { ui.notify(t.busyCmd, "warning"); return; }
-      compacting = true;
-      try {
-        // The compaction events show it running and draw the summary; Stop aborts it.
-        if (!(await a.compact(focus))) ui.notify(t.nothingToCompact);
-      } catch (err) {
-        if (!/abort/i.test((err as Error).message ?? "") && (err as Error).name !== "AbortError") throw err;
-        ui.notify(t.stopped);
-      } finally {
-        compacting = false;
-        // The agent lets go of the compaction a tick after it resolves (and then starts any message queued meanwhile).
-        if (agent === a) { closeActive(); showUsage_(a); setTimeout(() => { if (agent === a && !a.busy) setBusy(false); }, 0); }
-      }
-    } },
+    { name: "compact", args: t.cmdArgs.compact, run: async (focus) => { await compactNow(focus); } },
     { name: "continue", run: async () => {
       if (agent.busy) { ui.notify(t.busyCmd, "warning"); return; }
       if (!agent.messages.length) { ui.notify(t.nothingToContinue); return; }
@@ -2856,12 +2975,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       if (!q) return openSettings();
       const m = pickModel(await loadModels(), q);
       if (!m) { ui.notify(t.unknownModel.replace("{name}", q), "warning"); return; }
-      const next = { ...userSettings };
-      if (m.is_default && !agentOpts.model) delete next.model; else next.model = m.id;
-      // A thinking level the new model does not have would be refused.
-      const eff = effortOf(m);
-      if (next.reasoningEffort && !eff?.levels.includes(next.reasoningEffort)) delete next.reasoningEffort;
-      saveSettings(next);
+      useModel(m);
       ui.notify(t.modelSet.replace("{name}", m.id));
     } },
     { name: "effort", args: t.cmdArgs.effort, run: async (q) => {
@@ -2988,7 +3102,8 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   const addEnd = (a: Agent, end: RunEnd | null) => {
     if (!end) return;
     const go = () => { try { void a.continue().catch((e) => ui.notify((e as Error).message, "error")); } catch (e) { ui.notify((e as Error).message, "error"); } };
-    if (end.reason === "error") addError(end.error ?? t.error, a.messages.length ? go : undefined);
+    if (end.overflow) void addOverflow(a, end.overflow);
+    else if (end.reason === "error") addError(end.error ?? t.error, a.messages.length ? go : undefined);
     else if (end.reason === "max_turns") addWarn(t.maxTurns.replace("{n}", String(a.settings.maxTurns)), { label: t.continueRun, onClick: go }, t.maxTurnsHint);
     else addNote(t.stopped);
   };
@@ -3137,7 +3252,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
       const lastMsg = [...a.messages].reverse().find((m) => m.role === "assistant");
       if (row && row.body.childElementCount && lastMsg && !row.el!.querySelector(":scope>.ra-af")) { row.el!.append(replyFoot(lastMsg)); list.schedule(); }
       ui.cancelAll();
-      addEnd(a, r.reason === "done" ? null : { reason: r.reason, error: r.error?.message, at: Date.now() });
+      addEnd(a, r.reason === "done" ? null : a.lastEnd ?? { reason: r.reason, error: r.error?.message, at: Date.now() });
       setBusy(false);
       showUsage_(a);
       void refreshCommands();

@@ -5,8 +5,8 @@
 // files, skills, tools) comes in through the options.
 
 import type { ChatCompletion, ChatCompletionParams, ChatMessage, ChatToolCall, ContentPart, Usage, Unsubscribe } from "./llm.js";
-import { errorStatus, modelAccepts, ProviderError, toProvider, type InputKind, type ModelInfo, type ModelProvider, type RunAppsClientLike } from "./provider.js";
-import { planCut, resolveSettings, serializeConversation, shouldCompact, splitForSummary, summaryMessage, summaryOf, summarizationMessages, type CompactionSettings } from "./compaction.js";
+import { ContextOverflowError, errorStatus, isContextOverflow, modelAccepts, overflowLimit, ProviderError, toProvider, type OverflowCause, type InputKind, type ModelInfo, type ModelProvider, type RunAppsClientLike } from "./provider.js";
+import { planCut, resolveSettings, serializeConversation, shouldCompact, splitForSummary, summaryMessage, summaryOf, summarizationMessages, type CompactionSettings, type CutPlan } from "./compaction.js";
 import { collectCompletion } from "./completion.js";
 import { buildSystemPrompt, estimateTokens, fitBudget } from "./context.js";
 import { expandSlash } from "./templates.js";
@@ -571,8 +571,11 @@ export class Agent {
     this.emit("run_start", { runId, message: prefaced });
 
     const maxTurns = this.opts.maxTurns ?? DEFAULT_MAX_TURNS;
-    const { output: maxTokens, input: window } = await this.limits();
-    const compaction = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
+    const { output: maxTokens, input: catalogueWindow } = await this.limits();
+    // A refusal that states the model's real limit corrects the window for the rest of the run.
+    let window = catalogueWindow;
+    let compaction = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
+    let overflowRetries = 0;
 
     try {
       if (prefaceError) throw prefaceError;
@@ -628,10 +631,27 @@ export class Agent {
         const asked = Date.now();
         let completion: Awaited<ReturnType<Agent["callModel"]>>;
         try {
+          // Far beyond a window the catalogue vouches for: refused without sending it.
+          if (estimateTokens(this.history, fixed) > window * 2 && (typeof this.opts.maxInputTokens === "number" || typeof (await this.modelInfo())?.max_input_tokens === "number")) {
+            throw new ProviderError(413, "the request is far larger than the model's context");
+          }
           completion = await this.callModel(params, runId, signal);
         } catch (err) {
           this.emit("response", { runId, turn, durationMs: Date.now() - asked, error: err instanceof Error ? err.message : String(err) });
-          throw err;
+          if (signal.aborted || !isContextOverflow(err)) throw err;
+          const limit = overflowLimit(err);
+          if (limit !== undefined && limit < window) {
+            window = limit;
+            compaction = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
+          }
+          // Asked twice at most: first with the older turns summarised, then with nothing left but what the latest needs.
+          let smaller = false;
+          while (!smaller && overflowRetries < 2) smaller = await this.squeeze(window, overflowRetries++, compaction, fixed, runId, signal);
+          if (smaller) {
+            turn--;
+            continue;
+          }
+          throw new ContextOverflowError({ cause: this.overflowCause(window, fixed), used: estimateTokens(this.history, fixed), window }, err instanceof Error ? err.message : String(err), errorStatus(err) ?? 400);
         }
         this.emit("response", { runId, turn, durationMs: Date.now() - asked, finishReason: completion.finishReason, usage: completion.usage, message: completion.message });
         if (completion.usage) this.addUsage(completion.usage);
@@ -707,7 +727,8 @@ export class Agent {
     this.markRunUsage(historyBefore, usageBefore);
     this.committed = this.history.length;
     this.resetLoop();
-    this._ended = reason === "done" ? null : { reason, ...(error ? { error: error.message } : {}), at: Date.now() };
+    const overflow = error instanceof ContextOverflowError ? { code: error.code, overflow: error.overflow } : {};
+    this._ended = reason === "done" ? null : { reason, ...(error ? { error: error.message } : {}), ...overflow, at: Date.now() };
     await this.saveSession();
     const result: RunResult = {
       runId,
@@ -789,22 +810,57 @@ export class Agent {
    * all of them would fit in `keepRecentTokens`.
    */
   compact(focus?: string): Promise<boolean> {
-    if (this.current) return Promise.reject(new Error("cannot compact while a run is active"));
-    // Runs like a run: messages sent meanwhile queue behind it instead of being lost when the history is replaced.
+    return this.exclusive("compact", async (signal) => {
+      const window = await this.contextTokens();
+      const settings = this.squeezed(resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {}));
+      const done = await this.compactWith(settings, undefined, signal, focus);
+      if (done) await this.saveSession();
+      return done;
+    });
+  }
+
+  /**
+   * A summary of the conversation that stays out of it, to carry on in a new
+   * one (`seed`): everything but `leaveOut`, usually the request to send again.
+   * Null when there is nothing to summarise or the summary could not be written.
+   */
+  summarize(leaveOut?: ChatMessage): Promise<string | null> {
+    return this.exclusive("summarize", async (signal) => {
+      const rest = this.history.filter((m) => m !== leaveOut);
+      const first = rest[0] ? summaryOf(rest[0]) : null;
+      const toSummarize = first === null ? rest : rest.slice(1);
+      if (!toSummarize.length) return first;
+      const window = await this.contextTokens();
+      const settings = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
+      this.emit("compaction_start", {});
+      try {
+        return await this.writeSummary({ toSummarize, previousSummary: first ?? undefined, kept: [] }, settings, undefined, signal);
+      } catch (err) {
+        if (signal.aborted) throw err;
+        console.warn("[agent] summary failed:", err);
+        return null;
+      }
+    });
+  }
+
+  /** Starts an empty conversation from the summary of another (`summarize`). */
+  async seed(summary: string): Promise<void> {
+    await this.loaded;
+    if (this.current) throw new Error("cannot seed while a run is active");
+    if (this.history.length) throw new Error("seed needs an empty conversation");
+    this.history = [summaryMessage(summary)];
+    this.committed = 1;
+    this._ended = null;
+    await this.saveSession();
+  }
+
+  /** Runs like a run: messages sent meanwhile queue behind it instead of being lost when the history is replaced. */
+  private exclusive<T>(what: string, job: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (this.current) return Promise.reject(new Error(`cannot ${what} while a run is active`));
     const controller = new AbortController();
     const work = this.chain.then(async () => {
       await this.loaded;
-      const window = await this.contextTokens();
-      let settings = resolveSettings(window, typeof this.opts.compaction === "object" ? this.opts.compaction : {});
-      // Asked for, so it does something: everything before the latest turn may be summarised.
-      const h = this.history;
-      let last = h.length - 1;
-      while (last > 0 && !(h[last]!.role === "user" && summaryOf(h[last]!) === null)) last--;
-      const latestTurn = last > 0 ? h.slice(last).reduce((n, m) => n + estimateTokens([m]), 0) : Math.floor(estimateTokens(h) / 2);
-      settings = { ...settings, keepRecentTokens: Math.min(settings.keepRecentTokens, latestTurn) };
-      const done = await this.compactWith(settings, undefined, controller.signal, focus);
-      if (done) await this.saveSession();
-      return done;
+      return job(controller.signal);
     });
     const promise = work.then(() => ({ ...abortedResult(), reason: "done" as const }), () => abortedResult());
     this.current = { controller, promise };
@@ -816,6 +872,89 @@ export class Agent {
     return work;
   }
 
+  /** Settings under which everything before the latest turn may be summarised, even when all of it would fit. */
+  private squeezed(settings: CompactionSettings): CompactionSettings {
+    const h = this.history;
+    let last = h.length - 1;
+    while (last > 0 && !(h[last]!.role === "user" && summaryOf(h[last]!) === null)) last--;
+    const latestTurn = last > 0 ? h.slice(last).reduce((n, m) => n + estimateTokens([m]), 0) : Math.floor(estimateTokens(h) / 2);
+    return { ...settings, keepRecentTokens: Math.min(settings.keepRecentTokens, latestTurn) };
+  }
+
+  /**
+   * The model refused the request as too large: make it smaller. Round 0
+   * summarises what is older than the latest turn and trims to 70% of the
+   * window (the estimate may run low); round 1 trims to 40%, big results of the
+   * latest turn included. True when the request did get smaller.
+   */
+  private async squeeze(window: number, round: number, settings: CompactionSettings, fixed: string, runId: string, signal: AbortSignal): Promise<boolean> {
+    const before = estimateTokens(this.history, fixed);
+    if (round === 0 && this.opts.compaction !== false) await this.compactWith(this.squeezed(settings), runId, signal);
+    const pinned = this.history.length && summaryOf(this.history[0]!) !== null ? [this.history[0]!] : [];
+    const rest = this.history.slice(pinned.length);
+    const budget = Math.floor(window * (round === 0 ? 0.7 : 0.4)) - estimateTokens(pinned);
+    const fit = fitBudget(rest, { budget, keepTurns: 1, system: fixed, keepResults: round === 0 ? 3 : 0 });
+    if (fit.droppedTurns || fit.elidedResults) {
+      this.history = [...pinned, ...fit.messages];
+      this.droppedTurns += fit.droppedTurns;
+      this.committed = Math.min(this.committed, this.history.length);
+      this.emit("compaction", { runId, summary: false, tokensBefore: before, tokensAfter: estimateTokens(this.history, fixed), droppedTurns: fit.droppedTurns, elidedResults: fit.elidedResults });
+    }
+    return estimateTokens(this.history, fixed) < before;
+  }
+
+  /** What takes up the room in a request that cannot be made smaller. */
+  private overflowCause(window: number, fixed: string): OverflowCause {
+    const tools = this.tools.length ? estimateTokens([], JSON.stringify(this.tools.map((t) => toChatTool(t as Tool<unknown>)))) : 0;
+    const latest = [...this.history].reverse().find((m) => m.role === "user" && summaryOf(m) === null);
+    const asked = latest ? estimateTokens([latest]) : 0;
+    const others = estimateTokens(this.history) - asked;
+    const biggest = Math.max(tools, asked, others);
+    if (biggest * 2 < window) return "model";
+    if (biggest === asked) {
+      const files = Array.isArray(latest!.content) ? latest!.content.length > 1 : /(^|\n)\[attachments\]/.test(String(latest!.content ?? ""));
+      return files ? "attachments" : "message";
+    }
+    return biggest === tools ? "tools" : "history";
+  }
+
+  /** The summary of a cut: the host's own summariser, or the model, piece by piece. */
+  private async writeSummary(plan: CutPlan, settings: CompactionSettings, runId: string | undefined, signal: AbortSignal): Promise<string> {
+    if (typeof this.opts.compaction === "function") return this.opts.compaction(plan, this);
+    const limits = await this.limits();
+    // pi: the summary may use most of the reserve, never the model's whole output limit.
+    const maxTokens = Math.min(limits.output, Math.max(1024, Math.floor(settings.reserveTokens * 0.8)));
+    // What one request can carry (3 characters a token, room for the prompt); a longer history is summarised piece by piece.
+    const room = Math.max(6000, (limits.input - maxTokens - 1500) * 3);
+    let previous = plan.previousSummary;
+    for (const piece of splitForSummary(serializeConversation(plan.toSummarize), room)) {
+      const params: ChatCompletionParams = { model: this.opts.model ?? "", messages: summarizationMessages(piece, previous, plan.focus), max_tokens: maxTokens };
+      if (!params.model) delete (params as Partial<ChatCompletionParams>).model;
+      const tag = { runId: runId ?? "", turn: this.turnNow, purpose: "compaction" as const };
+      this.emit("request", { ...tag, params });
+      // A listener may have stopped the run on seeing this request (a call limit): then it never goes out.
+      signal.throwIfAborted();
+      const asked = Date.now();
+      let res: ChatCompletion;
+      try {
+        res = this.provider.complete
+          ? await this.provider.complete(params, { signal })
+          : await collectCompletion((p, init) => this.provider.stream(p, init), params, { signal }).then((c) => ({ choices: [{ message: { ...c.message, content: typeof c.message.content === "string" ? c.message.content : null }, finish_reason: c.finishReason }], usage: c.usage }) as unknown as ChatCompletion);
+      } catch (err) {
+        this.emit("response", { ...tag, durationMs: Date.now() - asked, error: err instanceof Error ? err.message : String(err) });
+        throw err;
+      }
+      if (res.usage) this.addUsage(res.usage);
+      const choice = res.choices[0];
+      this.emit("response", { ...tag, durationMs: Date.now() - asked, finishReason: choice?.finish_reason ?? undefined, usage: res.usage ?? undefined, message: choice?.message as ChatMessage | undefined });
+      if (!choice || choice.finish_reason === "length") throw new Error("the summary is incomplete");
+      if (choice.message.tool_calls?.length) throw new Error("the summariser attempted to call a tool");
+      previous = (choice.message.content ?? "").trim();
+      if (!previous) throw new Error("empty summary");
+    }
+    return previous!;
+  }
+
   private async compactWith(settings: CompactionSettings, runId: string | undefined, signal: AbortSignal, focus?: string): Promise<boolean> {
     const plan = planCut(this.history, settings.keepRecentTokens);
     if (!plan) return false;
@@ -824,42 +963,7 @@ export class Agent {
     const tokensBefore = estimateTokens(this.history);
     let summary: string;
     try {
-      if (typeof this.opts.compaction === "function") {
-        summary = await this.opts.compaction(plan, this);
-      } else {
-        const limits = await this.limits();
-        // pi: the summary may use most of the reserve, never the model's whole output limit.
-        const maxTokens = Math.min(limits.output, Math.max(1024, Math.floor(settings.reserveTokens * 0.8)));
-        // What one request can carry (3 characters a token, room for the prompt); a longer history is summarised piece by piece.
-        const room = Math.max(6000, (limits.input - maxTokens - 1500) * 3);
-        let previous = plan.previousSummary;
-        for (const piece of splitForSummary(serializeConversation(plan.toSummarize), room)) {
-          const params: ChatCompletionParams = { model: this.opts.model ?? "", messages: summarizationMessages(piece, previous, plan.focus), max_tokens: maxTokens };
-          if (!params.model) delete (params as Partial<ChatCompletionParams>).model;
-          const tag = { runId: runId ?? "", turn: this.turnNow, purpose: "compaction" as const };
-          this.emit("request", { ...tag, params });
-          // A listener may have stopped the run on seeing this request (a call limit): then it never goes out.
-          signal.throwIfAborted();
-          const asked = Date.now();
-          let res: ChatCompletion;
-          try {
-            res = this.provider.complete
-              ? await this.provider.complete(params, { signal })
-              : await collectCompletion((p, init) => this.provider.stream(p, init), params, { signal }).then((c) => ({ choices: [{ message: { ...c.message, content: typeof c.message.content === "string" ? c.message.content : null }, finish_reason: c.finishReason }], usage: c.usage }) as unknown as ChatCompletion);
-          } catch (err) {
-            this.emit("response", { ...tag, durationMs: Date.now() - asked, error: err instanceof Error ? err.message : String(err) });
-            throw err;
-          }
-          if (res.usage) this.addUsage(res.usage);
-          const choice = res.choices[0];
-          this.emit("response", { ...tag, durationMs: Date.now() - asked, finishReason: choice?.finish_reason ?? undefined, usage: res.usage ?? undefined, message: choice?.message as ChatMessage | undefined });
-          if (!choice || choice.finish_reason === "length") throw new Error("the summary is incomplete");
-          if (choice.message.tool_calls?.length) throw new Error("the summariser attempted to call a tool");
-          previous = (choice.message.content ?? "").trim();
-          if (!previous) throw new Error("empty summary");
-        }
-        summary = previous!;
-      }
+      summary = await this.writeSummary(plan, settings, runId, signal);
     } catch (err) {
       if (signal.aborted) throw err;
       console.warn("[agent] compaction summary failed, falling back to trimming:", err);

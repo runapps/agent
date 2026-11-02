@@ -145,7 +145,7 @@ await workspace.sessions.delete("chat-41");
 - A session's `title` is the user's first words (what they typed, for a slash command), kept once known.
 - `persist: false` keeps a conversation in memory only.
 - `agent.export()` returns the session (`SessionData`) for storage of your own; `createAgent(provider, { restore: data })` continues it.
-- `agent.lastEnd` says how the last run ended when it did not finish (`{ reason, error?, at }`), and is saved with the session until the next run starts.
+- `agent.lastEnd` says how the last run ended when it did not finish (`{ reason, error?, code?, overflow?, at }`), and is saved with the session until the next run starts.
 - `agent.clear()` starts the conversation over under the same id — stops a run, drops the queue, messages, title, usage — and saves that; the workspace's files stay. `agent.reset()` forgets the messages in memory only (not while running).
 
 ## Context and compaction
@@ -163,6 +163,27 @@ createAgent(provider, {
 
 await agent.compact("keep every API name we discussed");   // now, with a focus
 ```
+
+### When a request does not fit
+
+A provider may refuse a request as larger than the model takes, in its own words (`isContextOverflow(err)` recognises them; a status of 413 counts too). The agent then makes it smaller by itself and sends it again: it summarises what is older than the latest turn and trims to 70% of the window, then, if refused again, to 40%, the big results of the latest turn included. A refusal that states the real limit corrects the window for the rest of the run. A request more than twice a window the catalogue vouches for is treated as refused without being sent.
+
+When nothing more can go, the run ends with `reason: "error"` and a `ContextOverflowError`. Its `code` is `"context_overflow"`, its `detail` the provider's words, and its `overflow` says what takes up the room; `agent.lastEnd` carries the same and is saved with the session:
+
+```js
+const r = await agent.prompt(text);
+if (r.error?.code === "context_overflow") r.error.overflow; // { cause, used, window }
+```
+
+| `cause` | The biggest part of the request |
+|---|---|
+| `attachments` | What is attached to the latest message |
+| `message` | The latest message's own text |
+| `tools` | The tools' schemas |
+| `history` | The rest of the conversation |
+| `model` | Nothing stands out: this model is too small for it |
+
+`renderChat` turns this into a card with one-click ways out (see [the chat UI](chat-ui.md)). Without it, these are the pieces: `agent.rewind(index)` takes a message back, `agent.compact()` then `agent.continue()` carries on, `agent.configure({ model })` changes the model, and `agent.summarize(leaveOut?)` writes a summary that stays out of the conversation, for `seed(summary)` to start an empty one from.
 
 ## Pictures and models that see them
 

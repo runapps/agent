@@ -139,7 +139,7 @@ export interface FitResult {
  */
 export function fitBudget(
   messages: ChatMessage[],
-  opts: { budget: number; keepTurns: number; system?: string; elideAbove?: number },
+  opts: { budget: number; keepTurns: number; system?: string; elideAbove?: number; keepResults?: number },
 ): FitResult {
   const keepTurns = Math.max(1, opts.keepTurns);
   const elideAbove = opts.elideAbove ?? 400;
@@ -170,7 +170,7 @@ export function fitBudget(
   if (over() && turns.length === 1) {
     const turn = turns[0]!;
     const toolIdx = turn.map((m, i) => (m.role === "tool" ? i : -1)).filter((i) => i >= 0);
-    for (const i of toolIdx.slice(0, Math.max(0, toolIdx.length - 3))) {
+    for (const i of toolIdx.slice(0, Math.max(0, toolIdx.length - (opts.keepResults ?? 3)))) {
       if (!over()) break;
       const m = turn[i]!;
       const text = typeof m.content === "string" ? m.content : partsText(m.content);

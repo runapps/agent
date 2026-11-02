@@ -171,6 +171,7 @@ Throw a `ProviderError(status, message, { code, retryAfter })` — or any error 
 | Status | What the agent does |
 |---|---|
 | `408`, `429`, `5xx`, `0` (no answer, network) | Tries again with backoff — three attempts in all — waiting `retryAfter` seconds when given. Text already shown is discarded first (`message_reset` event). |
+| A request too large for the model, in any provider's words, or `413` | Makes it smaller and sends it again; see [Context and compaction](agent.md#when-a-request-does-not-fit). |
 | anything else | Ends the run with `reason: "error"`; the chat shows the message with a Retry button. |
 
 Errors without a status are retried only when they look like network failures.

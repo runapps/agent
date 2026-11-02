@@ -91,6 +91,59 @@ export class ProviderError extends Error {
   get statusCode(): number { return this.status; }
 }
 
+/** What takes up the room when a request does not fit the model's context. */
+export type OverflowCause = "attachments" | "message" | "tools" | "history" | "model";
+
+/** Why a request did not fit: the biggest part of it, and its size against the window (estimated tokens). */
+export interface ContextOverflow { cause: OverflowCause; used: number; window: number }
+
+const OVERFLOW_MESSAGES: Record<OverflowCause, string> = {
+  attachments: "The attachments on this message are too large for the model's context",
+  message: "This message is too long for the model's context",
+  tools: "The connected tools take up too much of the model's context",
+  history: "This conversation is too long for the model's context",
+  model: "This request does not fit the model's context",
+};
+
+/**
+ * A request that still did not fit after the agent compacted and trimmed the
+ * conversation. `overflow` says what takes up the room; `detail` is the
+ * provider's own words, when it was the provider that refused.
+ */
+export class ContextOverflowError extends ProviderError {
+  readonly overflow: ContextOverflow;
+  readonly detail?: string;
+  constructor(overflow: ContextOverflow, detail?: string, status = 400) {
+    super(status, OVERFLOW_MESSAGES[overflow.cause], { code: "context_overflow" });
+    this.name = "ContextOverflowError";
+    this.overflow = overflow;
+    this.detail = detail;
+  }
+}
+
+// Each provider's wording for "the prompt is larger than the model takes". Limits on the reply (max_tokens) and rate limits per minute are something else.
+const OVERFLOW_TEXT = /context[_ ]length|context[_ ]window|maximum context|(?:prompt|input|request|message)s? (?:is |are )?too (?:long|large)|too many (?:input |prompt )?tokens|prompt tokens too many|exceed\w* .{0,30}(?:context|token limit|input token)|input token count|max_input_tokens|range of input length|payload too large|entity too large/i;
+
+/** Whether a failed model call means the request is larger than the model's context. */
+export function isContextOverflow(err: unknown): boolean {
+  if (err instanceof ContextOverflowError) return true;
+  const s = errorStatus(err);
+  if (s === 401 || s === 402 || s === 403 || s === 404 || s === 429) return false;
+  if (s === 413) return true;
+  const code = (err as { code?: unknown } | null)?.code;
+  if (code === "context_length_exceeded" || code === "context_overflow") return true;
+  return err instanceof Error && OVERFLOW_TEXT.test(err.message);
+}
+
+/** The model's real limit, when the provider's refusal states it. */
+export function overflowLimit(err: unknown): number | undefined {
+  const text = err instanceof Error ? err.message : "";
+  const m = /its ([\d,]+) max_input_tokens|maximum context length is ([\d,]+)|> ?([\d,]+) maximum|context (?:window|length) of ([\d,]+)|token limit\D{0,5}([\d,]+)|\[1, ?([\d,]+)\]/i.exec(text);
+  const raw = m?.slice(1).find(Boolean);
+  const n = raw ? Number(raw.replace(/,/g, "")) : NaN;
+  return n >= 1000 ? n : undefined;
+}
+
 /** The status of any provider's error: ProviderError, the RunApps SDK's APIError, or anything with a `status`. */
 export function errorStatus(err: unknown): number | undefined {
   if (!err || typeof err !== "object") return undefined;
