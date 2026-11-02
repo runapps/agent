@@ -262,7 +262,7 @@ export function sandboxTool(opts: SandboxOptions = {}): Tool {
     async execute({ code, input, timeout_ms }, ctx) {
       if (code.length > maxCode) throw new Error(`the code is ${code.length} characters; the limit is ${maxCode}. Do less in one run.`);
       const bridge: SandboxToolBridge = {
-        names: ctx.agent.tools.filter((t) => t.name !== "run_js" && !t.endsRun && !t.display?.hidden && t.callableFromCode !== false).map((t) => t.name),
+        names: ctx.agent.tools.filter((t) => t.name !== "run_js" && !t.endsRun && !t.vision && !t.display?.hidden && t.callableFromCode !== false).map((t) => t.name),
         max: opts.maxToolCalls,
         call: async (name, args, signal) => {
           const r = await ctx.callTool(name, args, { signal });

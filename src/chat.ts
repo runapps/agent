@@ -266,7 +266,7 @@ const STRINGS = {
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove",
     toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed",
     actRead: "read {n} file(s)", actList: "listed {n} folder(s)", actSearch: "searched {n} time(s)", actWrite: "wrote {n} file(s)", actEdit: "edited {n} file(s)", actDelete: "deleted {n} file(s)", actRun: "ran {n} snippet(s)", actAsk: "asked you {n} time(s)", actOther: "used {name}",
-    ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", current: "Current", jumpEnd: "Jump to the latest",
+    runCode: "Run code", ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", current: "Current", jumpEnd: "Jump to the latest",
     sTabModel: "Model", debug: "Debug", dCalls: "Calls", dRequests: "Requests", dEvents: "Events", dContext: "Context", dTools: "Tools", dClear: "Clear the record", dFilter: "Filter by type",
     dNoCalls: "No tool calls yet.", dNoRequests: "No model requests yet. Each call to the model is listed here with what was sent and what came back.", dNoEvents: "No events yet.",
     dSystem: "System prompt", dMessages: "Messages sent to the model", dPayload: "Request", dResponse: "Response", dRun: "Run", dTurn: "Turn {n}", sent: "sent", justNow: "Just now", minutesAgo: "{n} min ago", hoursAgo: "{n} h ago", context: "context", copy: "Copy", copied: "Copied", rewind: "Rewind to here", rewindTitle: "Rewind to this message", regen: "Answer again", regenTitle: "Answer this question again", regenMsg: "This answer and what follows are dropped and the question is sent again.", delTurn: "Delete", delTurnTitle: "Delete this question and its answer?", delTurnMsg: "They are removed from the conversation; files stay as they are.", replyCost: "Cost: {cost}", replyUsage: "{in} in · {out} out · {calls} calls",
@@ -305,7 +305,7 @@ const STRINGS = {
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除",
     toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败",
     actRead: "读取了 {n} 个文件", actList: "查看了 {n} 个目录", actSearch: "搜索了 {n} 次", actWrite: "写入了 {n} 个文件", actEdit: "修改了 {n} 个文件", actDelete: "删除了 {n} 个文件", actRun: "运行了 {n} 段代码", actAsk: "询问了你 {n} 次", actOther: "调用了 {name}",
-    ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", current: "当前", jumpEnd: "回到最新",
+    runCode: "运行代码", ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", current: "当前", jumpEnd: "回到最新",
     sTabModel: "模型", debug: "调试", dCalls: "调用", dRequests: "请求", dEvents: "事件", dContext: "上下文", dTools: "工具", dClear: "清空记录", dFilter: "按类型过滤",
     dNoCalls: "还没有工具调用。", dNoRequests: "还没有模型请求。每次调用模型都会记在这里，包括发了什么、收到什么。", dNoEvents: "还没有事件。",
     dSystem: "系统提示词", dMessages: "发给模型的消息", dPayload: "请求内容", dResponse: "响应", dRun: "运行", dTurn: "第 {n} 轮", sent: "已发送", justNow: "刚刚", minutesAgo: "{n} 分钟前", hoursAgo: "{n} 小时前", context: "上下文", copy: "复制", copied: "已复制", rewind: "回退到这里", rewindTitle: "回退到这条消息", regen: "重新回答", regenTitle: "重新回答这个问题", regenMsg: "这个回答及之后的对话会被删除，问题重新发送。", delTurn: "删除", delTurnTitle: "删除这一轮问答？", delTurnMsg: "这条提问和它的回答会从对话中删除，文件不受影响。", replyCost: "费用：{cost}", replyUsage: "输入 {in} · 输出 {out} · {calls} 次调用",
@@ -1886,7 +1886,9 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     const end = h("span", "ra-tend");
     end.innerHTML = '<span class="ra-spin"></span>';
     sum.innerHTML = `<span class="ra-chev">${I.chev()}</span>`;
-    const title = h("span", "ra-tname", label ?? name); if (label) { title.title = name; title.classList.add("own"); }
+    // The model's name for it means nothing to a reader; its first line of code is the summary beside it.
+    const shown = label ?? (name === "run_js" ? t.runCode : undefined);
+    const title = h("span", "ra-tname", shown ?? name); if (shown) { title.title = name; title.classList.add("own"); }
     sum.append(icon, title, h("span", "ra-tsum", label ? "" : summarizeArgs(name, args)), end);
     const tb = h("div", "ra-tbody");
     const argsPre = h("pre", "", name === "run_js" && args && typeof args === "object" && typeof (args as { code?: unknown }).code === "string" ? (args as { code: string }).code : typeof args === "string" ? args : JSON.stringify(args, null, 2));

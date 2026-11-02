@@ -251,7 +251,7 @@ return { count: orders.length, won: orders.filter((o) => o.profit > 0).length };
 
 - **The same gate as the model's calls**: the schema, the tool's `validate`, `onToolCall`, permissions and `confirm`. A call that fails or is declined throws what the model would have been told.
 - **The whole result**: `await tools.x(args)` resolves with the tool's text, not cut to its `maxResultChars` (2 000 000 chars at most). `read_file` gives the whole file unless the code passes `offset` or `limit`, and `list_files` the whole list: their limits are for what the model has to read, and a tool of your own can do the same by looking at `ctx.parentId`. What `run_js` returns to the model is still limited to 24 000.
-- **Not there**: `run_js` itself, tools with `endsRun` or `display.hidden`, and a tool you mark `callableFromCode: false` (the model can still call it; the code is told it cannot).
+- **Not there**: `run_js` itself, `ask_user`, tools with `endsRun`, `vision` (code cannot look at a picture) or `display.hidden`, and a tool you mark `callableFromCode: false` (the model can still call it; the code is told it cannot).
 - **One at a time**, in the order called, also under `Promise.all`.
 - **Limits**: `maxToolCalls` (50 per run), `maxCodeChars` (20 000). `timeoutMs` counts the code's own time: waiting for a tool or the user's answer does not use it up.
 - **It ends with the code**: when the code returns, times out or is stopped, a call still queued never starts and one in progress gets its signal aborted.

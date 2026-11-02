@@ -85,10 +85,19 @@ test("run_js tools — a nested call goes through schema, confirm and the hook",
 
 test("run_js tools — the code gets the other tools, not run_js, not run-ending tools, and there is no fs", async () => {
   const end = defineTool({ name: "suggest", description: "Ends", endsRun: true, execute: () => "x" });
+  const shot = defineTool({ name: "screenshot", description: "Looks", vision: true, execute: () => "x" });
   const { provider } = scripted([{ code: "return { names: Object.keys(tools), hasFs: typeof fs };" }, "done"]);
-  const agent = createAgent(provider, opts({ tools: [add(), end] }));
+  const agent = createAgent(provider, opts({ tools: [add(), end, shot] }));
   await agent.prompt("x");
   assert.match(told(agent), /"names":\["add"\],"hasFs":"undefined"/);
+});
+
+test("run_js tools — the built-in ask_user is the model's, not the code's", async () => {
+  const { provider } = scripted([{ code: "try { await tools.ask_user({ questions: [{ question: 'x' }] }); } catch (e) { return [Object.keys(tools), e.message]; }" }, "done"]);
+  const agent = createAgent(provider, { model: "m", tools: [add()] });
+  await agent.prompt("x");
+  assert.match(told(agent), /\["add"\],"tools\.ask_user cannot be called from run_js/);
+  assert.ok(agent.tools.some((t) => t.name === "ask_user"), "the model still has it");
 });
 
 test("run_js tools — callableFromCode: false keeps a tool from the code, not from the model", async () => {

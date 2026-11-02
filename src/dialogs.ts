@@ -176,6 +176,8 @@ interface Question {
 export function askUserTool(): Tool {
   return defineTool<{ questions: Question[] }>({
     name: "ask_user",
+    // The model asks, between its steps; code in the middle of a run does not.
+    callableFromCode: false,
     description:
       "Ask the user one to three questions when the request is genuinely ambiguous and the answer changes what you would do. Give 2–5 short options when there are natural choices (allow_other adds a free-text choice); leave options out for a free-text answer. Do not ask what you can reasonably decide yourself.",
     parameters: {
