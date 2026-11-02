@@ -236,17 +236,24 @@ export class VirtualList {
       const anchorDelta = this.offsets[anchor]! - scrollTop;
       const first = this.indexAt(Math.max(0, scrollTop - this.overscan));
       const last = Math.min(n - 1, this.indexAt(Math.min(total - 1, scrollTop + view + this.overscan)));
-      // Reconcile the window.
-      if (first !== this.first || last !== this.last || this.win.childElementCount !== last - first + 1) {
-        const keep = new Set(this.rows.slice(first, last + 1));
-        for (const [row, w] of this.wrappers) if (!keep.has(row)) { this.ro?.unobserve(w); w.remove(); this.wrappers.delete(row); }
-        const kids: HTMLElement[] = [];
-        for (let i = first; i <= last; i++) kids.push(this.wrapper(this.rows[i]!));
-        this.win.replaceChildren(...kids);
-        this.first = first; this.last = last;
-      }
+      // The spacers first: a row that holds the focus forces a layout the moment it leaves (the browser clears
+      // the focus), and a scroller that is short then pulls scrollTop back to its new end.
       this.top.style.height = `${this.offsets[first]}px`;
       this.bottom.style.height = `${total - this.offsets[last + 1]!}px`;
+      // Reconcile the window. Only the rows entering and leaving are touched: taking one out and putting it
+      // back would lose its focus, its selection and the scroll position of every code block inside it.
+      if (first !== this.first || last !== this.last || this.win.childElementCount !== last - first + 1) {
+        const keep = new Set(this.rows.slice(first, last + 1));
+        const leaving = [...this.wrappers].filter(([row]) => !keep.has(row));
+        let prev: HTMLElement | null = null;
+        for (let i = first; i <= last; i++) {
+          const w: HTMLElement = this.wrapper(this.rows[i]!);
+          if (w.parentNode !== this.win) this.win.insertBefore(w, prev ? prev.nextSibling : this.win.firstChild);
+          prev = w;
+        }
+        for (const [row, w] of leaving) { this.ro?.unobserve(w); w.remove(); this.wrappers.delete(row); }
+        this.first = first; this.last = last;
+      }
       // Measure what is shown; a change means another pass with the new sizes.
       let changed = false;
       for (let i = first; i <= last; i++) {
