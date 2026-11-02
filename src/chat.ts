@@ -655,7 +655,7 @@ const CSS = tokenCSS() + `
 .ra-queue .ra-qlist .ra-qr{padding-left:14px}
 .ra-box{position:relative;border:1px solid var(--ra-border);border-radius:12px;padding:8px 10px 6px;background:var(--ra-panel);box-shadow:var(--ra-shadow)}
 .ra-box:focus-within{border-color:color-mix(in srgb,var(--ra-fg) 28%,transparent)}
-.ra-box textarea{resize:none;height:64px;overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
+.ra-box textarea{resize:none;height:calc(3em + 8px);overflow-y:auto;padding:2px 4px;line-height:1.5;display:block}
 /* A host's generic focus rule (textarea:focus-visible{outline…}) must not draw a square inside the rounded box: the box shows focus. */
 .ra-chat .ra-box textarea:focus,.ra-chat .ra-box textarea:focus-visible{outline:none;box-shadow:none;background:transparent}
 .ra-chat[data-asking="1"] .ra-box textarea,.ra-chat[data-short="1"] .ra-box textarea{height:1.6em}
