@@ -162,7 +162,7 @@ Typing `/standup 2026-11-01` sends the expanded text. Arguments follow bash: `$1
 
 ## PDFs
 
-`read_file` (and `fs.read` inside `run_js`) reads a PDF as the text of its pages, each under a `--- page N ---` line; a scanned PDF without a text layer says so. The text comes from Mozilla's pdf.js, loaded from jsDelivr the first time a PDF is read (about 500 KB gzipped; nothing is added to this package), and is cached with the directory until the file changes.
+`read_file` reads a PDF as the text of its pages, each under a `--- page N ---` line; a scanned PDF without a text layer says so. The text comes from Mozilla's pdf.js, loaded from jsDelivr the first time a PDF is read (about 500 KB gzipped; nothing is added to this package), and is cached with the directory until the file changes.
 
 ```js
 import { configurePdf } from "@runappsai/agent";

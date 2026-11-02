@@ -59,9 +59,9 @@ Options: see [the options table](agent.md#options). Events: see [Events](agent.m
 |---|---|
 | `defineTool({ name, description, parameters?, execute, destructive?, readOnly?, endsRun?, vision?, confirm?, guidelines?, maxResultChars? })` | A tool (`confirm` returns a question, `{ title, message }` or `false`). |
 | `fileTools(workspace, { readBeforeWrite?, guard? })` | The file tools for a workspace. |
-| `fileGuard(workspace, { enabled? })` → `FileGuard` | What the model has read (`saw`, `wrote`, `edited`, `copied`, `check`, `forget`, `clear`); the agent shares one between the file tools and `run_js` (`sandboxTool(ws, { guard })`). |
+| `fileGuard(workspace, { enabled? })` → `FileGuard` | What the model has read (`saw`, `wrote`, `edited`, `copied`, `check`, `forget`, `clear`); the agent passes one to its file tools. |
 | `connectMCP(url, { token?, headers?, prefix?, confirm?, images?, timeoutMs?, maxTools?, maxResultChars?, fetch?, signal? })` → `MCPConnection` | An MCP server's tools (`tools`, `serverTools`, `server`, `instructions`, `refresh()`, `close()`). `MCPError` for its failures. |
-| `sandboxTool(workspace, options)`, `runInSandbox(workspace, code, input, options)` | The `run_js` sandbox. |
+| `sandboxTool(options)`, `runInSandbox(code, input, options)` | The `run_js` sandbox. `runInSandbox`'s `bridge` gives the code `tools`. |
 | `askUserTool()` | The `ask_user` tool. |
 | `normalizeResult(value)` | How a tool's return value becomes the model's result. |
 | `validateSchema(schema, value)` → `string[]` | The JSON Schema check used on arguments (the errors, empty when valid). |

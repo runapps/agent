@@ -41,7 +41,7 @@ export { configurePdf, extractPdfText, formatPdfText, isPdf, type PdfLib } from 
 export { fileTools, type FileToolsOptions } from "./file-tools.js";
 export { fileGuard, PartialReadError, type FileGuard } from "./file-guard.js";
 export { connectMCP, MCPError, type MCPConnection, type MCPOptions, type MCPToolInfo } from "./mcp.js";
-export { sandboxTool, runInSandbox, type SandboxOptions, type SandboxResult } from "./sandbox.js";
+export { sandboxTool, runInSandbox, type SandboxOptions, type SandboxResult, type SandboxToolBridge } from "./sandbox.js";
 export { parseSkill, parseFrontmatter } from "./skills.js";
 export { collectCompletion, type CollectedCompletion } from "./completion.js";
 export { buildSystemPrompt, estimateTokens, fitBudget, groupTurns } from "./context.js";

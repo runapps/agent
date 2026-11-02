@@ -1,7 +1,7 @@
 // Read before write: what the model has seen of each file, so that it does
 // not overwrite, edit or delete a file from a stale or partial view — the
 // user may edit files while it works. One guard per agent, shared by the
-// file tools and run_js's `fs`; when the conversation is compacted or
+// file tools; when the conversation is compacted or
 // rewound it forgets the files whose contents the model no longer has.
 
 import { decodeText, type Workspace } from "./workspace.js";

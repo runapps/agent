@@ -341,8 +341,7 @@ test("agent — the system prompt mentions only the file tools the model has", a
   assert.match(all, /Use list_files and read_file to look around, edit_file for small changes \(each oldText must match exactly once\), write_file for new files or rewrites\. A reply has an output limit/);
 
   const sandboxOnly = await sysFor({ fileTools: false, sandbox: true });
-  assert.match(sandboxOnly, /# Workspace/, "run_js reaches the files");
-  assert.doesNotMatch(sandboxOnly, /Use list_files|edit_file/);
+  assert.doesNotMatch(sandboxOnly, /# Workspace/, "without file tools run_js cannot reach the files");
 });
 
 test("agent — prompt and extra parameters are forwarded", async () => {

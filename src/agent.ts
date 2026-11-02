@@ -13,7 +13,7 @@ import { expandSlash } from "./templates.js";
 import { fileTools } from "./file-tools.js";
 import { validateSchema } from "./json-schema.js";
 import { sandboxTool } from "./sandbox.js";
-import { normalizeResult, textOf, toChatTool } from "./tool.js";
+import { DEFAULT_MAX_RESULT_CHARS, normalizeResult, textOf, toChatTool, truncate } from "./tool.js";
 import type {
   AgentEventMap,
   AgentEventName,
@@ -49,7 +49,12 @@ interface Outcome {
   changed: boolean;
   /** What the tool said (ctx.progress), or what the outcome itself means; undefined: decided by the key. */
   progress: boolean | undefined;
+  status: ToolStatus;
+  details?: unknown;
 }
+
+/** The longest result a tool called from another tool (ctx.callTool) hands back. */
+const NESTED_RESULT_CHARS = 2_000_000;
 
 const LOOP_WARN = 3;
 const LOOP_STOP = 6;
@@ -205,7 +210,7 @@ export class Agent {
     this.ui = opts.ui ?? domUI();
     this.workspace = opts.workspace ?? null;
     const tools: Tool[] = [...(opts.tools ?? [])];
-    // What the model has read, for the file tools and run_js alike; forgotten when the conversation is compacted or rewound.
+    // What the model has read, for the file tools; forgotten when the conversation is compacted or rewound.
     const guard = this.workspace ? fileGuard(this.workspace, { enabled: opts.readBeforeWrite !== false }) : undefined;
     if (guard) {
       const sync = () => guard.retain(this.filesInView());
@@ -217,7 +222,7 @@ export class Agent {
       tools.push(...fileTools(this.workspace, { guard }).filter((t) => !want || want.has(t.name)));
     }
     if (opts.askUser !== false) tools.push(askUserTool());
-    if (opts.sandbox !== false) tools.push(sandboxTool(this.workspace, { ...(typeof opts.sandbox === "object" ? opts.sandbox : {}), guard }));
+    if (opts.sandbox !== false) tools.push(sandboxTool(typeof opts.sandbox === "object" ? opts.sandbox : {}));
     const seen = new Set<string>();
     for (const t of tools) {
       if (seen.has(t.name)) throw new Error(`two tools are named "${t.name}"`);
@@ -791,8 +796,8 @@ export class Agent {
       appName: this.opts.appName,
       instructions: typeof this.opts.instructions === "function" ? this.opts.instructions() : this.opts.instructions,
       tools,
-      // run_js reaches the files too; with neither, the directory is only where the session is kept.
-      workspaceDescription: ws && tools.some((t) => FILE_TOOL_NAMES.has(t.name) || t.name === "run_js") ? ws.describe() : undefined,
+      // Without file tools the directory is only where the session is kept.
+      workspaceDescription: ws && tools.some((t) => FILE_TOOL_NAMES.has(t.name)) ? ws.describe() : undefined,
       skills: ws ? await ws.skills() : [],
       hasSandbox: tools.some((t) => t.name === "run_js"),
       hasAskUser: tools.some((t) => t.name === "ask_user"),
@@ -1059,19 +1064,23 @@ export class Agent {
     this.emit("tool_start", { runId, id, name, args: call.function.arguments });
     this.emit("tool_end", { runId, id, name, status: "skipped", result: why, durationMs: 0 });
     // A batch cut short by the user's new instruction: that is progress of its own.
-    return { message: { role: "tool", tool_call_id: id, content: why }, key: "", changed: false, progress: true };
+    return { message: { role: "tool", tool_call_id: id, content: why }, key: "", changed: false, progress: true, status: "skipped" };
   }
 
-  private async runTool(call: ChatToolCall, runId: string, signal: AbortSignal, truncated: boolean): Promise<Outcome> {
+  /** `parentId`: a call made from inside that tool call (ctx.callTool); its result goes back to the tool, not into the conversation. */
+  private async runTool(call: ChatToolCall, runId: string, signal: AbortSignal, truncated: boolean, parentId?: string): Promise<Outcome> {
     const id = call.id ?? "";
+    const nested = parentId ? { parentId } : {};
     const name = call.function.name;
     const started = Date.now();
     let progress: boolean | undefined;
     let tool: Tool | undefined;
     const finish = (status: ToolStatus, content: string | ContentPart[], details?: unknown): Outcome => {
       const result = textOf(content);
-      this.emit("tool_end", { runId, id, name, status, result, details, durationMs: Date.now() - started, ...(typeof content === "string" ? {} : { content }) });
+      this.emit("tool_end", { runId, id, name, status, result: parentId ? truncate(result, DEFAULT_MAX_RESULT_CHARS).text : result, details, durationMs: Date.now() - started, ...nested, ...(typeof content === "string" ? {} : { content }) });
       return {
+        status,
+        details,
         message: { role: "tool", tool_call_id: id, content },
         // A read is judged by what it returned (another range of the same lines is nothing new); a change by what it was asked to do too.
         key: tool?.readOnly ? `${name}|${status}|${result.slice(0, 4000)}` : `${name}|${call.function.arguments.slice(0, 4000)}|${status}|${result.slice(0, 2000)}`,
@@ -1084,7 +1093,7 @@ export class Agent {
     if (signal.aborted) return finish("skipped", SKIPPED_STOP);
     if (truncated) {
       // pi: nothing from a reply cut by the output limit runs.
-      this.emit("tool_start", { runId, id, name, args: call.function.arguments });
+      this.emit("tool_start", { runId, id, name, args: call.function.arguments, ...nested });
       return finish("error", `Tool call "${name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`);
     }
     const offered = await this.activeTools();
@@ -1093,10 +1102,10 @@ export class Agent {
     try {
       args = call.function.arguments.trim() ? JSON.parse(call.function.arguments) : {};
     } catch {
-      this.emit("tool_start", { runId, id, name, args: call.function.arguments });
+      this.emit("tool_start", { runId, id, name, args: call.function.arguments, ...nested });
       return finish("error", "Error: the arguments are not valid JSON.");
     }
-    this.emit("tool_start", { runId, id, name, args });
+    this.emit("tool_start", { runId, id, name, args, ...nested });
     if (!tool) return finish("error", `Error: there is no tool named "${name}". Available tools: ${offered.map((t) => t.name).join(", ")}.`);
     if (args === null || typeof args !== "object" || Array.isArray(args)) return finish("error", "Error: the arguments must be a JSON object.");
     const problems = validateSchema(tool.parameters, args);
@@ -1125,10 +1134,11 @@ export class Agent {
     const stoppedIn = () => {
       try {
         const own = tool.whenStopped?.(args as Record<string, unknown>);
-        if (own !== undefined) { const norm = normalizeResult(own, tool.maxResultChars); return finish("skipped", norm.content, norm.details); }
+        if (own !== undefined) { const norm = normalizeResult(own, parentId ? NESTED_RESULT_CHARS : tool.maxResultChars); return finish("skipped", norm.content, norm.details); }
       } catch { /* the default note */ }
       return finish("skipped", SKIPPED_STOP);
     };
+    let inner = 0;
     try {
       const value = await raceAbort(Promise.resolve(tool.execute(args as Record<string, unknown>, {
         signal,
@@ -1136,11 +1146,16 @@ export class Agent {
         workspace: this.workspace,
         agent: this,
         callId: id,
-        update: (content) => this.emit("tool_update", { runId, id, name, content }),
+        parentId,
+        update: (content) => this.emit("tool_update", { runId, id, name, content, ...nested }),
         progress: (made) => { progress = made; },
+        callTool: async (toolName, toolArgs, o) => {
+          const out = await this.runTool({ id: `${id}.${++inner}`, type: "function", function: { name: toolName, arguments: JSON.stringify(toolArgs ?? {}) } }, runId, o?.signal ?? signal, false, id);
+          return { status: out.status, text: textOf(out.message.content as string | ContentPart[]), details: out.details };
+        },
       })), signal);
       if (signal.aborted) return stoppedIn();
-      const norm = normalizeResult(value, tool.maxResultChars);
+      const norm = normalizeResult(value, parentId ? NESTED_RESULT_CHARS : tool.maxResultChars);
       return finish("ok", norm.content, norm.details);
     } catch (err) {
       if (signal.aborted) return stoppedIn();

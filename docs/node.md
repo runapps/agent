@@ -132,4 +132,4 @@ nodePdf();
 
 ## The sandbox
 
-`run_js` runs in Node through `worker_threads`, with the same limits as in a browser: no network, a time limit, `fs` bound to the workspace. Remove it with `sandbox: false`.
+`run_js` runs in Node through `worker_threads`, with the same limits as in a browser: no network, a time limit, `tools` for the agent's other tools. Remove it with `sandbox: false`.

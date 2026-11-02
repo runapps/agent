@@ -48,6 +48,8 @@ execute(args, ctx)
 | `agent` | The agent. |
 | `callId` | The model's id for this call. |
 | `progress(made)` | Say whether this call brought anything new (see [Calls that go nowhere](#calls-that-go-nowhere)). |
+| `parentId` | Set when another tool made this call (`ctx.callTool`, `tools.x()` in `run_js`): the result is for code, so the tool need not page it. |
+| `callTool(name, args, { signal? })` | Call another of the agent's tools through the same gate; answers `{ status, text, details }` (see [Calling tools from `run_js`](#calling-tools-from-run_js)). |
 
 ```js
 const exportReport = defineTool({
@@ -228,7 +230,7 @@ In a browser the server must allow your page's origin (CORS) and expose the `Mcp
 | Tool | | Option |
 |---|---|---|
 | `ask_user` | One to three questions to the user, with options or free text, when a request is unclear. | `askUser: false` removes it |
-| `run_js` | JavaScript the model writes, run in a Worker: no DOM, no network, a captured console, and `fs` bound to the workspace. The model computes, parses and transforms data with it instead of guessing, and runs skills' scripts. | `sandbox: false`, or `{ timeoutMs, network }` |
+| `run_js` | JavaScript the model writes, run in a Worker: no DOM, no network, a captured console, and `tools` for the agent's other tools ([below](#calling-tools-from-run_js)). The model computes, parses and transforms data with it instead of guessing, and runs skills' scripts. Stopping the run ends the worker, even one stuck in a loop. | `sandbox: false`, or `{ timeoutMs, network, maxToolCalls, maxCodeChars }` |
 | `list_files` | Files under a folder, with sizes. | with a workspace |
 | `read_file` | A file, 2000 lines / 50 KB per call, `offset` and `limit` to continue; a PDF as text; a picture shown to a model that sees pictures. | |
 | `write_file` | Create or replace a file (`replace: true`: without reading it first, for a rewrite from scratch). | |
@@ -237,18 +239,36 @@ In a browser the server must allow your page's origin (CORS) and expose the `Mcp
 | `move_file`, `copy_file` | Move/rename or copy a file; never over an existing one. What was read of the source counts as read of the copy. | |
 | `search_files` | Search file contents. | |
 
+### Calling tools from `run_js`
+
+The code has a `tools` object with the agent's other tools; there is no other way to the files. A large result the model only needs to compute over never enters the conversation:
+
+```js
+const orders = JSON.parse(await tools.read_orders({ limit: 200 }));
+return { count: orders.length, won: orders.filter((o) => o.profit > 0).length };
+```
+
+- **The same gate as the model's calls**: the schema, the tool's `validate`, `onToolCall`, permissions and `confirm`. A call that fails or is declined throws what the model would have been told.
+- **The whole result**: `await tools.x(args)` resolves with the tool's text, not cut to its `maxResultChars` (2 000 000 chars at most). `read_file` gives the whole file unless the code passes `offset` or `limit`, and `list_files` the whole list: their limits are for what the model has to read, and a tool of your own can do the same by looking at `ctx.parentId`. What `run_js` returns to the model is still limited to 24 000.
+- **Not there**: `run_js` itself, tools with `endsRun` or `display.hidden`, and a tool you mark `callableFromCode: false` (the model can still call it; the code is told it cannot).
+- **One at a time**, in the order called, also under `Promise.all`.
+- **Limits**: `maxToolCalls` (50 per run), `maxCodeChars` (20 000). `timeoutMs` counts the code's own time: waiting for a tool or the user's answer does not use it up.
+- **It ends with the code**: when the code returns, times out or is stopped, a call still queued never starts and one in progress gets its signal aborted.
+
+The chat shows these calls inside the `run_js` card. Apps see `tool_start`, `tool_update` and `tool_end` with `parentId` set to the `run_js` call. They are not added to the conversation, so a saved session keeps only the `run_js` card. A tool of your own can do the same with `ctx.callTool(name, args)`, which answers `{ status, text, details }`.
+
 ### Read before write
 
 The agent does not change a file from a stale or partial view of it — the user may be editing files while it works:
 
-- **Overwrite** (`write_file`, `fs.write` in `run_js`) of an existing file needs the model to have read all of it in this conversation. After a partial read, `write_file` refuses once and puts the unread lines in its error (up to one read's worth: 2000 lines or 50 KB); they count as read, so the next `write_file` goes through, or the error says from which `offset` to read on. `fs.write` just says to read the rest.
+- **Overwrite** (`write_file`) of an existing file needs the model to have read all of it in this conversation. After a partial read, `write_file` refuses once and puts the unread lines in its error (up to one read's worth: 2000 lines or 50 KB); they count as read, so the next `write_file` goes through, or the error says from which `offset` to read on. `fs.write` just says to read the rest.
 - **`replace: true`** on `write_file` overwrites an existing file without reading it, for when the user asked for it to be rewritten from scratch. The result says what went unread (`Replaced /a.js (3 bytes). Its previous content (3 lines) was replaced without being read.`), so it shows in the tool card. The parameter exists only while the guard is on.
 - **Edit** (`edit_file`) needs it to have read the file — part is enough, since an edit only replaces the text it quotes.
-- **Delete** (`delete_file`, `fs.remove`) of a file it read is refused if the file changed since; a file it never read can be deleted.
+- **Delete** (`delete_file`) of a file it read is refused if the file changed since; a file it never read can be deleted.
 - Any of them is refused when the file **changed since the model read it** — the user edited it in the files panel, your app changed a mounted document, another tab wrote it. The model is told why and reads the file again.
 
-New files can always be written, and the model's own writes count as read. `fs.read` in `run_js` counts as reading. A file's version is its modified time, size and a fingerprint of its content (files over 4 MB: time and size), so even a same-size change in the same instant shows. What the model has read is forgotten when the conversation is compacted or rewound, since it no longer has those contents. Turn it all off with `readBeforeWrite: false`.
+New files can always be written, and the model's own writes count as read. Calls from `run_js` count like any other. A file's version is its modified time, size and a fingerprint of its content (files over 4 MB: time and size), so even a same-size change in the same instant shows. What the model has read is forgotten when the conversation is compacted or rewound, since it no longer has those contents. Turn it all off with `readBeforeWrite: false`.
 
-The file tools come with a workspace; `fileTools: ["read_file", "list_files", "search_files"]` gives a read-only agent, `fileTools: false` none. The system prompt mentions only the file tools the model has; with none (and no `run_js`) it says nothing about the directory or its skills.
+The file tools come with a workspace; `fileTools: ["read_file", "list_files", "search_files"]` gives a read-only agent, `fileTools: false` none. The system prompt mentions only the file tools the model has; with none it says nothing about the directory or its skills, and `run_js` cannot reach the files either.
 
-`sandboxTool(workspace, options)` and `runInSandbox(workspace, code, input)` are exported if you want the sandbox on its own.
+`sandboxTool(options)` and `runInSandbox(code, input, options)` are exported if you want the sandbox on its own.

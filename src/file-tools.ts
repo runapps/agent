@@ -32,7 +32,7 @@ export interface FileToolsOptions {
    * file can always be written.
    */
   readBeforeWrite?: boolean;
-  /** The agent's guard, shared with run_js (made here when not given). */
+  /** The agent's guard (made here when not given). */
   guard?: FileGuard;
 }
 
@@ -51,11 +51,13 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
         properties: { path: { type: "string", description: "Folder to list. Default /" } },
         additionalProperties: false,
       },
-      async execute({ path }) {
+      async execute({ path }, ctx) {
         const files = await ws.list(path || "/");
         if (!files.length) return `No files under ${normalizePath(path || "/")}.`;
-        const lines = files.slice(0, MAX_LIST).map((f) => `${f.path}  (${f.size} B)`);
-        if (files.length > MAX_LIST) lines.push(`\n[${MAX_LIST} entries limit reached (${files.length} in all). List a sub-folder.]`);
+        // Called from code the whole list: the limit is there for what the model has to read.
+        const max = ctx?.parentId ? Infinity : MAX_LIST;
+        const lines = files.slice(0, max).map((f) => `${f.path}  (${f.size} B)`);
+        if (files.length > max) lines.push(`\n[${MAX_LIST} entries limit reached (${files.length} in all). List a sub-folder.]`);
         return lines.join("\n");
       },
     }),
@@ -113,13 +115,15 @@ export function fileTools(ws: Workspace, opts: FileToolsOptions = {}): Tool[] {
         const total = lines.length;
         const start = Math.max(1, offset ?? 1);
         if (start > total) { await files.saw(normalizePath(path), { start: total + 1, end: total, total }); return `Offset ${start} is beyond end of file (${total} lines total)`; }
-        const want = limit !== undefined ? Math.min(limit, MAX_READ_LINES) : MAX_READ_LINES;
+        // Called from code the whole file: the limits are there for what the model has to read.
+        const whole = !!ctx?.parentId;
+        const want = whole ? limit ?? Infinity : limit !== undefined ? Math.min(limit, MAX_READ_LINES) : MAX_READ_LINES;
         const out: string[] = [];
         let bytes = 0;
         let end = start - 1;
         for (let i = start - 1; i < total && out.length < want; i++) {
           const b = new TextEncoder().encode(lines[i]!).byteLength + 1;
-          if (bytes + b > MAX_READ_BYTES && out.length > 0) break;
+          if (!whole && bytes + b > MAX_READ_BYTES && out.length > 0) break;
           out.push(lines[i]!);
           bytes += b;
           end = i + 1;

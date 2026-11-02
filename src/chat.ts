@@ -595,6 +595,7 @@ const CSS = tokenCSS() + `
 .ra-tg .ra-tgb{display:flex;flex-direction:column;gap:8px;margin-top:6px}
 .ra-tool{border:1px solid var(--ra-border);border-radius:6px;overflow:hidden;font-size:14px}
 .ra-tool.fail{border-color:var(--ra-red)}
+.ra-tnest{display:flex;flex-direction:column;gap:4px;margin:6px 0}
 .ra-tool>summary{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;list-style:none;user-select:none}
 .ra-tool>summary::-webkit-details-marker{display:none}
 .ra-tool>summary:hover{background:var(--ra-muted)}
@@ -1146,7 +1147,7 @@ function inlineUI(askArea: HTMLElement, toasts: HTMLElement, t: Strings, onChang
 
 type Command = { name: string; description: string; kind: string; /** Built-in: runs on Enter when it takes no argument. */ args?: string; builtin?: boolean };
 
-interface ToolCard { el: HTMLDetailsElement; name: string; args: unknown; end: HTMLElement; body: HTMLElement; update: HTMLElement | null; result: HTMLElement | null }
+interface ToolCard { el: HTMLDetailsElement; name: string; args: unknown; end: HTMLElement; body: HTMLElement; update: HTMLElement | null; result: HTMLElement | null; nested?: HTMLElement }
 
 /** A reply: its body holds thinking, text and tool cards, filled live or from saved messages; once done, all but the answer folds into "Worked for …". */
 interface AsstRow extends VRow {
@@ -1972,9 +1973,13 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     sum.append(chev);
   };
 
-  const addCard = (id: string, name: string, args: unknown, body: HTMLElement): ToolCard => {
+  const addCard = (id: string, name: string, args: unknown, body: HTMLElement, parent?: ToolCard): ToolCard => {
     const card = makeCard(name, args);
-    groupIn(body).append(card.el);
+    if (parent) {
+      // A call made from inside another (run_js's tools.x()): under that call's code, its result after it.
+      if (!parent.nested) { parent.nested = h("div", "ra-tnest"); parent.body.append(parent.nested); }
+      parent.nested.append(card.el);
+    } else groupIn(body).append(card.el);
     cards.set(id, card);
     refreshGroup(card.el);
     list.schedule();
@@ -3207,10 +3212,10 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     });
     on("message_reset", () => { if (active) { active.md = ""; active.reasoning = ""; active.text?.remove(); active.text = null; active.think?.remove(); active.think = null; active.thinkBody = null; showPending(); } });
     on("message_end", () => { clearPending(); flushActive(true); lastStamp = Date.now(); });
-    on("tool_start", (ev: { id: string; name: string; args: unknown }) => {
+    on("tool_start", (ev: { id: string; parentId?: string; name: string; args: unknown }) => {
       if (hiddenTools.has(ev.name)) return;
       flushActive(true);
-      const card = addCard(ev.id, ev.name, ev.args, ensureActive().body);
+      const card = addCard(ev.id, ev.name, ev.args, ensureActive().body, ev.parentId ? cards.get(ev.parentId) : undefined);
       // The folded group says which tool; the preview shows what it is doing.
       const r = describeRunning({ name: ev.name, args: ev.args }, card.el);
       // A file's name goes in the label; anything longer (code, a query) is the preview's.

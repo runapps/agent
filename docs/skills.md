@@ -21,7 +21,7 @@ name: unit-convert
 description: Convert between units (length, mass, temperature, volume) with exact factors. Use whenever the user asks to convert a quantity, e.g. "10 lb to kg".
 ---
 1. Read `references/factors.md` for the factor.
-2. Run `scripts/convert.js` with run_js (fs.read it, pass `input = { value, factor }`).
+2. Run `scripts/convert.js` with run_js (read it, pass `input = { value, factor }`).
 3. Answer with the result and the factor used.
 ```
 

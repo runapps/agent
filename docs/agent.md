@@ -85,7 +85,7 @@ agent.on("run_end", ({ reason, error, usage }) => setBusy(false));
 | `message_reset` | `reason` | A call is retried after it streamed: discard what was shown |
 | `message_end` | `message`, `truncated` | An assistant message is complete |
 | `tool_call_delta` | `index`, `id`, `name`, `delta`, `arguments` | A tool call's arguments stream in (raw JSON so far, cut anywhere); nothing runs before the reply ends |
-| `tool_start` / `tool_update` / `tool_end` | `id`, `name`, `args` / `content` / `status`, `result`, `details`, `durationMs` (and `content` with the pictures when the result had any) | Tool calls |
+| `tool_start` / `tool_update` / `tool_end` | `id`, `name`, `args` / `content` / `status`, `result`, `details`, `durationMs` (and `content` with the pictures when the result had any) | Tool calls `parentId` on a call made from inside another (`run_js`'s `tools`). |
 | `queued` | `kind`, `message` | `steer()` or `followUp()` added to the queue |
 | `steered` | `messages` | Queued steering entered the conversation (draw it now) |
 | `compaction_start` / `compaction` | `runId?`; `summary`, `tokensBefore`, `tokensAfter`, … | Older turns are being / were summarised |
@@ -223,7 +223,7 @@ Both live in the workspace's directory: shared by every conversation that uses t
 | `workspace` | `null` | A `Workspace`: files, skills, sessions. |
 | `fileTools` | all | `false`, or a subset: `["read_file", "list_files"]` for a read-only agent. |
 | `readBeforeWrite` | `true` | Refuse to overwrite or edit an existing file the model has not read, or that changed since it read it (see [Tools](tools.md#read-before-write)). |
-| `sandbox` | on | The `run_js` tool; `false` removes it, `{ timeoutMs, network }` configures it. |
+| `sandbox` | on | The `run_js` tool; `false` removes it, `{ timeoutMs, network, maxToolCalls, maxCodeChars }` configures it. The code calls the agent's tools, see [Tools](tools.md#calling-tools-from-run_js). |
 | `askUser` | on | The `ask_user` tool. |
 | `ui` | `domUI()` | Dialogs (`AgentUI`). |
 | `permissions` | `"ask"` | `"ask"`, `"auto"`, or a function per call. |

@@ -10,7 +10,7 @@
 // stored) and from `<userSkillsDir>` (default `/skills`), the user's own
 // skills shared by every directory of the app: zips (uploaded, read in
 // place, never unpacked) and folders (written by the user or the agent).
-// The file tools in file-tools.ts and the sandbox's `fs` work on it.
+// The file tools in file-tools.ts work on it.
 
 import { toProvider, type ModelProvider, type RunAppsClientLike } from "./provider.js";
 import type { AgentFS, FileStat, SessionData, SessionSummary, Skill } from "./types.js";

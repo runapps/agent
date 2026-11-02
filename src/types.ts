@@ -31,6 +31,8 @@ export interface ToolContext {
   agent: Agent;
   /** The model's id for this call (`tool_call_id`). */
   callId: string;
+  /** Set when another tool made this call (`ctx.callTool`, `tools.x()` in run_js): the result is for code, not for the model to read, so a tool need not page it. */
+  parentId?: string;
   /** Report progress; the app sees it as a `tool_update` event. */
   update(content: string): void;
   /**
@@ -39,6 +41,23 @@ export interface ToolContext {
    * already had the same one). `read_file` says false for lines already read.
    */
   progress(made: boolean): void;
+  /**
+   * Calls another of the agent's tools from inside this one, through the same
+   * gate as the model's calls: schema, the tool's `validate`, `onToolCall`,
+   * permissions and its `confirm`, the stop button. The app sees `tool_start`
+   * and `tool_end` with `parentId` set to this call. The result is not cut to
+   * the tool's `maxResultChars` (2 000 000 chars at most) and is not added to
+   * the conversation.
+   */
+  callTool(name: string, args: unknown, opts?: { signal?: AbortSignal }): Promise<ToolCallResult>;
+}
+
+/** How a call made with `ctx.callTool` ended. */
+export interface ToolCallResult {
+  status: ToolStatus;
+  /** The result, or what the model would be told about a call that did not succeed. */
+  text: string;
+  details?: unknown;
 }
 
 /**
@@ -115,6 +134,8 @@ export interface ToolDefinition<A = Record<string, unknown>> {
   endsRun?: boolean;
   /** Longest result sent to the model, in characters (default 32 000). */
   maxResultChars?: number;
+  /** `false`: the model may call it, code in `run_js` may not (`tools.x()` says so). Default: both. */
+  callableFromCode?: boolean;
   /**
    * Only useful to a model that sees pictures (a screenshot tool, say): it
    * is offered only while the model in use is known to take images
@@ -328,11 +349,13 @@ export interface AgentEventMap {
    * until the reply has ended; after a `message_reset` the calls start over.
    */
   tool_call_delta: { runId: string; index: number; id: string; name: string; delta: string; arguments: string };
-  tool_start: { runId: string; id: string; name: string; args: unknown };
-  tool_update: { runId: string; id: string; name: string; content: string };
+  /** `parentId`: the call this one was made from (`ctx.callTool`, `tools.x()` in run_js); not in the conversation. */
+  tool_start: { runId: string; id: string; parentId?: string; name: string; args: unknown };
+  tool_update: { runId: string; id: string; parentId?: string; name: string; content: string };
   tool_end: {
     runId: string;
     id: string;
+    parentId?: string;
     name: string;
     status: ToolStatus;
     /** What the model was told (as text: pictures are named). */
@@ -499,9 +522,10 @@ export interface AgentOptions {
   /**
    * The `run_js` sandbox tool (default on): the model computes and runs
    * scripts in a Worker with no DOM and no network. `false` removes it;
-   * an object configures it (timeout, network).
+   * an object configures it (timeout, network, limits). The code calls the
+   * agent's other tools as `tools.read_file({ path })`.
    */
-  sandbox?: boolean | { timeoutMs?: number; network?: boolean; maxLogChars?: number };
+  sandbox?: boolean | { timeoutMs?: number; network?: boolean; maxLogChars?: number; maxToolCalls?: number; maxCodeChars?: number };
   /** The `ask_user` tool (default on). */
   askUser?: boolean;
   /**

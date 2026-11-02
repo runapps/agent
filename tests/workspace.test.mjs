@@ -224,23 +224,21 @@ test("file tools — list, read with ranges, write, edit exactly once, search, d
 test("sandbox — computes, logs, reaches the workspace, has no network, times out", async () => {
   const ws = await Workspace.open(null, { id: "sb", indexedDB: null });
   await ws.write("/data.csv", "1,2\n3,4");
-  const r = await runInSandbox(ws, `
+  const r = await runInSandbox(`
     console.log("start");
-    const rows = (await fs.read("/data.csv")).split("\\n").map(l => l.split(",").map(Number));
-    await fs.write("/sum.txt", String(rows.flat().reduce((a,b)=>a+b,0)));
-    return { sum: rows.flat().reduce((a,b)=>a+b,0), hasFetch: typeof fetch, input };
-  `, { k: 1 });
+    const rows = input.csv.split("\\n").map(l => l.split(",").map(Number));
+    return { sum: rows.flat().reduce((a,b)=>a+b,0), hasFetch: typeof fetch, hasFs: typeof fs, k: input.k };
+  `, { k: 1, csv: await ws.readText("/data.csv") });
   assert.equal(r.ok, true, r.error);
-  assert.deepEqual(JSON.parse(r.result), { sum: 10, hasFetch: "undefined", input: { k: 1 } });
+  assert.deepEqual(JSON.parse(r.result), { sum: 10, hasFetch: "undefined", hasFs: "undefined", k: 1 });
   assert.equal(r.logs, "start");
-  assert.equal(await ws.readText("/sum.txt"), "10");
-  const t = await runInSandbox(null, "while(true){}", undefined, { timeoutMs: 300 });
+  const t = await runInSandbox("while(true){}", undefined, { timeoutMs: 300 });
   assert.equal(t.ok, false);
   assert.match(t.error, /Timed out/);
-  const e = await runInSandbox(null, "throw new Error('nope')");
+  const e = await runInSandbox("throw new Error('nope')");
   assert.match(e.error, /nope/);
-  const tool = sandboxTool(ws);
-  const out = await tool.execute({ code: "return 1+1" }, { signal: new AbortController().signal });
+  const tool = sandboxTool();
+  const out = await tool.execute({ code: "return 1+1" }, { signal: new AbortController().signal, agent: { tools: [] } });
   assert.match(out.content, /Returned: 2/);
 });
 
@@ -323,7 +321,7 @@ test("file tools — read before write: an unread or since-changed file is not o
 test("file guard — a partial read allows edits but not an overwrite until the rest is read; delete checks freshness; a same-size change with an unchanged time is caught; run_js reads and writes go through the same guard; no-mtime mounts are read once", async () => {
   const ws = await Workspace.open(null, { id: "guard2", project: "guard2-test", indexedDB: null, userSkills: false });
   const guard = fileGuard(ws);
-  const tools = Object.fromEntries([...fileTools(ws, { guard }), sandboxTool(ws, { guard })].map((t) => [t.name, t]));
+  const tools = Object.fromEntries(fileTools(ws, { guard }).map((t) => [t.name, t]));
   const ctx = { signal: new AbortController().signal, ui: nullUI(), workspace: ws, update() {} };
   // 2500 lines: one read_file shows 2000.
   await ws.write("/big.log", Array.from({ length: 2500 }, (_, i) => `line ${i + 1}`).join("\n"));
@@ -346,15 +344,9 @@ test("file guard — a partial read allows edits but not an overwrite until the 
   assert.equal(reads, 1, "read once: the fingerprint comes from what read_file read");
   text = "xyz";   // same size, same time
   await assert.rejects(tools.edit_file.execute({ path: "/m/f.txt", oldText: "abc", newText: "a" }, ctx), /changed since/);
-  // run_js: fs.write to an unread existing file is refused; fs.read counts as reading.
   await ws.write("/data.csv", "a,b\n1,2");
-  const w = await tools.run_js.execute({ code: 'await fs.write("/data.csv", "x"); return 1;' }, ctx);
-  assert.match(w.content, /not read it in this conversation/);
-  assert.equal(await ws.readText("/data.csv"), "a,b\n1,2");
-  await tools.run_js.execute({ code: 'return (await fs.read("/data.csv")).length;' }, ctx);
-  await tools.edit_file.execute({ path: "/data.csv", oldText: "1,2", newText: "3,4" }, ctx);
-  const ok = await tools.run_js.execute({ code: 'await fs.write("/data.csv", "c,d"); return "ok";' }, ctx);
-  assert.match(ok.content, /Returned: "ok"/);
+  await tools.read_file.execute({ path: "/data.csv" }, ctx);
+  await tools.edit_file.execute({ path: "/data.csv", oldText: "1,2", newText: "c,d" }, ctx);
   // clear() (compaction, rewind) forgets everything.
   guard.clear();
   await assert.rejects(tools.edit_file.execute({ path: "/data.csv", oldText: "c,d", newText: "e" }, ctx), /not read it/);
@@ -708,7 +700,7 @@ test("zip — buildZip refuses more entries than a plain zip can count; a stored
   await assert.rejects(readZipEntry(zip, { ...e, size: e.size + 1 }, inflate), /damaged/);
 });
 
-test("pdf — read_file and run_js read a PDF's text page by page through a (stubbed) pdf.js; the text is cached until the file changes; scanned PDFs say so", async () => {
+test("pdf — read_file reads a PDF's text page by page through a (stubbed) pdf.js; the text is cached until the file changes; scanned PDFs say so", async () => {
   const { configurePdf } = await import("../dist/index.js");
   let loads = 0, parses = 0;
   const pagesOf = (bytes) => new TextDecoder().decode(bytes).includes("SCAN") ? ["", ""] : ["第一页 正文", "Second page text"];
@@ -730,8 +722,8 @@ test("pdf — read_file and run_js read a PDF's text page by page through a (stu
   assert.equal(parses, 2, "a changed file is parsed again");
   await ws.write("/docs/scan.pdf", new TextEncoder().encode("%PDF-1.4 SCAN"), "application/pdf");
   assert.match((await ws.readAsText("/docs/scan.pdf")).text, /no text layer/);
-  const r = await runInSandbox(ws, "return (await fs.read('/docs/a.pdf')).includes('Second page text')", null, {});
-  assert.equal(r.result, "true");
+  const whole = await fileTools(ws).find((t) => t.name === "read_file").execute({ path: "/docs/a.pdf" }, { parentId: "js", ui: nullUI(), workspace: ws, progress() {} });
+  assert.match(whole, /Second page text/);
   assert.equal(loads, 1, "pdf.js is loaded once");
   configurePdf({ load: undefined });
 });
