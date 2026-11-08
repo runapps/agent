@@ -63,6 +63,7 @@ Options: see [the options table](agent.md#options). Events: see [Events](agent.m
 | `connectMCP(url, { token?, headers?, prefix?, confirm?, images?, timeoutMs?, maxTools?, maxResultChars?, fetch?, signal? })` → `MCPConnection` | An MCP server's tools (`tools`, `serverTools`, `server`, `instructions`, `refresh()`, `close()`). `MCPError` for its failures. |
 | `sandboxTool(options)`, `runInSandbox(code, input, options)` | The `run_js` sandbox. `runInSandbox`'s `bridge` gives the code `tools`. |
 | `askUserTool()` | The `ask_user` tool. |
+| `webTools(platform, { onCost?, signal? })`, `WEB_TOOL_NAMES` | The platform's `web_search` and `web_fetch` as tools (what `webTools: true` adds). `platform` is a provider's `platformTools` (`PlatformTools`: `list`, `call`). |
 | `normalizeResult(value)` | How a tool's return value becomes the model's result. |
 | `validateSchema(schema, value)` → `string[]` | The JSON Schema check used on arguments (the errors, empty when valid). |
 | types | `Tool`, `ToolDefinition`, `ToolContext`, `ToolConfirm`, `ToolResultValue`, `ToolStatus`, `JSONSchema`, `FileToolsOptions`, `FileGuard`, `MCPConnection`, `MCPOptions`, `MCPToolInfo` |

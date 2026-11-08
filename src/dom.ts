@@ -57,6 +57,7 @@ export const I = {
   filePlus: (s = 13) => svg(s, '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6M12 18v-6"/>'),
   filePen: (s = 13) => svg(s, '<path d="M12.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v9.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M13.4 20.3a1 1 0 0 0 .5-.3l6.9-6.9a1.4 1.4 0 0 0-2-2l-6.9 6.9a1 1 0 0 0-.3.5l-.4 1.8z"/>'),
   fileX: (s = 13) => svg(s, '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m14.5 12.5-5 5M9.5 12.5l5 5"/>'),
+  globe: (s = 14) => svg(s, '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>'),
   search: (s = 13) => svg(s, '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
   braces: (s = 13) => svg(s, '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/>'),
   message: (s = 13) => svg(s, '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>'),

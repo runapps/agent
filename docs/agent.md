@@ -244,6 +244,7 @@ Both live in the workspace's directory: shared by every conversation that uses t
 | `persist` | `true` with a workspace | Save after every turn. |
 | `restore` | | A `SessionData` to continue. |
 | `prompt` | | RunApps private prompt reference (`{ id, vars }`), sent with every request. |
-| `serverTools` | | RunApps only: `["web_search", "web_fetch"]` run by the gateway, for an agent with no tools of its own. |
+| `webTools` | `false` | RunApps (SDK 0.19+): the platform's `web_search` and `web_fetch` beside your tools, billed per call (see [Tools](tools.md#web-search-and-reading-pages)). A function is read every turn. |
+| `serverTools` | | Deprecated, use `webTools`: the gateway runs the tools inside the chat call, for an agent with no tools of its own. |
 
-Change settings on a live agent with `agent.configure({ model, maxTurns, maxTokens, permissions, reasoningEffort })`; `agent.settings` reads them back.
+Change settings on a live agent with `agent.configure({ model, maxTurns, maxTokens, permissions, reasoningEffort, webTools })`; `agent.settings` reads them back, `agent.webTools` says whether the web tools are on and `agent.webToolsAvailable` whether the provider has them.

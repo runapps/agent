@@ -116,6 +116,14 @@ export interface ChatOptions extends Omit<AgentOptions, "workspace"> {
   /** Where attached files are saved in the directory (default `/uploads`). */
   uploadsDir?: string;
   /**
+   * The globe in the composer's toolbar that turns the platform's web
+   * tools on and off (`webTools`; the user's choice is kept per app).
+   * Shown by default when the provider has them (the RunApps client,
+   * SDK 0.19+) and the host did not pass `webTools` as a function of its
+   * own; `false` hides it, `true` shows it anyway.
+   */
+  webSearch?: boolean;
+  /**
    * Called when a link in the conversation (a reply, its thinking, a tool
    * card) is clicked, before the chat's own handling: return `true` when you
    * handled it (open your own viewer for your app's links), anything else to
@@ -265,7 +273,8 @@ const STRINGS = {
     delete: "Delete", deleteAll: "Delete all", confirmDelete: "Delete this conversation and its files?", confirmDeleteAll: "Delete every conversation, this one included, and their files?", untitled: "New conversation",
     attach: "Attach files", drop: "Drop files to attach", tooLarge: "is too large (max 20 MB)", remove: "Remove",
     toolsRunning: "Running", toolsDone: "Ran {n} tool calls", toolsDone1: "Ran 1 tool call", toolsFailed: "{n} failed",
-    actRead: "read {n} file(s)", actList: "listed {n} folder(s)", actSearch: "searched {n} time(s)", actWrite: "wrote {n} file(s)", actEdit: "edited {n} file(s)", actDelete: "deleted {n} file(s)", actRun: "ran {n} snippet(s)", actAsk: "asked you {n} time(s)", actOther: "used {name}",
+    actRead: "read {n} file(s)", actList: "listed {n} folder(s)", actSearch: "searched {n} time(s)", actWrite: "wrote {n} file(s)", actEdit: "edited {n} file(s)", actDelete: "deleted {n} file(s)", actRun: "ran {n} snippet(s)", actAsk: "asked you {n} time(s)", actOther: "used {name}", actWeb: "searched the web {n} time(s)", actBrowse: "read {n} web page(s)", ingWeb: "Searching the web", ingBrowse: "Reading",
+    web: "Web", webOn: "Web search: on", webOff: "Web search: off", webHint: "When on, the AI can search the web and read pages for facts and recent news; each search and each page read is billed",
     runCode: "Run code", ingRead: "Reading", ingList: "Listing", ingSearch: "Searching", ingWrite: "Writing", ingEdit: "Editing", ingDelete: "Deleting", ingRun: "Running code", ingAsk: "Asking you", ingOther: "Running", current: "Current", jumpEnd: "Jump to the latest",
     sTabModel: "Model", debug: "Debug", dCalls: "Calls", dRequests: "Requests", dEvents: "Events", dContext: "Context", dTools: "Tools", dClear: "Clear the record", dFilter: "Filter by type",
     dNoCalls: "No tool calls yet.", dNoRequests: "No model requests yet. Each call to the model is listed here with what was sent and what came back.", dNoEvents: "No events yet.",
@@ -304,7 +313,8 @@ const STRINGS = {
     delete: "删除", deleteAll: "全部删除", confirmDelete: "删除这个对话和它的文件？", confirmDeleteAll: "删除所有对话（包括当前这个）和它们的文件？", untitled: "新对话",
     attach: "添加附件", drop: "松开即可添加附件", tooLarge: "太大了（最大 20 MB）", remove: "移除",
     toolsRunning: "正在执行", toolsDone: "执行了 {n} 个工具调用", toolsDone1: "执行了 1 个工具调用", toolsFailed: "{n} 个失败",
-    actRead: "读取了 {n} 个文件", actList: "查看了 {n} 个目录", actSearch: "搜索了 {n} 次", actWrite: "写入了 {n} 个文件", actEdit: "修改了 {n} 个文件", actDelete: "删除了 {n} 个文件", actRun: "运行了 {n} 段代码", actAsk: "询问了你 {n} 次", actOther: "调用了 {name}",
+    actRead: "读取了 {n} 个文件", actList: "查看了 {n} 个目录", actSearch: "搜索了 {n} 次", actWrite: "写入了 {n} 个文件", actEdit: "修改了 {n} 个文件", actDelete: "删除了 {n} 个文件", actRun: "运行了 {n} 段代码", actAsk: "询问了你 {n} 次", actOther: "调用了 {name}", actWeb: "联网搜索了 {n} 次", actBrowse: "阅读了 {n} 个网页", ingWeb: "正在联网搜索", ingBrowse: "正在阅读",
+    web: "联网", webOn: "联网搜索：已开启", webOff: "联网搜索：已关闭", webHint: "开启后 AI 可以搜索和阅读网页，查资料和最新信息；每次搜索、每读一个网页按次计费",
     runCode: "运行代码", ingRead: "正在读取", ingList: "正在查看", ingSearch: "正在搜索", ingWrite: "正在写入", ingEdit: "正在修改", ingDelete: "正在删除", ingRun: "正在运行代码", ingAsk: "正在询问你", ingOther: "正在执行", current: "当前", jumpEnd: "回到最新",
     sTabModel: "模型", debug: "调试", dCalls: "调用", dRequests: "请求", dEvents: "事件", dContext: "上下文", dTools: "工具", dClear: "清空记录", dFilter: "按类型过滤",
     dNoCalls: "还没有工具调用。", dNoRequests: "还没有模型请求。每次调用模型都会记在这里，包括发了什么、收到什么。", dNoEvents: "还没有事件。",
@@ -699,6 +709,7 @@ const CSS = tokenCSS() + `
 .ra-chat .ra-cbtn.icon{width:28px;padding:0;justify-content:center}
 .ra-chat .ra-cbtn:hover:not(:disabled){background:var(--ra-muted);color:var(--ra-fg)}
 .ra-chat .ra-cbtn svg{width:15px;height:15px}
+.ra-chat .ra-cbtn.ra-web.on{background:var(--ra-accent-subtle);color:var(--ra-accent-fg)}
 .ra-files{display:flex;flex-wrap:wrap;gap:6px;padding:0 0 6px}
 .ra-chip{display:inline-flex;align-items:center;gap:10px;max-width:min(100%,340px);height:44px;border:1px solid var(--ra-border);border-radius:12px;padding:0 12px 0 10px;font-size:14px;background:var(--ra-panel);white-space:nowrap}
 .ra-chip img{width:30px;height:30px;object-fit:cover;border-radius:6px;flex:none}
@@ -805,7 +816,7 @@ function injectStyles(): void {
 
 const TOOL_ICON: Record<string, () => string> = {
   read_file: I.fileText, write_file: I.filePlus, edit_file: I.filePen, delete_file: I.fileX, list_files: I.folderOpen,
-  search_files: I.search, run_js: I.braces, ask_user: I.message,
+  search_files: I.search, run_js: I.braces, ask_user: I.message, web_search: I.search, web_fetch: I.globe,
 };
 
 /** Text of a message's content; images are listed as `<img>` elements by the caller. */
@@ -833,9 +844,9 @@ function summarizeArgs(name: string, args: unknown): string {
   return first === undefined ? "" : (typeof first === "string" ? first : JSON.stringify(first)).slice(0, 80);
 }
 
-type ToolKind = "Read" | "List" | "Search" | "Write" | "Edit" | "Delete" | "Run" | "Ask" | "Other";
+type ToolKind = "Read" | "List" | "Search" | "Write" | "Edit" | "Delete" | "Run" | "Ask" | "Web" | "Browse" | "Other";
 const TOOL_KIND: Record<string, ToolKind> = {
-  read_file: "Read", list_files: "List", search_files: "Search", write_file: "Write", edit_file: "Edit", delete_file: "Delete", run_js: "Run", ask_user: "Ask",
+  read_file: "Read", list_files: "List", search_files: "Search", write_file: "Write", edit_file: "Edit", delete_file: "Delete", run_js: "Run", ask_user: "Ask", web_search: "Web", web_fetch: "Browse",
 };
 const pathArg = (args: unknown): string | undefined => (args && typeof args === "object" && typeof (args as { path?: unknown }).path === "string" ? (args as { path: string }).path : undefined);
 
@@ -1184,7 +1195,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
   injectStyles();
   const lang = pickLocale(opts.locale);
   const t = STRINGS[lang];
-  const { toolSettings, client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onLink, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, permissionsSetting, rewindState, nextPrompt, ...agentOpts } = opts;
+  const { toolSettings, client: clientOpt, provider: providerOpt, agent: givenAgent, workspace: wsOpt, resume: resumeOpt, palette: paletteOpt, vars: varsOpt, className, debug: debugOpt, settings: _settingsOpt, skillsMenu, title, placeholder, emptyState, suggestions, sessions, locale: _l, theme, showUsage, attachments: attachOpt, uploadsDir: uploadsOpt, onOpenFile, onLink, onSession, files: filesOpt, headerActions, headerEnd, settingsTabs, composerTop, composerActions, permissionsSetting, rewindState, nextPrompt, webSearch: webSearchOpt, ...agentOpts } = opts;
   const uploadsDir = "/" + (uploadsOpt ?? "/uploads").replace(/^\/+|\/+$/g, "");
   const provider: ModelProvider | null = providerOpt ? toProvider(providerOpt) : clientOpt ? toProvider(clientOpt) : givenAgent?.provider ?? null;
   const project = provider?.name ?? agentOpts.appName ?? "app";
@@ -1301,7 +1312,30 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (a.id) actionBtns.set(a.id, { btn, a });
     return btn;
   });
-  left.append(attachBtn, ...hostActions, hint);
+  // 联网: the platform's web tools for this app's chats, the choice kept per app.
+  const WEB_KEY = `__runapps_agent_chat:${project}:web`;
+  const webShown = !!provider?.platformTools && (webSearchOpt ?? typeof agentOpts.webTools !== "function");
+  let webOn = (() => { try { const v = localStorage.getItem(WEB_KEY); if (v !== null) return v === "1"; } catch { /* private mode */ } return agentOpts.webTools === true; })();
+  const webBtn = h("button", "ra-cbtn ra-web"); webBtn.type = "button";
+  const drawWeb = () => {
+    const label = webOn ? t.webOn : t.webOff;
+    webBtn.innerHTML = I.globe(15) + (webOn ? `<span>${escapeHTML(t.web)}</span>` : "");
+    webBtn.classList.toggle("on", webOn);
+    webBtn.classList.toggle("icon", !webOn);
+    webBtn.setAttribute("aria-pressed", String(webOn));
+    webBtn.setAttribute("aria-label", label);
+    webBtn.title = `${label}\n${t.webHint}`;
+  };
+  drawWeb();
+  if (!webShown) webBtn.style.display = "none";
+  const applyWeb = (a: Agent) => { if (webShown) a.configure({ webTools: webOn }); };
+  webBtn.addEventListener("click", () => {
+    webOn = !webOn;
+    try { localStorage.setItem(WEB_KEY, webOn ? "1" : "0"); } catch { /* private mode */ }
+    drawWeb();
+    for (const a of live.values()) applyWeb(a);
+  });
+  left.append(attachBtn, webBtn, ...hostActions, hint);
   bar.append(left, acts);
   box.append(cmds, files, ta, bar, fileInput);
   const drop = h("div", "ra-drop", t.drop);
@@ -3142,6 +3176,7 @@ export function renderChat(target: HTMLElement, opts: ChatOptions): ChatHandle {
     if (agent !== a) clearNext();
     agent = a;
     live.set(a.id, a);
+    applyWeb(a);
     unwatchBackground(a);
     ui.restore(parked.get(a.id) ?? []);
     parked.delete(a.id);

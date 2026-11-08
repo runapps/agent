@@ -90,6 +90,7 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `skillsMenu` | on with a workspace | The *Skills* button. |
 | `settings` | on | The settings gear. |
 | `attachments` | on | Paperclip, drop and paste. |
+| `webSearch` | shown when the provider has web tools | The globe beside the paperclip: turns the platform's web search and page reading on and off (`webTools`), kept per app. Hidden when `webTools` is a function of yours; `false` hides it. |
 | `uploadsDir` | `/uploads` | Where attachments are saved (with a workspace and file tools; with `fileTools: false` a text file goes into the message itself, so the model can read it). |
 | `showUsage` | on | The context ring in the header and its panel (context use, spending, *Compact now*). |
 | `locale` | the document's | `"en"` or `"zh"`. |

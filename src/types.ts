@@ -318,7 +318,7 @@ export interface Skill {
 export type RunEndReason = "done" | "aborted" | "max_turns" | "error";
 
 export interface AgentUsage {
-  /** Sum of every model call's `total_cost` (the gateway's figure, before platform markup and creator fee). */
+  /** Sum of every model call's `total_cost` (the gateway's figure, before platform markup and creator fee), plus what the web tools charged. */
   total_cost: number;
   prompt_tokens: number;
   completion_tokens: number;
@@ -519,7 +519,18 @@ export interface AgentOptions {
   onToolCall?: (
     ev: ToolCallHookEvent,
   ) => void | { block: boolean; reason?: string } | Promise<void | { block: boolean; reason?: string }>;
-  /** Offer the gateway's server tools when the agent has no tools of its own. */
+  /**
+   * The platform's web tools — `web_search` and `web_fetch` — offered to
+   * the model beside the agent's own tools, run and billed by the platform
+   * per call (needs the RunApps client, SDK 0.19+; `agent.webToolsAvailable`).
+   * A function is read every turn; `agent.configure({ webTools })` switches
+   * it; the chat's globe button does that for the user.
+   */
+  webTools?: boolean | (() => boolean);
+  /**
+   * @deprecated Use `webTools`. The gateway's server tools, run inside the
+   * chat call, for an agent with no tools of its own.
+   */
   serverTools?: Array<"web_search" | "web_fetch" | "twitter_search">;
   /**
    * The `run_js` sandbox tool (default on): the model computes and runs

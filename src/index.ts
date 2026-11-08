@@ -5,7 +5,8 @@
 // `@runappsai/agent/node`.
 
 export { Agent, type PromptContent } from "./agent.js";
-export { openAIProvider, runappsProvider, toProvider, ProviderError, ContextOverflowError, isContextOverflow, sseData, modelAccepts, type ContextOverflow, type OverflowCause, type ModelProvider, type ModelInfo, type ModelPrice, type InputKind, type OpenAIProviderOptions, type RunAppsClientLike } from "./provider.js";
+export { openAIProvider, runappsProvider, toProvider, ProviderError, ContextOverflowError, isContextOverflow, sseData, modelAccepts, type ContextOverflow, type OverflowCause, type ModelProvider, type ModelInfo, type ModelPrice, type InputKind, type OpenAIProviderOptions, type RunAppsClientLike, type PlatformTools } from "./provider.js";
+export { webTools, WEB_TOOL_NAMES } from "./web-tools.js";
 export type { ChatMessage, ContentPart, ChatTool, ChatToolCall, ChatCompletionParams, ChatCompletionChunk, ChatCompletion, Usage } from "./llm.js";
 
 import { Agent } from "./agent.js";

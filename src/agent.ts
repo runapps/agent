@@ -13,6 +13,7 @@ import { expandSlash } from "./templates.js";
 import { fileTools } from "./file-tools.js";
 import { validateSchema } from "./json-schema.js";
 import { sandboxTool } from "./sandbox.js";
+import { webTools as loadWebTools } from "./web-tools.js";
 import { DEFAULT_MAX_RESULT_CHARS, normalizeResult, textOf, toChatTool, truncate } from "./tool.js";
 import type {
   AgentEventMap,
@@ -179,6 +180,10 @@ export class Agent {
   readonly workspace: Workspace | null;
   readonly tools: Tool[];
   private readonly opts: AgentOptions;
+  /** `webTools` as configured (a function is read every turn). */
+  private web: boolean | (() => boolean);
+  /** The platform's web tools, loaded the first time they are offered. */
+  private webCache: Promise<Tool[]> | null = null;
   private history: ChatMessage[] = [];
   private committed = 0;
   private droppedTurns = 0;
@@ -229,6 +234,7 @@ export class Agent {
       seen.add(t.name);
     }
     this.tools = tools;
+    this.web = opts.webTools ?? false;
     if (opts.serverTools?.length && (opts.tools?.length || this.workspace || opts.sandbox !== false || opts.askUser !== false)) {
       throw new Error("serverTools work only for an agent with no tools of its own (tools: [], workspace: null, sandbox: false, askUser: false) — the gateway runs that loop");
     }
@@ -341,8 +347,9 @@ export class Agent {
     return { model: this.opts.model, maxTurns: this.opts.maxTurns ?? DEFAULT_MAX_TURNS, maxTokens: typeof this.opts.maxTokens === "number" ? this.opts.maxTokens : "auto", permissions: typeof p === "function" ? "custom" : p, reasoningEffort: typeof re === "string" ? re : undefined };
   }
   /** Changes settings for the runs that follow (a run in progress keeps its own). `undefined` leaves a field alone; `reasoningEffort: null` takes the model's default. */
-  configure(patch: { model?: string; maxTurns?: number; maxTokens?: number | "auto"; permissions?: Permissions; reasoningEffort?: string | null }): void {
+  configure(patch: { model?: string; maxTurns?: number; maxTokens?: number | "auto"; permissions?: Permissions; reasoningEffort?: string | null; webTools?: boolean }): void {
     if ("model" in patch) this.model = patch.model || undefined;
+    if (typeof patch.webTools === "boolean") this.web = patch.webTools;
     if ("reasoningEffort" in patch) {
       const extra = { ...(this.opts.extra ?? {}) } as Record<string, unknown>;
       if (patch.reasoningEffort) extra.reasoning_effort = patch.reasoningEffort; else delete extra.reasoning_effort;
@@ -772,11 +779,42 @@ export class Agent {
     return { image, video, audio };
   }
 
-  /** The tools offered this turn: `vision` tools only while the model is known to take pictures. */
+  /** Whether the platform's web tools are offered now (`webTools`, `configure({ webTools })`). */
+  get webTools(): boolean {
+    return this.webToolsAvailable && (typeof this.web === "function" ? !!this.web() : this.web);
+  }
+
+  /** The provider's platform has web tools (the RunApps client, SDK 0.19+). */
+  get webToolsAvailable(): boolean {
+    return !!this.provider.platformTools;
+  }
+
+  /** The tools offered this turn: `vision` tools only while the model is known to take pictures, the web tools while they are on. */
   private async activeTools(): Promise<Tool[]> {
-    if (!this.tools.some((t) => t.vision)) return this.tools;
-    const sees = await this.accepts("image");
-    return this.tools.filter((t) => !t.vision || sees === true);
+    let tools = this.tools;
+    if (tools.some((t) => t.vision)) {
+      const sees = await this.accepts("image");
+      tools = tools.filter((t) => !t.vision || sees === true);
+    }
+    if (this.webTools) {
+      const web = await this.loadWeb();
+      const own = new Set(tools.map((t) => t.name));
+      const extra = web.filter((t) => !own.has(t.name));
+      if (extra.length) tools = [...tools, ...extra];
+    }
+    return tools;
+  }
+
+  /** The web tools, asked of the platform once (a failure is asked again next turn). */
+  private loadWeb(): Promise<Tool[]> {
+    const platform = this.provider.platformTools;
+    if (!platform) return Promise.resolve([]);
+    this.webCache ??= loadWebTools(platform, { onCost: (usd) => this.addToolCost(usd) }).catch((err) => {
+      this.webCache = null;
+      console.warn("[agent] could not load the web tools:", err);
+      return [];
+    });
+    return this.webCache;
   }
 
   /** The system prompt for the next request (what the model is told). */
@@ -1245,6 +1283,11 @@ export class Agent {
       };
       return;
     }
+  }
+
+  /** A platform tool's charge: added to the cost, not counted as a model call. */
+  private addToolCost(usd: number): void {
+    this._usage.total_cost = round(this._usage.total_cost + usd);
   }
 
   private addUsage(u: Usage): void {

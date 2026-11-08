@@ -226,6 +226,18 @@ What it handles: the session id the server gives, answers that come as JSON or a
 
 In a browser the server must allow your page's origin (CORS) and expose the `Mcp-Session-Id` header. OAuth sign-in and local (stdio) servers are not supported: get the token yourself and pass it.
 
+## Web search and reading pages
+
+`webTools: true` gives the model the platform's `web_search` (results with title, URL, age and snippet) and `web_fetch` (a page's title and main content as text, links kept). They come from the provider: the RunApps client (SDK 0.19+) has them, other providers do not (`agent.webToolsAvailable`). The platform runs them and charges the user per call ($0.005 a search, $0.0005 a page; a failed call is free), and their descriptions come from it, cached by the SDK. They are offered beside your own tools, so a turn can search, read, and then call yours; their cost is added to `agent.usage.total_cost`. The system prompt gets a few lines on when to use them and to cite the links.
+
+```ts
+const agent = createAgent(client, { tools: myTools, webTools: true });
+agent.configure({ webTools: false });               // off from the next turn
+createAgent(client, { webTools: () => settings.web }); // read every turn
+```
+
+In `renderChat` the globe in the composer's toolbar switches them for the user (kept per app); `webSearch: false` hides it. The calls show as "Searching the web …" / "Reading …" lines. `webTools(platform, { onCost })` returns the two tools on their own, for an agent of your own.
+
 ## Built-in tools
 
 | Tool | | Option |

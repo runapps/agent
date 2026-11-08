@@ -72,6 +72,18 @@ export interface ModelProvider {
   readFile?(path: string, opts?: { etag?: string }): Promise<{ bytes: Uint8Array; etag?: string } | null>;
   /** Names the app's local storage (IndexedDB) when the host gives no `project`. */
   name?: string;
+  /**
+   * Tools the provider's platform runs (web search, reading pages), which
+   * the agent offers as its own with `webTools`. The RunApps client has
+   * them (`client.tools`); another provider leaves this out.
+   */
+  platformTools?: PlatformTools;
+}
+
+/** A platform's own tools: the list (with JSON Schema and price) and one call. */
+export interface PlatformTools {
+  list(opts?: { signal?: AbortSignal }): Promise<Array<{ name: string; description: string; parameters: Record<string, unknown>; price?: number }>>;
+  call(name: string, args: Record<string, unknown>, init?: { signal?: AbortSignal }): Promise<{ content: string; data?: unknown; usage?: { total_cost?: number } }>;
 }
 
 /** A failed model call. `status` is the HTTP status (0: no answer at all). */
@@ -160,6 +172,8 @@ export interface RunAppsClientLike {
   };
   models?: { list?(opts?: { capability?: string }): Promise<unknown[]> };
   files?: { stat(path: string): Promise<{ etag?: string }>; get(path: string): Promise<Blob> };
+  /** SDK 0.19+: the platform's tools (`webTools`). */
+  tools?: PlatformTools;
   projectName?: string;
 }
 
@@ -172,6 +186,7 @@ export function runappsProvider(client: RunAppsClientLike): ModelProvider {
     // Only what the client really has: a stand-in without create() or a catalogue is still a provider.
     complete: client.chat.create ? (p, init) => client.chat.create!(p, init) : undefined,
     models: client.models?.list ? async (o) => (await client.models!.list!(o)) as ModelInfo[] : undefined,
+    platformTools: client.tools,
     readFile: files
       ? async (path, o) => {
           const st = await files.stat(path);
