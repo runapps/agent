@@ -423,7 +423,7 @@ const CSS = tokenCSS() + `
 .ra-set .ra-tab:hover{color:var(--ra-fg)}
 .ra-set .ra-tab.on{color:var(--ra-fg);border-bottom-color:var(--ra-accent);font-weight:500}
 .ra-set .ra-tgl{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--ra-fg);cursor:pointer}
-.ra-set .ra-tgl input{margin:3px 0 0;accent-color:var(--ra-accent);flex:none}
+.ra-set .ra-tgl input{margin:3px 0 0}
 .ra-set .ra-tgl small,.ra-set .ra-fld small{display:block;font-size:11.5px;color:var(--ra-fg-muted);margin-top:1px}
 .ra-card .ra-btn{margin-top:8px}
 .ra-menu .ra-mi .ra-spin{margin-right:6px}
@@ -547,7 +547,7 @@ const CSS = tokenCSS() + `
 .ra-uf .ra-ut::after{content:"·";margin-left:4px}
 .ra-uf .ra-ib{width:22px;height:22px}
 .ra-modal label.ra-ck{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
-.ra-modal label.ra-ck input{width:auto;accent-color:var(--ra-accent)}
+.ra-modal label.ra-ck input{margin:0}
 .ra-modal .ra-dn{font-size:12px;color:var(--ra-fg-muted);margin:-4px 0 0 24px}
 .ra-asst{min-width:0}
 .ra-body{min-width:0;display:flex;flex-direction:column;gap:8px}
@@ -646,7 +646,15 @@ const CSS = tokenCSS() + `
 .ra-q .ra-opts{display:flex;flex-direction:column;gap:4px}
 .ra-q .ra-opt{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--ra-border);border-radius:6px;padding:6px 12px;text-align:left;width:100%;background:var(--ra-bg);font-size:14px;min-height:32px}
 .ra-q .ra-opt:hover{background:var(--ra-muted)}
-.ra-q .ra-opt input[type=radio],.ra-q .ra-opt input[type=checkbox]{width:auto;flex:none;margin:4px 0 0;accent-color:var(--ra-accent)}
+.ra-q .ra-opt input[type=radio],.ra-q .ra-opt input[type=checkbox]{margin:4px 0 0}
+/* Checkboxes and radios are drawn here, in the palette's colours, not by the browser: a native one takes its look from the page's color-scheme and the system's accent, which need not be the chat's (a dark system under a light host drew unchecked boxes as dark squares). */
+.ra-chat input:is([type=radio],[type=checkbox]):not(.ra-x){appearance:none;-webkit-appearance:none;box-sizing:border-box;width:15px;height:15px;min-width:15px;padding:0;flex:none;display:inline-grid;place-content:center;vertical-align:-2px;background:var(--ra-bg);border:1px solid color-mix(in srgb,var(--ra-fg-muted) 55%,transparent);border-radius:4px;cursor:pointer;transition:background-color .12s,border-color .12s}
+.ra-chat input[type=radio]:not(.ra-x){border-radius:50%}
+.ra-chat input:is([type=radio],[type=checkbox]):not(.ra-x):hover{border-color:var(--ra-accent)}
+.ra-chat input:is([type=radio],[type=checkbox]):not(.ra-x):checked{background:var(--ra-accent);border-color:var(--ra-accent)}
+.ra-chat input[type=checkbox]:not(.ra-x):checked::before{content:"";width:9px;height:9px;background:#fff;clip-path:polygon(13% 50%,2% 62%,38% 96%,98% 24%,86% 13%,37% 70%)}
+.ra-chat input[type=radio]:not(.ra-x):checked::before{content:"";width:6px;height:6px;border-radius:50%;background:#fff}
+.ra-chat input:is([type=radio],[type=checkbox]):not(.ra-x):disabled{opacity:.5;cursor:default}
 /* A host's form styles (antd's .ant-form input[type=radio]:focus) put a square focus shadow on our radios and checkboxes: none here (more specific than theirs on purpose). Keyboard focus shows on the option's row for a radio, as a ring for a checkbox. */
 .ra-chat input:is([type=radio],[type=checkbox]):focus:not(.ra-x){box-shadow:none;outline:0}
 .ra-chat input[type=checkbox]:focus-visible:not(.ra-x){outline:2px solid var(--ra-accent);outline-offset:1px}

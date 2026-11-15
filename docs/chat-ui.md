@@ -94,7 +94,7 @@ Typing `/` lists the built-in commands, then the directory's prompt templates an
 | `uploadsDir` | `/uploads` | Where attachments are saved (with a workspace and file tools; with `fileTools: false` a text file goes into the message itself, so the model can read it). |
 | `showUsage` | on | The context ring in the header and its panel (context use, spending, *Compact now*). |
 | `locale` | the document's | `"en"` or `"zh"`. |
-| `theme` | `"auto"` | `"auto"`, `"light"`, `"dark"`. |
+| `theme` | `"auto"` | `"auto"`, `"light"`, `"dark"`. A fixed theme also declares its `color-scheme`, so scrollbars and native controls follow the chat, not the page or the system. Checkboxes and radios are drawn by the chat in the palette's colours. |
 | `palette` | `"claude"` | `"claude"`, `"violet"`, `"slate"`, `"forest"`, or your own. |
 | `vars` | | Colour and font overrides (see Theming). |
 | `className` | | Extra classes on the chat's root. |

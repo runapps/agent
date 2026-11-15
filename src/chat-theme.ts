@@ -101,6 +101,9 @@ export function tokenCSS(): string {
   // dark follows the system unless it says data-scheme="light".
   const out = [
     `:where(.ra-chat, .ra-ui){--ra-font:${FONT};--ra-mono:${MONO};${decl(base.light)}}`,
+    // A host that says "light" on a page (or a system) that is dark: the browser draws scrollbars and
+    // native controls by color-scheme, and without this they follow the page, not the chat.
+    `:where(.ra-chat[data-scheme=light], .ra-ui[data-scheme=light]){color-scheme:light}`,
     `:where(.ra-chat[data-scheme=dark], .ra-ui[data-scheme=dark]){${decl(base.dark)};color-scheme:dark}`,
     `@media (prefers-color-scheme: dark){:where(.ra-ui:not([data-scheme=light])){${decl(base.dark)};color-scheme:dark}}`,
   ];
